@@ -80,7 +80,7 @@ export class Avatar {
     }
   }
 
-  getState(): AvatarState {
+  getState(): Omit<AvatarState, 'displayName'> {
     return {
       x: this.x,
       y: this.y,

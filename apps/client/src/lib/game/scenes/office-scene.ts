@@ -15,6 +15,7 @@ import { MediaControls } from '$lib/av/media-controls'
 import { ProximityAudioController } from '$lib/av/proximity-audio-controller'
 import { videoOverlayState } from '$lib/av/video-overlay-state.svelte'
 import { Avatar, AVATAR_FRAME_RANGES, getSpriteAnimation } from '$lib/game/entities/avatar'
+import { AvatarNameLabel } from '$lib/game/entities/avatar-name-label'
 import { MovementController } from '$lib/game/input/movement-controller'
 import { RoomConnection } from '$lib/network/room-connection'
 import { Track } from 'livekit-client'
@@ -112,6 +113,7 @@ interface RemoteAvatarEntry {
   /** `x`/`y` hold the latest raw position received over the network (the interpolation target). */
   avatar: Avatar
   view: Phaser.GameObjects.Sprite
+  nameLabel: AvatarNameLabel
   /** Currently rendered position — eased toward `avatar.x/y` each frame, see `updateRemoteAvatarViews`. */
   renderX: number
   renderY: number
@@ -149,6 +151,7 @@ export class OfficeScene extends Phaser.Scene {
   private readonly remoteAvatars = new Map<string, RemoteAvatarEntry>()
   private avatar!: Avatar
   private avatarView!: Phaser.GameObjects.Sprite
+  private avatarNameLabel!: AvatarNameLabel
   private mapWidthPx = 0
   private mapHeightPx = 0
   private displayName!: string
@@ -227,6 +230,7 @@ export class OfficeScene extends Phaser.Scene {
     this.avatar = new Avatar(SPAWN_X, SPAWN_Y, this.spriteType, this.mapWidthPx, this.mapHeightPx)
     this.avatarView = this.add.sprite(this.avatar.x, this.avatar.y, avatarTextureKey(this.spriteType, 'idle'))
     this.avatarView.anims.play(getSpriteAnimation(this.avatar.spriteType, this.avatar.motionState, this.avatar.direction).key)
+    this.avatarNameLabel = new AvatarNameLabel(this, this.avatar.x, this.avatar.y, 'You')
 
     this.input.keyboard?.on('keydown', this.handleKeyDown, this)
     this.input.keyboard?.on('keyup', this.handleKeyUp, this)
@@ -235,7 +239,7 @@ export class OfficeScene extends Phaser.Scene {
     this.roomConnection.onRemoteAvatarAdd((sessionId, state) => this.spawnRemoteAvatar(sessionId, state))
     this.roomConnection.onRemoteAvatarChange((sessionId, state) => this.updateRemoteAvatar(sessionId, state))
     this.roomConnection.onRemoteAvatarRemove(sessionId => this.removeRemoteAvatar(sessionId))
-    this.roomConnection.connect({ spriteType: this.spriteType, accessCode: this.accessCode })
+    this.roomConnection.connect({ displayName: this.displayName, spriteType: this.spriteType, accessCode: this.accessCode })
       .then(() => {
         this.game.events.emit(ROOM_JOINED_EVENT)
         this.connectProximityAudio()
@@ -291,6 +295,7 @@ export class OfficeScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     this.avatar.update(this.movementController.getIntent(), delta / 1000)
     this.avatarView.setPosition(this.avatar.x, this.avatar.y)
+    this.avatarNameLabel.setPosition(this.avatar.x, this.avatar.y)
 
     const animation = getSpriteAnimation(this.avatar.spriteType, this.avatar.motionState, this.avatar.direction)
     if (this.avatarView.anims.currentAnim?.key !== animation.key) {
@@ -326,6 +331,7 @@ export class OfficeScene extends Phaser.Scene {
       entry.renderX += (entry.avatar.x - entry.renderX) * factor
       entry.renderY += (entry.avatar.y - entry.renderY) * factor
       entry.view.setPosition(entry.renderX, entry.renderY)
+      entry.nameLabel.setPosition(entry.renderX, entry.renderY)
     }
   }
 
@@ -411,8 +417,9 @@ export class OfficeScene extends Phaser.Scene {
 
     const view = this.add.sprite(avatar.x, avatar.y, avatarTextureKey(avatar.spriteType, 'idle'))
     view.anims.play(getSpriteAnimation(avatar.spriteType, avatar.motionState, avatar.direction).key)
+    const nameLabel = new AvatarNameLabel(this, avatar.x, avatar.y, state.displayName)
 
-    this.remoteAvatars.set(sessionId, { avatar, view, renderX: avatar.x, renderY: avatar.y })
+    this.remoteAvatars.set(sessionId, { avatar, view, nameLabel, renderX: avatar.x, renderY: avatar.y })
   }
 
   private updateRemoteAvatar(sessionId: string, state: AvatarState): void {
@@ -436,7 +443,9 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private removeRemoteAvatar(sessionId: string): void {
-    this.remoteAvatars.get(sessionId)?.view.destroy()
+    const entry = this.remoteAvatars.get(sessionId)
+    entry?.view.destroy()
+    entry?.nameLabel.destroy()
     this.remoteAvatars.delete(sessionId)
   }
 

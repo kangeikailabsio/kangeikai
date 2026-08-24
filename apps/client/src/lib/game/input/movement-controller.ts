@@ -2,6 +2,8 @@ export type MovementDirection = 'up' | 'down' | 'left' | 'right'
 
 export interface MovementIntent {
   direction: MovementDirection | null
+  /** Whether a sprint modifier (either Shift key) is currently held. */
+  sprint: boolean
 }
 
 /**
@@ -12,6 +14,7 @@ export interface MovementIntent {
  */
 export class MovementController {
   private heldOrder: MovementDirection[] = []
+  private sprintHeld = false
 
   press(direction: MovementDirection): void {
     if (!this.heldOrder.includes(direction)) {
@@ -23,14 +26,24 @@ export class MovementController {
     this.heldOrder = this.heldOrder.filter(held => held !== direction)
   }
 
+  pressSprint(): void {
+    this.sprintHeld = true
+  }
+
+  releaseSprint(): void {
+    this.sprintHeld = false
+  }
+
   /** Called on focus loss (FR-009) so no key is left "stuck" held. */
   clear(): void {
     this.heldOrder = []
+    this.sprintHeld = false
   }
 
   getIntent(): MovementIntent {
     return {
       direction: this.heldOrder.at(-1) ?? null,
+      sprint: this.sprintHeld,
     }
   }
 }

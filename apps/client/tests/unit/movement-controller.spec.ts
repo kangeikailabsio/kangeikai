@@ -27,4 +27,24 @@ describe('movementController', () => {
     controller.clear()
     expect(controller.getIntent().direction).toBeNull()
   })
+
+  it('reports sprint only while a sprint key is held', () => {
+    const controller = new MovementController()
+    expect(controller.getIntent().sprint).toBe(false)
+
+    controller.pressSprint()
+    expect(controller.getIntent().sprint).toBe(true)
+
+    controller.releaseSprint()
+    expect(controller.getIntent().sprint).toBe(false)
+  })
+
+  it('clears sprint on focus loss along with direction', () => {
+    const controller = new MovementController()
+
+    controller.pressSprint()
+    controller.clear()
+
+    expect(controller.getIntent().sprint).toBe(false)
+  })
 })

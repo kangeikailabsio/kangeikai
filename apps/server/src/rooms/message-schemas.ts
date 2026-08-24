@@ -7,7 +7,7 @@ import * as v from 'valibot'
  * protocol.md's "Stability" section).
  */
 const directionSchema = v.picklist(['up', 'down', 'left', 'right'])
-const motionStateSchema = v.picklist(['idle', 'walking'])
+const motionStateSchema = v.picklist(['idle', 'walking', 'sprinting'])
 const spriteTypeSchema = v.picklist(['man', 'woman'])
 const displayNameSchema = v.pipe(
   v.string(),

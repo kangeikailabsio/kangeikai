@@ -1,5 +1,5 @@
 export type AvatarDirection = 'up' | 'down' | 'left' | 'right'
-export type AvatarMotionState = 'idle' | 'walking'
+export type AvatarMotionState = 'idle' | 'walking' | 'sprinting'
 export type AvatarSpriteType = 'man' | 'woman'
 
 export const MAX_NAME_LENGTH = 24

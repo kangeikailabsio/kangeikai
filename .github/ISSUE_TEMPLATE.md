@@ -1,60 +1,60 @@
 <!--
-Antes de abrir uma issue, verifique se já não existe uma similar aberta ou fechada.
-Preencha apenas a seção correspondente ao tipo da sua issue (Bug ou Melhoria/Feature)
-e apague a outra seção antes de enviar.
+Before opening an issue, check whether a similar one already exists (open or closed).
+Fill in only the section that matches your issue type (Bug or Enhancement/Feature)
+and delete the other section before submitting.
 -->
 
-## Tipo
+## Type
 
-- [ ] Bug (algo não está funcionando como esperado)
-- [ ] Melhoria / Feature (uma ideia de melhoria ou funcionalidade nova)
+- [ ] Bug (something isn't working as expected)
+- [ ] Enhancement / Feature (an idea for an improvement or a new feature)
 
 ---
 
 ## 🐛 Bug
 
-### Descrição do problema
+### Problem description
 
-<!-- Explique de forma clara e objetiva o que está acontecendo. -->
+<!-- Explain clearly and objectively what's happening. -->
 
-### Como replicar
+### How to reproduce
 
-<!-- Passo a passo para reproduzir o problema, do começo ao fim. -->
+<!-- Step-by-step instructions to reproduce the problem, from start to finish. -->
 
 1.
 2.
 3.
 
-### Comportamento esperado
+### Expected behavior
 
-<!-- O que deveria acontecer? -->
+<!-- What should happen instead? -->
 
-### Comportamento atual
+### Actual behavior
 
-<!-- O que está acontecendo de fato? -->
+<!-- What actually happens? -->
 
-### Ambiente
+### Environment
 
-- Navegador/versão:
-- Sistema operacional:
-- Outras informações relevantes (ex.: se estava usando voz/vídeo, tamanho da tela, etc.):
+- Browser/version:
+- Operating system:
+- Other relevant info (e.g. whether voice/video was in use, screen size, etc.):
 
-### Capturas de tela / logs (opcional)
+### Screenshots / logs (optional)
 
-<!-- Se possível, anexe screenshots, vídeos ou logs de erro do console. -->
+<!-- If possible, attach screenshots, videos, or console error logs. -->
 
 ---
 
-## ✨ Melhoria / Feature
+## ✨ Enhancement / Feature
 
-### Objetivo
+### Goal
 
-<!-- Qual problema essa melhoria/feature resolve? O que você quer alcançar? -->
+<!-- What problem does this enhancement/feature solve? What are you trying to achieve? -->
 
-### Benefícios
+### Benefits
 
-<!-- Que valor essa mudança traz para o projeto e para quem usa o Kangeikai? -->
+<!-- What value does this change bring to the project and to Kangeikai's users? -->
 
-### Proposta (opcional)
+### Proposal (optional)
 
-<!-- Se já tiver uma ideia de como implementar, descreva aqui. -->
+<!-- If you already have an idea of how to implement it, describe it here. -->

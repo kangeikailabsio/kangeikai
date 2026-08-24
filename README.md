@@ -20,10 +20,10 @@ stack.
 
 ## Reporting a bug or requesting a feature
 
-Open a [new issue](https://github.com/kangeikailabsio/kangeikai/issues/new) and follow the
-[issue template](.github/ISSUE_TEMPLATE.md): mark whether it's a bug or an enhancement/feature,
-then fill in the matching section. For a bug, describe the problem and how to reproduce it; for
-an enhancement, describe the goal and its benefits.
+Open a [new issue](https://github.com/kangeikailabsio/kangeikai/issues/new/choose) and pick the
+matching template: [bug report](.github/ISSUE_TEMPLATE/bug_report.md) or
+[feature request](.github/ISSUE_TEMPLATE/feature_request.md). For a bug, describe the problem
+and how to reproduce it; for a feature, describe the goal and its benefits.
 
 ## License
 

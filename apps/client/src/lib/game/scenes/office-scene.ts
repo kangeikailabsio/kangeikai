@@ -67,6 +67,9 @@ const KEY_TO_DIRECTION: Record<string, AvatarDirection> = {
   KeyD: 'right',
 }
 
+/** Either Shift key holds the sprint modifier. */
+const SPRINT_KEYS = new Set(['ShiftLeft', 'ShiftRight'])
+
 /** Frame width/height for every avatar spritesheet (768x64px, 32px-wide frames — see avatar.ts). */
 const AVATAR_FRAME_SIZE = { frameWidth: 32, frameHeight: 64 }
 
@@ -450,6 +453,10 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
+    if (SPRINT_KEYS.has(event.code)) {
+      this.movementController.pressSprint()
+      return
+    }
     const direction = KEY_TO_DIRECTION[event.code]
     if (direction) {
       this.movementController.press(direction)
@@ -457,6 +464,10 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private handleKeyUp(event: KeyboardEvent): void {
+    if (SPRINT_KEYS.has(event.code)) {
+      this.movementController.releaseSprint()
+      return
+    }
     const direction = KEY_TO_DIRECTION[event.code]
     if (direction) {
       this.movementController.release(direction)

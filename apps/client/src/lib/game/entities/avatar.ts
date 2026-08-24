@@ -2,6 +2,7 @@ import type { MovementIntent } from '$lib/game/input/movement-controller'
 import type { AvatarDirection, AvatarMotionState, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
 
 const SPEED_PX_PER_SECOND = 200
+const SPRINT_SPEED_MULTIPLIER = 1.5
 
 const DIRECTION_VECTORS: Record<AvatarDirection, { x: number, y: number }> = {
   up: { x: 0, y: -1 },
@@ -33,6 +34,12 @@ export const AVATAR_FRAME_RANGES: Record<AvatarDirection, { start: number, end: 
 export const MOTION_STATE_ANIMATIONS: Record<AvatarMotionState, { textureSegment: 'idle' | 'walk', frameRate: number }> = {
   idle: { textureSegment: 'idle', frameRate: 4 },
   walking: { textureSegment: 'walk', frameRate: 8 },
+  /**
+   * No dedicated "run" spritesheet exists — reuses the walk frames at a proportionally higher
+   * frame rate (matches SPRINT_SPEED_MULTIPLIER) so the leg cycle keeps pace with the faster
+   * movement instead of looking like it's sliding.
+   */
+  sprinting: { textureSegment: 'walk', frameRate: 8 * SPRINT_SPEED_MULTIPLIER },
 }
 
 export interface SpriteAnimation {
@@ -75,10 +82,11 @@ export class Avatar {
   update(intent: MovementIntent, deltaSeconds: number): void {
     if (intent.direction) {
       this.direction = intent.direction
-      this.motionState = 'walking'
+      this.motionState = intent.sprint ? 'sprinting' : 'walking'
+      const speed = intent.sprint ? SPEED_PX_PER_SECOND * SPRINT_SPEED_MULTIPLIER : SPEED_PX_PER_SECOND
       const vector = DIRECTION_VECTORS[intent.direction]
-      this.x += vector.x * SPEED_PX_PER_SECOND * deltaSeconds
-      this.y += vector.y * SPEED_PX_PER_SECOND * deltaSeconds
+      this.x += vector.x * speed * deltaSeconds
+      this.y += vector.y * speed * deltaSeconds
       this.x = Math.min(Math.max(this.x, 0), this.mapWidthPx)
       this.y = Math.min(Math.max(this.y, 0), this.mapHeightPx)
     }

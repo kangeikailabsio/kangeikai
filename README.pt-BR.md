@@ -18,6 +18,13 @@ Pronúncia: **kan-guêi-kai** (aproximadamente /kaŋ.ɡeɪ.kaɪ/)
 MVP em desenvolvimento ativo. Veja [`docs/mvp-plan.md`](docs/mvp-plan.md) para o escopo e a
 stack do MVP.
 
+## Reportando um bug ou sugerindo uma feature
+
+Abra uma [nova issue](https://github.com/kangeikailabsio/kangeikai/issues/new/choose) e escolha
+o template correspondente (em inglês): [bug report](.github/ISSUE_TEMPLATE/bug_report.md) ou
+[feature request](.github/ISSUE_TEMPLATE/feature_request.md). Para um bug, descreva o problema
+e como replicá-lo; para uma feature, descreva o objetivo e os benefícios.
+
 ## Licença
 
 AGPL-3.0

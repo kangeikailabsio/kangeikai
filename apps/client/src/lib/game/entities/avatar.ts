@@ -23,9 +23,16 @@ export const AVATAR_FRAME_RANGES: Record<AvatarDirection, { start: number, end: 
   down: { start: 18, end: 23 },
 }
 
-const MOTION_STATE_SEGMENT: Record<AvatarMotionState, 'idle' | 'walk'> = {
-  idle: 'idle',
-  walking: 'walk',
+/**
+ * Which spritesheet (`textureSegment`) and Phaser animation `frameRate` each motion state
+ * plays. Deliberately separate: a motion state doesn't need its own spritesheet to get its own
+ * animation — `textureSegment` picks the frame source, the record key (the motion state)
+ * drives the animation's identity/key, so two motion states can share a `textureSegment` while
+ * still registering as distinct, independently-rated Phaser animations.
+ */
+export const MOTION_STATE_ANIMATIONS: Record<AvatarMotionState, { textureSegment: 'idle' | 'walk', frameRate: number }> = {
+  idle: { textureSegment: 'idle', frameRate: 4 },
+  walking: { textureSegment: 'walk', frameRate: 8 },
 }
 
 export interface SpriteAnimation {
@@ -35,7 +42,7 @@ export interface SpriteAnimation {
 
 export function getSpriteAnimation(spriteType: AvatarSpriteType, motionState: AvatarMotionState, direction: AvatarDirection): SpriteAnimation {
   return {
-    key: `${spriteType}-${MOTION_STATE_SEGMENT[motionState]}-${direction}`,
+    key: `${spriteType}-${motionState}-${direction}`,
   }
 }
 

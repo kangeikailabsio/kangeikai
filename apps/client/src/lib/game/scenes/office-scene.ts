@@ -1,6 +1,6 @@
 import type { AvatarPosition } from '$lib/av/proximity-audio-controller'
 import type { VideoOverlayEntry } from '$lib/av/video-overlay-state.svelte'
-import type { AvatarDirection, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
+import type { AvatarDirection, AvatarMotionState, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
 import type { LocalVideoTrack, RemoteVideoTrack } from 'livekit-client'
 import interiorsUrl from '$lib/assets/maps/welcome/Interiors_32x32-used.png?url'
 import modernOfficeUrl from '$lib/assets/maps/welcome/Modern_Office_32x32.png?url'
@@ -14,7 +14,7 @@ import avatarWomanWalkUrl from '$lib/assets/sprites/avatar-woman-walk.png?url'
 import { MediaControls } from '$lib/av/media-controls'
 import { ProximityAudioController } from '$lib/av/proximity-audio-controller'
 import { videoOverlayState } from '$lib/av/video-overlay-state.svelte'
-import { Avatar, AVATAR_FRAME_RANGES, getSpriteAnimation } from '$lib/game/entities/avatar'
+import { Avatar, AVATAR_FRAME_RANGES, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
 import { AvatarNameLabel } from '$lib/game/entities/avatar-name-label'
 import { MovementController } from '$lib/game/input/movement-controller'
 import { RoomConnection } from '$lib/network/room-connection'
@@ -71,7 +71,6 @@ const KEY_TO_DIRECTION: Record<string, AvatarDirection> = {
 const AVATAR_FRAME_SIZE = { frameWidth: 32, frameHeight: 64 }
 
 const AVATAR_SPRITE_TYPES: AvatarSpriteType[] = ['man', 'woman']
-const AVATAR_MOTION_SEGMENTS = ['idle', 'walk'] as const
 
 /**
  * Texture key for a spriteType+segment's spritesheet, e.g. "man-idle". Shared by all four
@@ -214,13 +213,14 @@ export class OfficeScene extends Phaser.Scene {
     })))
 
     for (const spriteType of AVATAR_SPRITE_TYPES) {
-      for (const segment of AVATAR_MOTION_SEGMENTS) {
-        const textureKey = avatarTextureKey(spriteType, segment)
+      for (const motionState of Object.keys(MOTION_STATE_ANIMATIONS) as AvatarMotionState[]) {
+        const { textureSegment, frameRate } = MOTION_STATE_ANIMATIONS[motionState]
+        const textureKey = avatarTextureKey(spriteType, textureSegment)
         for (const direction of Object.keys(AVATAR_FRAME_RANGES) as AvatarDirection[]) {
           this.anims.create({
-            key: getSpriteAnimation(spriteType, segment === 'walk' ? 'walking' : 'idle', direction).key,
+            key: getSpriteAnimation(spriteType, motionState, direction).key,
             frames: this.anims.generateFrameNumbers(textureKey, AVATAR_FRAME_RANGES[direction]),
-            frameRate: segment === 'walk' ? 8 : 4,
+            frameRate,
             repeat: -1,
           })
         }

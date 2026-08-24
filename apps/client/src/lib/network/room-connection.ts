@@ -9,6 +9,7 @@ import { Client, getStateCallbacks } from '@colyseus/sdk'
  * apps/server's message-schemas.ts if this shape changes (contract's "Stability" section).
  */
 export interface OfficeJoinOptions {
+  displayName: string
   spriteType: AvatarSpriteType
   /**
    * Validated server-side (`OfficeRoom.onAuth`) — only enforced when the deployment has
@@ -59,6 +60,7 @@ function statesEqual(a: UpdateStatePayload, b: UpdateStatePayload | undefined): 
 
 function toAvatarSnapshot(avatar: AvatarState): AvatarState {
   return {
+    displayName: avatar.displayName,
     x: avatar.x,
     y: avatar.y,
     direction: avatar.direction,

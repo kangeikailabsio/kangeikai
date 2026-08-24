@@ -1,5 +1,5 @@
-/** Enforced on the display name (FR-003) — chosen as generous enough for any real name. */
-export const MAX_NAME_LENGTH = 24
+/** Shared with the room protocol so client and server enforce the same display-name limit. */
+export { MAX_NAME_LENGTH } from '@kangeikai/shared'
 
 /** Single `localStorage` key the whole `GuestProfile` blob is stored under (data-model.md). */
 export const GUEST_PROFILE_STORAGE_KEY = 'kangeikai:guest-profile'

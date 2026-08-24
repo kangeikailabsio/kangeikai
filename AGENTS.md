@@ -25,10 +25,12 @@ chat. See `docs/mvp-plan.md` for the product plan.
   whole workspace. No Prettier.
 - **Testing**: Vitest for pure/deterministic logic (e.g. movement/collision math); no automated
   canvas-rendering assertions at MVP stage — validate rendered behavior manually in a browser.
-- **Git hooks**: a native git hook, no wrapper package. The tracked source of truth is
-  `.githooks/pre-commit` (runs `lint-staged`, which runs `eslint --fix` on staged files).
-  `.git/hooks/` isn't versioned by git, so **after cloning, run once**:
-  `cp .githooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit`
+- **Git hooks**: native git hooks, no wrapper package (no Husky). The tracked source of truth
+  is `.githooks/` — `pre-commit` (runs `lint-staged`, which runs `eslint --fix` on staged
+  files) and `commit-msg` (runs `commitlint` against `@commitlint/config-conventional`, so
+  commit messages must follow Conventional Commits). `.git/hooks/` isn't versioned by git, so
+  **after cloning, run once**:
+  `cp .githooks/pre-commit .githooks/commit-msg .git/hooks/ && chmod +x .git/hooks/pre-commit .git/hooks/commit-msg`
   (a deliberate deviation from the originally-planned `simple-git-hooks` package — a plain
   git hook needs no extra dependency).
 

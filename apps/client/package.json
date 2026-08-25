@@ -15,6 +15,7 @@
   "dependencies": {
     "@colyseus/schema": "^4.0.31",
     "@colyseus/sdk": "^0.17.43",
+    "@fontsource-variable/roboto": "^5.3.0",
     "@kangeikai/shared": "workspace:*",
     "livekit-client": "^2.22.0",
     "phaser": "^4.2.1",

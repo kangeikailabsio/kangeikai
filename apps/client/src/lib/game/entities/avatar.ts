@@ -1,8 +1,21 @@
 import type { MovementIntent } from '$lib/game/input/movement-controller'
+import type { CollisionRect } from '$lib/game/map/collision'
 import type { AvatarDirection, AvatarMotionState, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
+import { collidesWithAny } from '$lib/game/map/collision'
 
 const SPEED_PX_PER_SECOND = 200
 const SPRINT_SPEED_MULTIPLIER = 1.5
+
+/** Must match office-scene.ts's AVATAR_FRAME_SIZE — the sprite is center-anchored, so this offsets the collision hitbox down to the sprite's feet instead of its visual middle. */
+const SPRITE_HEIGHT = 64
+
+/**
+ * Small hitbox at the avatar's feet rather than the full 32×64 sprite — lets the sprite's
+ * head/shoulders visually overlap the top of furniture/walls (how these tile-based asset packs
+ * are drawn) while only the base actually collides.
+ */
+const COLLISION_HITBOX_WIDTH = 20
+const COLLISION_HITBOX_HEIGHT = 12
 
 const DIRECTION_VECTORS: Record<AvatarDirection, { x: number, y: number }> = {
   up: { x: 0, y: -1 },
@@ -53,14 +66,25 @@ export function getSpriteAnimation(spriteType: AvatarSpriteType, motionState: Av
   }
 }
 
+/** The avatar's collision hitbox at a given position — a small box at its feet, not the full sprite (see COLLISION_HITBOX_WIDTH/HEIGHT). */
+function feetHitbox(x: number, y: number): CollisionRect {
+  return {
+    x: x - COLLISION_HITBOX_WIDTH / 2,
+    y: y + SPRITE_HEIGHT / 2 - COLLISION_HITBOX_HEIGHT,
+    width: COLLISION_HITBOX_WIDTH,
+    height: COLLISION_HITBOX_HEIGHT,
+  }
+}
+
 /**
  * Pure position/state logic, decoupled from Phaser rendering (research.md's testability
  * approach) — OfficeScene owns the visual representation and reads `getState()` each frame to
- * sync it. No *interior* obstacle collision yet (tasks.md T013/T021 known gap, deferred past
- * the MVP) — the avatar walks freely through furniture/walls. It IS clamped to the map's outer
- * edges (mapWidthPx/mapHeightPx below), which is a distinct, non-deferred fix: without it the
+ * sync it. Clamped to the map's outer edges (mapWidthPx/mapHeightPx below): without it the
  * avatar could walk into negative/out-of-map coordinates the camera (clamped to the map bounds)
  * can never scroll to, making it disappear with no way back — found live during Phase 6 testing.
+ * Also blocked by `colliders` (the map's `collisions` object layer, set via `setColliders`) —
+ * movement is single-axis per frame (never diagonal), so a blocked step just doesn't move that
+ * frame rather than sliding or snapping to the obstacle's edge.
  */
 export class Avatar {
   x: number
@@ -70,6 +94,7 @@ export class Avatar {
   readonly spriteType: AvatarSpriteType
   private readonly mapWidthPx: number
   private readonly mapHeightPx: number
+  private colliders: readonly CollisionRect[] = []
 
   constructor(spawnX: number, spawnY: number, spriteType: AvatarSpriteType, mapWidthPx: number, mapHeightPx: number) {
     this.x = spawnX
@@ -79,16 +104,25 @@ export class Avatar {
     this.mapHeightPx = mapHeightPx
   }
 
+  /** The map's `collisions` object layer, as rectangles the avatar's feet can't walk into. */
+  setColliders(colliders: readonly CollisionRect[]): void {
+    this.colliders = colliders
+  }
+
   update(intent: MovementIntent, deltaSeconds: number): void {
     if (intent.direction) {
       this.direction = intent.direction
       this.motionState = intent.sprint ? 'sprinting' : 'walking'
       const speed = intent.sprint ? SPEED_PX_PER_SECOND * SPRINT_SPEED_MULTIPLIER : SPEED_PX_PER_SECOND
       const vector = DIRECTION_VECTORS[intent.direction]
-      this.x += vector.x * speed * deltaSeconds
-      this.y += vector.y * speed * deltaSeconds
-      this.x = Math.min(Math.max(this.x, 0), this.mapWidthPx)
-      this.y = Math.min(Math.max(this.y, 0), this.mapHeightPx)
+
+      const nextX = Math.min(Math.max(this.x + vector.x * speed * deltaSeconds, 0), this.mapWidthPx)
+      const nextY = Math.min(Math.max(this.y + vector.y * speed * deltaSeconds, 0), this.mapHeightPx)
+
+      if (!collidesWithAny(feetHitbox(nextX, nextY), this.colliders)) {
+        this.x = nextX
+        this.y = nextY
+      }
     }
     else {
       this.motionState = 'idle'

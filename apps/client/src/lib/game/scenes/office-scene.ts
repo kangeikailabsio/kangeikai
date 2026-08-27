@@ -230,6 +230,17 @@ export class OfficeScene extends Phaser.Scene {
     const spawnPoint = resolveRespawnPoint(respawnObjects, { x: this.mapWidthPx / 2, y: this.mapHeightPx / 2 })
 
     this.avatar = new Avatar(spawnPoint.x, spawnPoint.y, this.spriteType, this.mapWidthPx, this.mapHeightPx)
+
+    // The "collisions" object layer's rectangles block the local avatar's movement — every
+    // object counts, regardless of name, since none carry a distinguishing custom property.
+    const collisionObjects = (map.getObjectLayer('collisions')?.objects ?? []).map(object => ({
+      x: object.x ?? 0,
+      y: object.y ?? 0,
+      width: object.width ?? 0,
+      height: object.height ?? 0,
+    }))
+    this.avatar.setColliders(collisionObjects)
+
     this.avatarView = this.add.sprite(this.avatar.x, this.avatar.y, avatarTextureKey(this.spriteType, 'idle'))
     this.avatarView.anims.play(getSpriteAnimation(this.avatar.spriteType, this.avatar.motionState, this.avatar.direction).key)
     this.avatarNameLabel = new AvatarNameLabel(this, this.avatar.x, this.avatar.y, 'You')

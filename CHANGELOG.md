@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.2.0...v0.3.0) (2026-08-27)
+
+
+### Features
+
+* add collision between the avatar and the map's collisions layer ([#65](https://github.com/kangeikailabsio/kangeikai/issues/65)) ([f14a6ed](https://github.com/kangeikailabsio/kangeikai/commit/f14a6eda462bdeff9a0f5118c4eb93ebb4ea7644)), closes [#64](https://github.com/kangeikailabsio/kangeikai/issues/64)
+* add private conversation zones with isolated LiveKit rooms ([#61](https://github.com/kangeikailabsio/kangeikai/issues/61)) ([2ae65a0](https://github.com/kangeikailabsio/kangeikai/commit/2ae65a0bcc4bed4078e9872eecf4b4e89e7ffe4f)), closes [#58](https://github.com/kangeikailabsio/kangeikai/issues/58)
+* add Roboto font via Fontsource ([#53](https://github.com/kangeikailabsio/kangeikai/issues/53)) ([e8d982a](https://github.com/kangeikailabsio/kangeikai/commit/e8d982aca5915635a05a13b4897959119a28f9b9))
+* dynamically preload map/tileset images from the active map ([#59](https://github.com/kangeikailabsio/kangeikai/issues/59)) ([875d7c0](https://github.com/kangeikailabsio/kangeikai/commit/875d7c021c96c5635165b6ae4424789db9f08baa)), closes [#57](https://github.com/kangeikailabsio/kangeikai/issues/57)
+* spawn players from the map's respawn object layer ([#63](https://github.com/kangeikailabsio/kangeikai/issues/63)) ([1e6d2a1](https://github.com/kangeikailabsio/kangeikai/commit/1e6d2a1de7962d33cdc1f380ccfe989d7bf45a61)), closes [#62](https://github.com/kangeikailabsio/kangeikai/issues/62)
+
 ## [0.2.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.1.1...v0.2.0) (2026-08-24)
 
 

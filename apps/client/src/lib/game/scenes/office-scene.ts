@@ -16,6 +16,7 @@ import { AvatarNameLabel } from '$lib/game/entities/avatar-name-label'
 import { MovementController } from '$lib/game/input/movement-controller'
 import { queueActiveMapLoad } from '$lib/game/map/active-map'
 import { resolvePrivateZones } from '$lib/game/map/private-zones'
+import { resolveRespawnPoint } from '$lib/game/map/respawn-point'
 import { RoomConnection } from '$lib/network/room-connection'
 import { Track } from 'livekit-client'
 import Phaser from 'phaser'
@@ -37,15 +38,6 @@ export const ROOM_JOIN_FAILED_EVENT = 'room-join-failed'
  * before a possible rejection (`ROOM_JOIN_FAILED_EVENT`).
  */
 export const ROOM_JOINED_EVENT = 'room-joined'
-
-/**
- * Placeholder spawn point, chosen outside every zone's bounding box in welcome.tmj as of
- * authoring time. The map has no collision layer yet (tasks.md T013 known gap), so this can't
- * be validated against walkable/collision data (data-model.md's spawn invariant) until T021 —
- * revisit then.
- */
-const SPAWN_X = 150
-const SPAWN_Y = 150
 
 /**
  * Cap on remote video tiles shown in the strip at once — beyond this, the closest
@@ -224,7 +216,20 @@ export class OfficeScene extends Phaser.Scene {
       }
     }
 
-    this.avatar = new Avatar(SPAWN_X, SPAWN_Y, this.spriteType, this.mapWidthPx, this.mapHeightPx)
+    // The "respawn" object layer's rectangles mark valid spawn areas — one is picked at random,
+    // then a random point inside it, so simultaneous joins don't stack on the same pixel.
+    const respawnObjects = (map.getObjectLayer('respawn')?.objects ?? []).map(object => ({
+      x: object.x ?? 0,
+      y: object.y ?? 0,
+      width: object.width ?? 0,
+      height: object.height ?? 0,
+    }))
+    if (respawnObjects.length === 0) {
+      console.warn('kangeikai: active map has no "respawn" object layer objects — falling back to the map center')
+    }
+    const spawnPoint = resolveRespawnPoint(respawnObjects, { x: this.mapWidthPx / 2, y: this.mapHeightPx / 2 })
+
+    this.avatar = new Avatar(spawnPoint.x, spawnPoint.y, this.spriteType, this.mapWidthPx, this.mapHeightPx)
     this.avatarView = this.add.sprite(this.avatar.x, this.avatar.y, avatarTextureKey(this.spriteType, 'idle'))
     this.avatarView.anims.play(getSpriteAnimation(this.avatar.spriteType, this.avatar.motionState, this.avatar.direction).key)
     this.avatarNameLabel = new AvatarNameLabel(this, this.avatar.x, this.avatar.y, 'You')

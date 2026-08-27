@@ -144,6 +144,7 @@ export interface OfficeSceneData {
 
 export class OfficeScene extends Phaser.Scene {
   private readonly movementController = new MovementController()
+  private readonly busyPresenceStore = new BusyPresenceStore()
   private readonly roomConnection = new RoomConnection()
   private readonly proximityAudioController = new ProximityAudioController()
   private readonly privateRoomController = new PrivateRoomController()
@@ -258,7 +259,7 @@ export class OfficeScene extends Phaser.Scene {
     this.roomConnection.onRemoteAvatarAdd((sessionId, state) => this.spawnRemoteAvatar(sessionId, state))
     this.roomConnection.onRemoteAvatarChange((sessionId, state) => this.updateRemoteAvatar(sessionId, state))
     this.roomConnection.onRemoteAvatarRemove(sessionId => this.removeRemoteAvatar(sessionId))
-    this.presence = new BusyPresenceStore().load()
+    this.presence = this.busyPresenceStore.load()
     this.roomConnection.connect({
       displayName: this.displayName,
       spriteType: this.spriteType,
@@ -332,16 +333,25 @@ export class OfficeScene extends Phaser.Scene {
     this.game.events.emit(LOCAL_PRESENCE_EVENT, this.presence)
   }
 
+  async toggleBusyPresence(): Promise<void> {
+    await this.setLocalPresence(this.presence === 'busy' ? 'available' : 'busy')
+  }
+
   /**
-   * Applies local presence on the current LiveKit room (`beginBusy` / `endBusy`) and notifies
-   * the page. Does not persist (`BusyPresenceStore.save`) or send Colyseus presence — those
-   * belong to the HUD toggle card.
+   * Single source of truth for local busy toggles (keyboard + HUD): updates local state, sends
+   * presence to Colyseus, persists the per-tab choice, applies media busy suppression, then
+   * notifies the page.
    */
   async setLocalPresence(presence: AvatarPresence): Promise<void> {
     if (presence === this.presence) {
       return
     }
     this.presence = presence
+    if (presence === 'busy') {
+      this.movementController.clear()
+    }
+    this.roomConnection.sendPresence(presence)
+    this.busyPresenceStore.save(presence)
     if (presence === 'busy') {
       await this.mediaControls?.beginBusy()
     }
@@ -571,6 +581,13 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
+    if (event.code === 'KeyB') {
+      if (!event.repeat) {
+        void this.toggleBusyPresence()
+      }
+      return
+    }
+
     if (SPRINT_KEYS.has(event.code)) {
       this.movementController.pressSprint()
       return

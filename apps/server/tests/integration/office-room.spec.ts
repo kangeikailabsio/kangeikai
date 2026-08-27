@@ -118,6 +118,35 @@ describe('officeRoom', () => {
     expect(clientA.state.players.get(sessionId)?.displayName).toBe('Bob')
   })
 
+  it('replicates busy presence from join options to other clients', async () => {
+    const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientB = await colyseus.connectTo(room, { displayName: 'Bob', spriteType: 'woman', accessCode: '', presence: 'busy' })
+
+    await waitFor(clientA, () => clientA.state.players.get(clientB.sessionId)?.presence === 'busy')
+  })
+
+  it('defaults omitted join presence to available for other clients', async () => {
+    const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientB = await colyseus.connectTo(room, { displayName: 'Bob', spriteType: 'woman', accessCode: '' })
+
+    await waitFor(clientA, () => clientA.state.players.get(clientB.sessionId)?.presence === 'available')
+  })
+
+  it('setPresence updates only the sender avatar', async () => {
+    const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientB = await colyseus.connectTo(room, { displayName: 'Bob', spriteType: 'woman', accessCode: '' })
+    await waitFor(clientA, () => clientA.state.players.has(clientB.sessionId))
+    await waitFor(clientB, () => Boolean(clientB.state.players?.has(clientA.sessionId)))
+
+    clientA.send('setPresence', { presence: 'busy' })
+    await waitFor(clientB, () => clientB.state.players.get(clientA.sessionId)?.presence === 'busy')
+
+    expect(clientB.state.players.get(clientB.sessionId)?.presence).toBe('available')
+  })
+
   it('sends a sessionProof on join that verifies against the client\'s own sessionId', async () => {
     const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
     const client = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })

@@ -3,7 +3,7 @@ import process from 'node:process'
 import { CloseCode, Room } from 'colyseus'
 import * as v from 'valibot'
 import { computeSessionProof } from '../session-proof'
-import { officeJoinOptionsSchema, updateStatePayloadSchema } from './message-schemas'
+import { officeJoinOptionsSchema, setPresencePayloadSchema, updateStatePayloadSchema } from './message-schemas'
 import { AvatarSchema } from './schema/avatar-schema'
 import { OfficeRoomState } from './schema/office-room-state'
 
@@ -37,6 +37,20 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
       avatar.direction = result.output.direction
       avatar.motionState = result.output.motionState
     })
+
+    this.onMessage('setPresence', (client, message) => {
+      const result = v.safeParse(setPresencePayloadSchema, message)
+      if (!result.success) {
+        return
+      }
+
+      const avatar = this.state.players.get(client.sessionId)
+      if (!avatar) {
+        return
+      }
+
+      avatar.presence = result.output.presence
+    })
   }
 
   /**
@@ -57,11 +71,12 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
   }
 
   onJoin(client: Client, options: unknown): void {
-    const { displayName, spriteType } = v.parse(officeJoinOptionsSchema, options)
+    const { displayName, spriteType, presence } = v.parse(officeJoinOptionsSchema, options)
 
     const avatar = new AvatarSchema()
     avatar.displayName = displayName
     avatar.spriteType = spriteType
+    avatar.presence = presence
     avatar.x = SPAWN_X
     avatar.y = SPAWN_Y
 

@@ -1,18 +1,21 @@
-import type { AvatarPosition } from '$lib/av/proximity-audio-controller'
+import type { AvatarPosition, ProximityAudioControllerOptions } from '$lib/av/proximity-audio-controller'
 import type { VideoOverlayEntry } from '$lib/av/video-overlay-state.svelte'
+import type { TiledSpaceObject } from '$lib/game/map/private-zones'
 import type { AvatarDirection, AvatarMotionState, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
-import type { LocalVideoTrack, RemoteVideoTrack } from 'livekit-client'
+import type { LocalVideoTrack, RemoteVideoTrack, Room } from 'livekit-client'
 import avatarManIdleUrl from '$lib/assets/sprites/avatar-man-idle.png?url'
 import avatarManWalkUrl from '$lib/assets/sprites/avatar-man-walk.png?url'
 import avatarWomanIdleUrl from '$lib/assets/sprites/avatar-woman-idle.png?url'
 import avatarWomanWalkUrl from '$lib/assets/sprites/avatar-woman-walk.png?url'
 import { MediaControls } from '$lib/av/media-controls'
+import { PrivateRoomController } from '$lib/av/private-room-controller'
 import { ProximityAudioController } from '$lib/av/proximity-audio-controller'
 import { videoOverlayState } from '$lib/av/video-overlay-state.svelte'
 import { Avatar, AVATAR_FRAME_RANGES, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
 import { AvatarNameLabel } from '$lib/game/entities/avatar-name-label'
 import { MovementController } from '$lib/game/input/movement-controller'
 import { queueActiveMapLoad } from '$lib/game/map/active-map'
+import { resolvePrivateZones } from '$lib/game/map/private-zones'
 import { RoomConnection } from '$lib/network/room-connection'
 import { Track } from 'livekit-client'
 import Phaser from 'phaser'
@@ -146,6 +149,7 @@ export class OfficeScene extends Phaser.Scene {
   private readonly movementController = new MovementController()
   private readonly roomConnection = new RoomConnection()
   private readonly proximityAudioController = new ProximityAudioController()
+  private readonly privateRoomController = new PrivateRoomController()
   private readonly remoteAvatars = new Map<string, RemoteAvatarEntry>()
   private avatar!: Avatar
   private avatarView!: Phaser.GameObjects.Sprite
@@ -156,6 +160,9 @@ export class OfficeScene extends Phaser.Scene {
   private displayName!: string
   private spriteType!: AvatarSpriteType
   private accessCode!: string
+  private mediaControls: MediaControls | undefined
+  /** Set only while connected to a private zone's isolated room — `null` means ambient `office` audio is active. */
+  private connectedPrivateRoom: Room | null = null
 
   constructor() {
     super('office')
@@ -197,16 +204,10 @@ export class OfficeScene extends Phaser.Scene {
     this.mapHeightPx = map.heightInPixels
     this.cameras.main.setZoom(CAMERA_ZOOM)
 
-    // welcome.tmj's "zones" object layer (desk-*/public-space-* — feature 001's FR-010,
-    // spec 003's FR-011 zone-membership override).
-    const zoneObjects = map.getObjectLayer('zones')?.objects ?? []
-    this.proximityAudioController.setZones(zoneObjects.map(object => ({
-      name: object.name,
-      x: object.x ?? 0,
-      y: object.y ?? 0,
-      width: object.width ?? 0,
-      height: object.height ?? 0,
-    })))
+    // The "spaces" object layer's `private: true` objects — each one an isolated conversation
+    // room, not an ambient-volume zone (spec 004's private-room refactor).
+    const spaceObjects = (map.getObjectLayer('spaces')?.objects ?? []) as TiledSpaceObject[]
+    this.privateRoomController.setZones(resolvePrivateZones(spaceObjects))
 
     for (const spriteType of AVATAR_SPRITE_TYPES) {
       for (const motionState of Object.keys(MOTION_STATE_ANIMATIONS) as AvatarMotionState[]) {
@@ -251,6 +252,7 @@ export class OfficeScene extends Phaser.Scene {
       this.game.events.off(Phaser.Core.Events.BLUR, this.handleBlur, this)
       this.roomConnection.disconnect()
       this.proximityAudioController.disconnect()
+      this.privateRoomController.disconnect()
       videoOverlayState.set([])
     })
   }
@@ -259,9 +261,11 @@ export class OfficeScene extends Phaser.Scene {
    * Only called once `roomConnection.connect()` has resolved, so the local avatar already has
    * a synced position/sessionId from the realtime sync layer (FR-008) — a failure here (e.g.
    * LiveKit unreachable) is caught and logged without affecting movement/presence sync
-   * (FR-009's system-independence requirement).
+   * (FR-009's system-independence requirement). Also re-used to return to `office` after a
+   * private call ends, carrying forward whatever mic/camera state the person had going into it
+   * instead of resetting to the just-joined defaults.
    */
-  private connectProximityAudio(): void {
+  private connectProximityAudio(micEnabled = true, cameraEnabled = false): void {
     const { sessionId } = this.roomConnection
     if (!sessionId) {
       return
@@ -272,20 +276,47 @@ export class OfficeScene extends Phaser.Scene {
         { identity: sessionId, name: this.displayName, proof: this.roomConnection.sessionProof ?? '' },
         { x: this.avatar.x, y: this.avatar.y },
       )
-      .then(async () => {
-        const mediaControls = new MediaControls(this.proximityAudioController.liveKitRoom)
-
-        // Mic defaults to on (matches US1's "just works" proximity-audio premise); camera
-        // defaults to off and is opt-in via MediaControls' UI (T017). A denied permission or
-        // missing device (US3) never throws here — MediaControls records it as
-        // `microphoneUnavailable` instead — and movement/presence sync (a separate connection,
-        // already established) is unaffected either way (FR-009).
-        await mediaControls.setMicrophoneEnabled(true)
-        this.game.events.emit(MEDIA_CONTROLS_READY_EVENT, mediaControls)
-      })
+      .then(() => this.applyMediaControls(this.proximityAudioController.liveKitRoom, micEnabled, cameraEnabled))
       .catch((error: unknown) => {
         console.warn('kangeikai: failed to connect proximity audio/video', error)
       })
+  }
+
+  /**
+   * (Re-)creates `MediaControls` for whichever LiveKit room is now active — `office` or a
+   * private zone's isolated room — and applies the given mic/camera state to it. A denied
+   * permission or missing device (US3) never throws here — `MediaControls` records it as
+   * `microphoneUnavailable`/`cameraUnavailable` instead.
+   */
+  private async applyMediaControls(room: Room, micEnabled: boolean, cameraEnabled: boolean): Promise<void> {
+    const mediaControls = new MediaControls(room)
+    this.mediaControls = mediaControls
+    await mediaControls.setMicrophoneEnabled(micEnabled)
+    await mediaControls.setCameraEnabled(cameraEnabled)
+    this.game.events.emit(MEDIA_CONTROLS_READY_EVENT, mediaControls)
+  }
+
+  /**
+   * `PrivateRoomController` calls this once a zone's 2nd person arrives: leaves `office`'s
+   * audio for the duration (a real, isolated call — not just muting) and points media controls/
+   * video overlay at the private room instead.
+   */
+  private handlePrivateRoomConnect(room: Room): void {
+    this.proximityAudioController.disconnect()
+    this.connectedPrivateRoom = room
+    void this.applyMediaControls(room, this.mediaControls?.microphoneEnabled ?? true, this.mediaControls?.cameraEnabled ?? false)
+  }
+
+  /**
+   * `PrivateRoomController` calls this once the private call ends (occupancy drops under 2, or
+   * the local avatar left the zone): reconnects `office` audio, carrying forward the mic/camera
+   * state the person had during the private call.
+   */
+  private handlePrivateRoomDisconnect(): void {
+    const micEnabled = this.mediaControls?.microphoneEnabled ?? true
+    const cameraEnabled = this.mediaControls?.cameraEnabled ?? false
+    this.connectedPrivateRoom = null
+    this.connectProximityAudio(micEnabled, cameraEnabled)
   }
 
   update(_time: number, delta: number): void {
@@ -309,8 +340,26 @@ export class OfficeScene extends Phaser.Scene {
       motionState: this.avatar.motionState,
     })
 
-    const nearbySessionIds = this.proximityAudioController.update({ x: this.avatar.x, y: this.avatar.y }, this.remoteAvatarPositions())
-    this.updateVideoOverlay(nearbySessionIds)
+    const localPosition = { x: this.avatar.x, y: this.avatar.y }
+    const remotePositions = this.remoteAvatarPositions()
+
+    const { sessionId, sessionProof } = this.roomConnection
+    if (sessionId) {
+      const options: ProximityAudioControllerOptions = { identity: sessionId, name: this.displayName, proof: sessionProof ?? '' }
+      void this.privateRoomController.update(options, localPosition, remotePositions, {
+        onConnect: room => this.handlePrivateRoomConnect(room),
+        onDisconnect: () => this.handlePrivateRoomDisconnect(),
+      })
+    }
+
+    if (this.connectedPrivateRoom) {
+      // Isolated, small room — everyone in it is "in the call", no distance falloff needed.
+      this.updateVideoOverlay(new Set(this.connectedPrivateRoom.remoteParticipants.keys()), this.connectedPrivateRoom)
+    }
+    else {
+      const nearbySessionIds = this.proximityAudioController.update(localPosition, remotePositions)
+      this.updateVideoOverlay(nearbySessionIds, this.proximityAudioController.liveKitRoom)
+    }
 
     this.updateRemoteAvatarViews(delta / 1000)
   }
@@ -349,15 +398,15 @@ export class OfficeScene extends Phaser.Scene {
    * cap collapse into a single "+N" overflow tile (still audible — this cap only affects the
    * video strip, not `ProximityAudioController` volume). The strip itself (including "You") is
    * hidden entirely while alone — it only appears once at least one other participant is
-   * nearby.
+   * nearby. `room` is whichever LiveKit room is currently active — `office`, or a private
+   * zone's isolated room while one is connected (see `update()`).
    */
-  private updateVideoOverlay(nearbySessionIds: ReadonlySet<string>): void {
+  private updateVideoOverlay(nearbySessionIds: ReadonlySet<string>, room: Room): void {
     if (nearbySessionIds.size === 0) {
       videoOverlayState.set([])
       return
     }
 
-    const room = this.proximityAudioController.liveKitRoom
     const { localParticipant } = room
 
     const closestSessionIds = [...nearbySessionIds].sort((a, b) => this.distanceToLocal(a) - this.distanceToLocal(b))

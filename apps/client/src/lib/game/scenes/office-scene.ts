@@ -260,6 +260,7 @@ export class OfficeScene extends Phaser.Scene {
     this.roomConnection.onRemoteAvatarChange((sessionId, state) => this.updateRemoteAvatar(sessionId, state))
     this.roomConnection.onRemoteAvatarRemove(sessionId => this.removeRemoteAvatar(sessionId))
     this.presence = this.busyPresenceStore.load()
+    this.avatarNameLabel.setPresence(this.presence)
     this.roomConnection.connect({
       displayName: this.displayName,
       spriteType: this.spriteType,
@@ -347,6 +348,9 @@ export class OfficeScene extends Phaser.Scene {
       return
     }
     this.presence = presence
+    // Ahead of the media awaits below: the nameplate should never wait on LiveKit to reflect
+    // a toggle the person just made.
+    this.avatarNameLabel.setPresence(presence)
     if (presence === 'busy') {
       this.movementController.clear()
     }
@@ -548,6 +552,7 @@ export class OfficeScene extends Phaser.Scene {
     const view = this.add.sprite(avatar.x, avatar.y, avatarTextureKey(avatar.spriteType, 'idle'))
     view.anims.play(getSpriteAnimation(avatar.spriteType, avatar.motionState, avatar.direction).key)
     const nameLabel = new AvatarNameLabel(this, avatar.x, avatar.y, state.displayName)
+    nameLabel.setPresence(state.presence)
 
     this.remoteAvatars.set(sessionId, { avatar, view, nameLabel, presence: state.presence, renderX: avatar.x, renderY: avatar.y })
   }
@@ -566,6 +571,7 @@ export class OfficeScene extends Phaser.Scene {
     entry.avatar.direction = state.direction
     entry.avatar.motionState = state.motionState
     entry.presence = state.presence
+    entry.nameLabel.setPresence(state.presence)
 
     const animation = getSpriteAnimation(state.spriteType, state.motionState, state.direction)
     if (entry.view.anims.currentAnim?.key !== animation.key) {

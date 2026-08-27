@@ -3,6 +3,7 @@
   import type { GuestProfile } from '$lib/entry/guest-profile-schema'
   import type { AvatarPresence } from '@kangeikai/shared'
   import AvatarVideoOverlay from '$lib/av/avatar-video-overlay.svelte'
+  import BusyOverlay from '$lib/av/busy-overlay.svelte'
   import EntryForm from '$lib/entry/entry-form.svelte'
   import { GuestProfileStore } from '$lib/entry/guest-profile-store'
   import { LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT } from '$lib/game/scenes/office-scene'
@@ -102,11 +103,17 @@
     cameraEnabled = mediaControls.cameraEnabled
     cameraUnavailable = mediaControls.cameraUnavailable
   }
+
+  async function toggleBusy(): Promise<void> {
+    const officeScene = game?.scene.getScene('office') as OfficeScene | undefined
+    await officeScene?.toggleBusyPresence()
+  }
 </script>
 
 <div class='game-container' bind:this={gameContainer}>
   {#if guestProfile && !connecting}
     <AvatarVideoOverlay />
+    <BusyOverlay active={localPresence === 'busy'} />
   {/if}
 </div>
 
@@ -130,6 +137,14 @@
     >
       {cameraUnavailable ? '📷 Camera unavailable' : cameraEnabled ? '📷 Turn camera off' : '📷 Turn camera on'}
     </button>
+    <button
+      type='button'
+      aria-pressed={localPresence === 'busy'}
+      title={localPresence === 'busy' ? 'Turn off Busy' : 'Turn on Busy'}
+      onclick={toggleBusy}
+    >
+      ⛔ Busy
+    </button>
   </div>
 {/if}
 
@@ -145,6 +160,7 @@
     position: fixed;
     bottom: 16px;
     left: 50%;
+    z-index: 30;
     display: flex;
     gap: 8px;
     transform: translateX(-50%);

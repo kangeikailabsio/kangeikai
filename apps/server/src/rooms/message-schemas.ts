@@ -9,6 +9,7 @@ import * as v from 'valibot'
 const directionSchema = v.picklist(['up', 'down', 'left', 'right'])
 const motionStateSchema = v.picklist(['idle', 'walking', 'sprinting'])
 const spriteTypeSchema = v.picklist(['man', 'woman'])
+const presenceSchema = v.picklist(['available', 'busy'])
 const displayNameSchema = v.pipe(
   v.string(),
   v.trim(),
@@ -20,6 +21,7 @@ const displayNameSchema = v.pipe(
 export const officeJoinOptionsSchema = v.object({
   displayName: displayNameSchema,
   spriteType: spriteTypeSchema,
+  presence: v.optional(presenceSchema, 'available'),
   /** Checked in `onAuth` against `ACCESS_CODE` (only enforced when that env var is set). */
   accessCode: v.string(),
 })
@@ -32,5 +34,11 @@ export const updateStatePayloadSchema = v.object({
   motionState: motionStateSchema,
 })
 
+/** Client→server "setPresence" message payload. */
+export const setPresencePayloadSchema = v.object({
+  presence: presenceSchema,
+})
+
 export type OfficeJoinOptions = v.InferOutput<typeof officeJoinOptionsSchema>
 export type UpdateStatePayload = v.InferOutput<typeof updateStatePayloadSchema>
+export type SetPresencePayload = v.InferOutput<typeof setPresencePayloadSchema>

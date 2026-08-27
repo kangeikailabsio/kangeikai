@@ -76,4 +76,19 @@ describe('post /livekit-token', () => {
     const response = await postToken({ identity: 'session-a', name: 'Guest', proof: 'anything' })
     expect(response.status).toBe(500)
   })
+
+  it('mints a token scoped to a private zone room (200)', async () => {
+    const proof = computeSessionProof('session-a')
+    const response = await postToken({ identity: 'session-a', name: 'Guest', proof, room: 'private-42' })
+    expect(response.status).toBe(200)
+
+    const body = await response.json() as { token: string, url: string }
+    expect(body.token).toEqual(expect.any(String))
+  })
+
+  it('rejects a room name that is not the private-<id> format (400)', async () => {
+    const proof = computeSessionProof('session-a')
+    const response = await postToken({ identity: 'session-a', name: 'Guest', proof, room: 'office' })
+    expect(response.status).toBe(400)
+  })
 })

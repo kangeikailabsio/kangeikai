@@ -2,11 +2,6 @@ import type { AvatarPosition } from '$lib/av/proximity-audio-controller'
 import type { VideoOverlayEntry } from '$lib/av/video-overlay-state.svelte'
 import type { AvatarDirection, AvatarMotionState, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
 import type { LocalVideoTrack, RemoteVideoTrack } from 'livekit-client'
-import interiorsUrl from '$lib/assets/maps/welcome/Interiors_32x32-used.png?url'
-import modernOfficeUrl from '$lib/assets/maps/welcome/Modern_Office_32x32.png?url'
-import roomBuilderUrl from '$lib/assets/maps/welcome/Room_Builder_32x32.png?url'
-import roomBuilderOfficeUrl from '$lib/assets/maps/welcome/Room_Builder_Office_32x32.png?url'
-import mapUrl from '$lib/assets/maps/welcome/welcome.tmj?url'
 import avatarManIdleUrl from '$lib/assets/sprites/avatar-man-idle.png?url'
 import avatarManWalkUrl from '$lib/assets/sprites/avatar-man-walk.png?url'
 import avatarWomanIdleUrl from '$lib/assets/sprites/avatar-woman-idle.png?url'
@@ -17,6 +12,7 @@ import { videoOverlayState } from '$lib/av/video-overlay-state.svelte'
 import { Avatar, AVATAR_FRAME_RANGES, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
 import { AvatarNameLabel } from '$lib/game/entities/avatar-name-label'
 import { MovementController } from '$lib/game/input/movement-controller'
+import { queueActiveMapLoad } from '$lib/game/map/active-map'
 import { RoomConnection } from '$lib/network/room-connection'
 import { Track } from 'livekit-client'
 import Phaser from 'phaser'
@@ -156,6 +152,7 @@ export class OfficeScene extends Phaser.Scene {
   private avatarNameLabel!: AvatarNameLabel
   private mapWidthPx = 0
   private mapHeightPx = 0
+  private mapKey!: string
   private displayName!: string
   private spriteType!: AvatarSpriteType
   private accessCode!: string
@@ -171,11 +168,7 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   preload(): void {
-    this.load.tilemapTiledJSON('welcome', mapUrl)
-    this.load.image('Room_Builder_32x32', roomBuilderUrl)
-    this.load.image('Interiors_32x32', interiorsUrl)
-    this.load.image('Modern_Office_32x32', modernOfficeUrl)
-    this.load.image('Room_Builder_Office_32x32', roomBuilderOfficeUrl)
+    this.mapKey = queueActiveMapLoad(this).key
 
     this.load.spritesheet(avatarTextureKey('man', 'idle'), avatarManIdleUrl, AVATAR_FRAME_SIZE)
     this.load.spritesheet(avatarTextureKey('man', 'walk'), avatarManWalkUrl, AVATAR_FRAME_SIZE)
@@ -184,14 +177,14 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   create(): void {
-    const map = this.make.tilemap({ key: 'welcome' })
+    const map = this.make.tilemap({ key: this.mapKey })
 
     // map.addTilesetImage() looks up a tileset by name and only binds the image to the
-    // FIRST match. welcome.tmj has two tileset entries both named "Room_Builder_32x32"
-    // (same source image, two separate gid ranges — see tasks.md T013), so that helper
-    // would silently leave the second range's tiles textureless. Bind every tileset
-    // entry's image directly instead; layer creation resolves each tile's tileset by gid
-    // range, not by name, so this is safe even with the duplicate name.
+    // FIRST match, which silently leaves any later same-named tileset entry's tiles
+    // textureless (this bit welcome.tmj in the past — two tileset entries both named
+    // "Room_Builder_32x32", same source image, two separate gid ranges). Bind every
+    // tileset entry's image directly instead; layer creation resolves each tile's
+    // tileset by gid range, not by name, so this is safe even with duplicate names.
     for (const tileset of map.tilesets) {
       tileset.setImage(this.textures.get(tileset.name))
     }

@@ -25,6 +25,9 @@ import Phaser from 'phaser'
 /** Emitted on `game.events` once `MediaControls` is ready (T017 — see +page.svelte). */
 export const MEDIA_CONTROLS_READY_EVENT = 'mediacontrols-ready'
 
+/** Emitted on `game.events` when local presence changes (busy unpublish / restore). */
+export const LOCAL_PRESENCE_EVENT = 'local-presence'
+
 /**
  * Emitted on `game.events` when the Colyseus room join is rejected (most commonly a wrong/
  * missing access code, `OfficeRoom.onAuth`) — `+page.svelte` tears down the game and returns
@@ -158,8 +161,6 @@ export class OfficeScene extends Phaser.Scene {
   private mediaControls: MediaControls | undefined
   /** Set only while connected to a private zone's isolated room — `null` means ambient `office` audio is active. */
   private connectedPrivateRoom: Room | null = null
-  /** Local presence for occupancy/volume maps. Default until a later card loads sessionStorage / HUD. */
-  private presence: AvatarPresence = 'available'
 
   constructor() {
     super('office')
@@ -316,11 +317,38 @@ export class OfficeScene extends Phaser.Scene {
    * `microphoneUnavailable`/`cameraUnavailable` instead.
    */
   private async applyMediaControls(room: Room, micEnabled: boolean, cameraEnabled: boolean): Promise<void> {
-    const mediaControls = new MediaControls(room)
-    this.mediaControls = mediaControls
-    await mediaControls.setMicrophoneEnabled(micEnabled)
-    await mediaControls.setCameraEnabled(cameraEnabled)
-    this.game.events.emit(MEDIA_CONTROLS_READY_EVENT, mediaControls)
+    const previous = this.mediaControls
+    const next = new MediaControls(room)
+    next.adoptBusyState(previous)
+    this.mediaControls = next
+    if (this.presence === 'busy') {
+      await next.beginBusy({ microphoneEnabled: micEnabled, cameraEnabled })
+    }
+    else {
+      await next.setMicrophoneEnabled(micEnabled)
+      await next.setCameraEnabled(cameraEnabled)
+    }
+    this.game.events.emit(MEDIA_CONTROLS_READY_EVENT, next)
+    this.game.events.emit(LOCAL_PRESENCE_EVENT, this.presence)
+  }
+
+  /**
+   * Applies local presence on the current LiveKit room (`beginBusy` / `endBusy`) and notifies
+   * the page. Does not persist (`BusyPresenceStore.save`) or send Colyseus presence — those
+   * belong to the HUD toggle card.
+   */
+  async setLocalPresence(presence: AvatarPresence): Promise<void> {
+    if (presence === this.presence) {
+      return
+    }
+    this.presence = presence
+    if (presence === 'busy') {
+      await this.mediaControls?.beginBusy()
+    }
+    else {
+      await this.mediaControls?.endBusy()
+    }
+    this.game.events.emit(LOCAL_PRESENCE_EVENT, presence)
   }
 
   /**

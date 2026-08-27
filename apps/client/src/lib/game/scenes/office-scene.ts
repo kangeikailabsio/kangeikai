@@ -1,7 +1,7 @@
 import type { AvatarPosition, ProximityAudioControllerOptions } from '$lib/av/proximity-audio-controller'
 import type { VideoOverlayEntry } from '$lib/av/video-overlay-state.svelte'
 import type { TiledSpaceObject } from '$lib/game/map/private-zones'
-import type { AvatarDirection, AvatarMotionState, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
+import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
 import type { LocalVideoTrack, RemoteVideoTrack, Room } from 'livekit-client'
 import avatarManIdleUrl from '$lib/assets/sprites/avatar-man-idle.png?url'
 import avatarManWalkUrl from '$lib/assets/sprites/avatar-man-walk.png?url'
@@ -11,6 +11,7 @@ import { MediaControls } from '$lib/av/media-controls'
 import { PrivateRoomController } from '$lib/av/private-room-controller'
 import { ProximityAudioController } from '$lib/av/proximity-audio-controller'
 import { videoOverlayState } from '$lib/av/video-overlay-state.svelte'
+import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
 import { Avatar, AVATAR_FRAME_RANGES, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
 import { AvatarNameLabel } from '$lib/game/entities/avatar-name-label'
 import { MovementController } from '$lib/game/input/movement-controller'
@@ -152,6 +153,7 @@ export class OfficeScene extends Phaser.Scene {
   private displayName!: string
   private spriteType!: AvatarSpriteType
   private accessCode!: string
+  private presence: AvatarPresence = 'available'
   private mediaControls: MediaControls | undefined
   /** Set only while connected to a private zone's isolated room — `null` means ambient `office` audio is active. */
   private connectedPrivateRoom: Room | null = null
@@ -252,7 +254,13 @@ export class OfficeScene extends Phaser.Scene {
     this.roomConnection.onRemoteAvatarAdd((sessionId, state) => this.spawnRemoteAvatar(sessionId, state))
     this.roomConnection.onRemoteAvatarChange((sessionId, state) => this.updateRemoteAvatar(sessionId, state))
     this.roomConnection.onRemoteAvatarRemove(sessionId => this.removeRemoteAvatar(sessionId))
-    this.roomConnection.connect({ displayName: this.displayName, spriteType: this.spriteType, accessCode: this.accessCode })
+    this.presence = new BusyPresenceStore().load()
+    this.roomConnection.connect({
+      displayName: this.displayName,
+      spriteType: this.spriteType,
+      accessCode: this.accessCode,
+      presence: this.presence,
+    })
       .then(() => {
         this.game.events.emit(ROOM_JOINED_EVENT)
         this.connectProximityAudio()
@@ -336,7 +344,10 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
-    this.avatar.update(this.movementController.getIntent(), delta / 1000)
+    const intent = this.presence === 'busy'
+      ? { direction: null, sprint: false }
+      : this.movementController.getIntent()
+    this.avatar.update(intent, delta / 1000)
     this.avatarView.setPosition(this.avatar.x, this.avatar.y)
     this.avatarNameLabel.setPosition(this.avatar.x, this.avatar.y)
 

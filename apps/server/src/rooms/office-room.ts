@@ -32,6 +32,10 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
         return
       }
 
+      if (avatar.presence === 'busy') {
+        return
+      }
+
       avatar.x = result.output.x
       avatar.y = result.output.y
       avatar.direction = result.output.direction

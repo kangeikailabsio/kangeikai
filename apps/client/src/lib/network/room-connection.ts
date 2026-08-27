@@ -1,6 +1,6 @@
 import type { MapSchema } from '@colyseus/schema'
 import type { Room } from '@colyseus/sdk'
-import type { AvatarDirection, AvatarMotionState, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
+import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
 import { PUBLIC_COLYSEUS_URL } from '$env/static/public'
 import { Client, getStateCallbacks } from '@colyseus/sdk'
 
@@ -16,6 +16,7 @@ export interface OfficeJoinOptions {
    * `ACCESS_CODE` configured.
    */
   accessCode: string
+  presence?: AvatarPresence
 }
 
 /** Mirrors contracts/office-room-protocol.md's UpdateStatePayload. */
@@ -66,6 +67,7 @@ function toAvatarSnapshot(avatar: AvatarState): AvatarState {
     direction: avatar.direction,
     motionState: avatar.motionState,
     spriteType: avatar.spriteType,
+    presence: avatar.presence,
   }
 }
 
@@ -219,6 +221,10 @@ export class RoomConnection {
         }
       }, SEND_INTERVAL_MS - elapsed)
     }
+  }
+
+  sendPresence(presence: AvatarPresence): void {
+    this.room?.send('setPresence', { presence })
   }
 
   private flushSend(payload: UpdateStatePayload): void {

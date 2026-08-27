@@ -373,7 +373,13 @@ export class OfficeScene extends Phaser.Scene {
 
     if (this.connectedPrivateRoom) {
       // Isolated, small room — everyone in it is "in the call", no distance falloff needed.
-      this.updateVideoOverlay(new Set(this.connectedPrivateRoom.remoteParticipants.keys()), this.connectedPrivateRoom)
+      // Local busy still hides the strip here: this path lists all remoteParticipants, not nearby.
+      if (this.presence === 'busy') {
+        videoOverlayState.set([])
+      }
+      else {
+        this.updateVideoOverlay(new Set(this.connectedPrivateRoom.remoteParticipants.keys()), this.connectedPrivateRoom)
+      }
     }
     else {
       const nearbySessionIds = this.proximityAudioController.update(localPosition, remotePositions)
@@ -411,24 +417,35 @@ export class OfficeScene extends Phaser.Scene {
    * Refreshes `videoOverlayState` (T015/T016) with a fixed-position strip: the local
    * participant ("You") plus the `MAX_REMOTE_VIDEO_TILES` closest nearby ("close enough to
    * hear", `ProximityAudioController.update()`'s return value — same condition per spec.md's
-   * US2 acceptance scenarios) remote participants, closest-first. Each tile shows camera/mic
-   * state and video track (if publishing); a camera-off tile still renders (as a placeholder,
-   * per the component) rather than being omitted. Any remaining nearby participants beyond the
-   * cap collapse into a single "+N" overflow tile (still audible — this cap only affects the
-   * video strip, not `ProximityAudioController` volume). The strip itself (including "You") is
-   * hidden entirely while alone — it only appears once at least one other participant is
-   * nearby. `room` is whichever LiveKit room is currently active — `office`, or a private
-   * zone's isolated room while one is connected (see `update()`).
+   * US2 acceptance scenarios) remote participants, closest-first. Busy identities never
+   * appear: a busy local hides the strip entirely, and a busy remote is omitted before tiles
+   * (so a camera-off placeholder is not reused as a mute tile). Each remaining tile shows
+   * camera/mic state and video track (if publishing); a camera-off tile still renders (as a
+   * placeholder, per the component) rather than being omitted. Any remaining nearby
+   * participants beyond the cap collapse into a single "+N" overflow tile (still audible —
+   * this cap only affects the video strip, not `ProximityAudioController` volume). The strip
+   * itself (including "You") is hidden entirely while alone — it only appears once at least
+   * one other participant is nearby. `room` is whichever LiveKit room is currently active —
+   * `office`, or a private zone's isolated room while one is connected (see `update()`).
    */
   private updateVideoOverlay(nearbySessionIds: ReadonlySet<string>, room: Room): void {
-    if (nearbySessionIds.size === 0) {
+    if (this.presence === 'busy' || nearbySessionIds.size === 0) {
+      videoOverlayState.set([])
+      return
+    }
+
+    const visibleSessionIds = [...nearbySessionIds].filter(
+      sessionId => this.remoteAvatars.get(sessionId)?.presence !== 'busy',
+    )
+
+    if (visibleSessionIds.length === 0) {
       videoOverlayState.set([])
       return
     }
 
     const { localParticipant } = room
 
-    const closestSessionIds = [...nearbySessionIds].sort((a, b) => this.distanceToLocal(a) - this.distanceToLocal(b))
+    const closestSessionIds = visibleSessionIds.sort((a, b) => this.distanceToLocal(a) - this.distanceToLocal(b))
 
     const entries: VideoOverlayEntry[] = [{
       sessionId: localParticipant.identity,

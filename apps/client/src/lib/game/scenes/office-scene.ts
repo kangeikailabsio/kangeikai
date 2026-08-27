@@ -1,7 +1,7 @@
 import type { AvatarPosition, ProximityAudioControllerOptions } from '$lib/av/proximity-audio-controller'
 import type { VideoOverlayEntry } from '$lib/av/video-overlay-state.svelte'
 import type { TiledSpaceObject } from '$lib/game/map/private-zones'
-import type { AvatarDirection, AvatarMotionState, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
+import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
 import type { LocalVideoTrack, RemoteVideoTrack, Room } from 'livekit-client'
 import avatarManIdleUrl from '$lib/assets/sprites/avatar-man-idle.png?url'
 import avatarManWalkUrl from '$lib/assets/sprites/avatar-man-walk.png?url'
@@ -107,6 +107,7 @@ interface RemoteAvatarEntry {
   avatar: Avatar
   view: Phaser.GameObjects.Sprite
   nameLabel: AvatarNameLabel
+  presence: AvatarPresence
   /** Currently rendered position — eased toward `avatar.x/y` each frame, see `updateRemoteAvatarViews`. */
   renderX: number
   renderY: number
@@ -155,6 +156,8 @@ export class OfficeScene extends Phaser.Scene {
   private mediaControls: MediaControls | undefined
   /** Set only while connected to a private zone's isolated room — `null` means ambient `office` audio is active. */
   private connectedPrivateRoom: Room | null = null
+  /** Local presence for occupancy/volume maps. Default until a later card loads sessionStorage / HUD. */
+  private presence: AvatarPresence = 'available'
 
   constructor() {
     super('office')
@@ -290,7 +293,7 @@ export class OfficeScene extends Phaser.Scene {
     this.proximityAudioController
       .connect(
         { identity: sessionId, name: this.displayName, proof: this.roomConnection.sessionProof ?? '' },
-        { x: this.avatar.x, y: this.avatar.y },
+        { x: this.avatar.x, y: this.avatar.y, presence: this.presence },
       )
       .then(() => this.applyMediaControls(this.proximityAudioController.liveKitRoom, micEnabled, cameraEnabled))
       .catch((error: unknown) => {
@@ -356,7 +359,7 @@ export class OfficeScene extends Phaser.Scene {
       motionState: this.avatar.motionState,
     })
 
-    const localPosition = { x: this.avatar.x, y: this.avatar.y }
+    const localPosition = { x: this.avatar.x, y: this.avatar.y, presence: this.presence }
     const remotePositions = this.remoteAvatarPositions()
 
     const { sessionId, sessionProof } = this.roomConnection
@@ -399,7 +402,7 @@ export class OfficeScene extends Phaser.Scene {
   private remoteAvatarPositions(): ReadonlyMap<string, AvatarPosition> {
     const positions = new Map<string, AvatarPosition>()
     for (const [sessionId, entry] of this.remoteAvatars) {
-      positions.set(sessionId, { x: entry.avatar.x, y: entry.avatar.y })
+      positions.set(sessionId, { x: entry.avatar.x, y: entry.avatar.y, presence: entry.presence })
     }
     return positions
   }
@@ -480,7 +483,7 @@ export class OfficeScene extends Phaser.Scene {
     view.anims.play(getSpriteAnimation(avatar.spriteType, avatar.motionState, avatar.direction).key)
     const nameLabel = new AvatarNameLabel(this, avatar.x, avatar.y, state.displayName)
 
-    this.remoteAvatars.set(sessionId, { avatar, view, nameLabel, renderX: avatar.x, renderY: avatar.y })
+    this.remoteAvatars.set(sessionId, { avatar, view, nameLabel, presence: state.presence, renderX: avatar.x, renderY: avatar.y })
   }
 
   private updateRemoteAvatar(sessionId: string, state: AvatarState): void {
@@ -496,6 +499,7 @@ export class OfficeScene extends Phaser.Scene {
     entry.avatar.y = state.y
     entry.avatar.direction = state.direction
     entry.avatar.motionState = state.motionState
+    entry.presence = state.presence
 
     const animation = getSpriteAnimation(state.spriteType, state.motionState, state.direction)
     if (entry.view.anims.currentAnim?.key !== animation.key) {

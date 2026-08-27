@@ -16,7 +16,7 @@ const DEFAULT_TOKEN_ENDPOINT = PUBLIC_LIVEKIT_TOKEN_ENDPOINT
  */
 const HEARING_RANGE_PX = 80
 
-export type AvatarPosition = Pick<AvatarState, 'x' | 'y'>
+export type AvatarPosition = Pick<AvatarState, 'x' | 'y' | 'presence'>
 
 /** Mirrors contracts/livekit-token-endpoint.md's LiveKitTokenRequest. */
 export interface ProximityAudioControllerOptions {

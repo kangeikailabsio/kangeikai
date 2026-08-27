@@ -2,8 +2,8 @@ import type { AvatarState } from '@kangeikai/shared'
 import { PUBLIC_LIVEKIT_TOKEN_ENDPOINT } from '$env/static/public'
 import { Room } from 'livekit-client'
 import { attachRemoteAudioElements } from './attach-remote-audio'
+import { busyProximityVolume } from './busy-proximity-volume'
 import { fetchLiveKitToken } from './livekit-token-client'
-import { proximityVolume } from './proximity-volume'
 
 /** Baked in at build time (adapter-static/SPA — no server to read this at runtime) — see .env.example. */
 const DEFAULT_TOKEN_ENDPOINT = PUBLIC_LIVEKIT_TOKEN_ENDPOINT
@@ -16,7 +16,7 @@ const DEFAULT_TOKEN_ENDPOINT = PUBLIC_LIVEKIT_TOKEN_ENDPOINT
  */
 const HEARING_RANGE_PX = 80
 
-export type AvatarPosition = Pick<AvatarState, 'x' | 'y'>
+export type AvatarPosition = Pick<AvatarState, 'x' | 'y' | 'presence'>
 
 /** Mirrors contracts/livekit-token-endpoint.md's LiveKitTokenRequest. */
 export interface ProximityAudioControllerOptions {
@@ -67,12 +67,13 @@ export class ProximityAudioController {
   /**
    * Called once per local animation frame: matches each connected LiveKit participant's
    * `identity` to their synced avatar position (feature 002), then sets that participant's
-   * volume by `proximityVolume` of the distance between them (FR-002/FR-003, FR-012) —
-   * data-model.md's `ProximityRelationship.volume` rule.
+   * volume by `busyProximityVolume` of the distance between them (FR-002/FR-003, FR-012)
+   * with busy isolation — either side `busy` yields volume 0 regardless of distance.
    *
    * Returns the set of remote `identity`s that are currently audible (volume > 0) — "close
    * enough to hear" is also the video-visibility/muted-indicator condition for US2 (spec.md
    * acceptance scenarios), so callers reuse this instead of recomputing distance themselves.
+   * Identities at volume 0 (out of range or busy) are not included.
    */
   update(localPosition: AvatarPosition, remotePositions: ReadonlyMap<string, AvatarPosition>): ReadonlySet<string> {
     const nearby = new Set<string>()
@@ -83,7 +84,12 @@ export class ProximityAudioController {
         continue
       }
 
-      const volume = proximityVolume(Math.hypot(remotePosition.x - localPosition.x, remotePosition.y - localPosition.y), HEARING_RANGE_PX)
+      const volume = busyProximityVolume(
+        Math.hypot(remotePosition.x - localPosition.x, remotePosition.y - localPosition.y),
+        HEARING_RANGE_PX,
+        localPosition.presence,
+        remotePosition.presence,
+      )
 
       participant.setVolume(volume)
       if (volume > 0) {

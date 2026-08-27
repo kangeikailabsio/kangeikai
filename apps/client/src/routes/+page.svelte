@@ -1,10 +1,11 @@
 <script lang='ts'>
   import type { MediaControls } from '$lib/av/media-controls'
   import type { GuestProfile } from '$lib/entry/guest-profile-schema'
+  import type { AvatarPresence } from '@kangeikai/shared'
   import AvatarVideoOverlay from '$lib/av/avatar-video-overlay.svelte'
   import EntryForm from '$lib/entry/entry-form.svelte'
   import { GuestProfileStore } from '$lib/entry/guest-profile-store'
-  import { MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT } from '$lib/game/scenes/office-scene'
+  import { LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT } from '$lib/game/scenes/office-scene'
   import Phaser from 'phaser'
   import { onDestroy } from 'svelte'
 
@@ -24,6 +25,7 @@
   let cameraEnabled = $state(false)
   let micUnavailable = $state(false)
   let cameraUnavailable = $state(false)
+  let localPresence: AvatarPresence = $state('available')
 
   /** Mounts the game only once entry is confirmed (FR-009) — see `EntryForm` below. */
   function handleEntryConfirm(profile: GuestProfile, accessCode: string): void {
@@ -60,6 +62,10 @@
       cameraUnavailable = controls.cameraUnavailable
     })
 
+    game.events.on(LOCAL_PRESENCE_EVENT, (presence: AvatarPresence) => {
+      localPresence = presence
+    })
+
     game.events.on(ROOM_JOINED_EVENT, () => {
       connecting = false
     })
@@ -80,7 +86,7 @@
   })
 
   async function toggleMicrophone(): Promise<void> {
-    if (!mediaControls) {
+    if (localPresence === 'busy' || !mediaControls) {
       return
     }
     await mediaControls.setMicrophoneEnabled(!micEnabled)
@@ -89,7 +95,7 @@
   }
 
   async function toggleCamera(): Promise<void> {
-    if (!mediaControls) {
+    if (localPresence === 'busy' || !mediaControls) {
       return
     }
     await mediaControls.setCameraEnabled(!cameraEnabled)
@@ -108,10 +114,20 @@
   <EntryForm onConfirm={handleEntryConfirm} {joinError} pending={connecting} />
 {:else}
   <div class='media-controls'>
-    <button type='button' disabled={!mediaControls || micUnavailable} onclick={toggleMicrophone}>
+    <button
+      type='button'
+      disabled={!mediaControls || micUnavailable || localPresence === 'busy'}
+      title={localPresence === 'busy' ? 'Turn off Busy to use Mute' : undefined}
+      onclick={toggleMicrophone}
+    >
       {micUnavailable ? '🔇 Mic unavailable' : micEnabled ? '🎤 Mute' : '🔇 Unmute'}
     </button>
-    <button type='button' disabled={!mediaControls || cameraUnavailable} onclick={toggleCamera}>
+    <button
+      type='button'
+      disabled={!mediaControls || cameraUnavailable || localPresence === 'busy'}
+      title={localPresence === 'busy' ? 'Turn off Busy to use Camera' : undefined}
+      onclick={toggleCamera}
+    >
       {cameraUnavailable ? '📷 Camera unavailable' : cameraEnabled ? '📷 Turn camera off' : '📷 Turn camera on'}
     </button>
   </div>

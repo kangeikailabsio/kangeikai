@@ -1,6 +1,7 @@
 export type AvatarDirection = 'up' | 'down' | 'left' | 'right'
 export type AvatarMotionState = 'idle' | 'walking' | 'sprinting'
 export type AvatarSpriteType = 'man' | 'woman'
+export type AvatarPresence = 'available' | 'busy'
 
 export const MAX_NAME_LENGTH = 24
 
@@ -11,4 +12,5 @@ export interface AvatarState {
   direction: AvatarDirection
   motionState: AvatarMotionState
   spriteType: AvatarSpriteType
+  presence: AvatarPresence
 }

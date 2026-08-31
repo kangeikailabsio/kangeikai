@@ -118,6 +118,118 @@ describe('officeRoom', () => {
     expect(clientA.state.players.get(sessionId)?.displayName).toBe('Bob')
   })
 
+  it('replicates busy presence from join options to other clients', async () => {
+    const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientB = await colyseus.connectTo(room, { displayName: 'Bob', spriteType: 'woman', accessCode: '', presence: 'busy' })
+
+    await waitFor(clientA, () => clientA.state.players.get(clientB.sessionId)?.presence === 'busy')
+  })
+
+  it('defaults omitted join presence to available for other clients', async () => {
+    const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientB = await colyseus.connectTo(room, { displayName: 'Bob', spriteType: 'woman', accessCode: '' })
+
+    await waitFor(clientA, () => clientA.state.players.get(clientB.sessionId)?.presence === 'available')
+  })
+
+  it('setPresence updates only the sender avatar', async () => {
+    const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientB = await colyseus.connectTo(room, { displayName: 'Bob', spriteType: 'woman', accessCode: '' })
+    await waitFor(clientA, () => clientA.state.players.has(clientB.sessionId))
+    await waitFor(clientB, () => Boolean(clientB.state.players?.has(clientA.sessionId)))
+
+    clientA.send('setPresence', { presence: 'busy' })
+    await waitFor(clientB, () => clientB.state.players.get(clientA.sessionId)?.presence === 'busy')
+
+    expect(clientB.state.players.get(clientB.sessionId)?.presence).toBe('available')
+  })
+
+  it('ignores updateState at spawn while presence is busy', async () => {
+    const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientB = await colyseus.connectTo(room, { displayName: 'Bob', spriteType: 'woman', accessCode: '', presence: 'busy' })
+    await waitFor(clientA, () => clientA.state.players.get(clientB.sessionId)?.presence === 'busy')
+
+    clientB.send('updateState', { x: 42, y: 84, direction: 'right', motionState: 'walking' })
+    clientA.send('updateState', { x: 10, y: 20, direction: 'up', motionState: 'walking' })
+    await waitFor(clientA, () => clientA.state.players.get(clientA.sessionId)?.x === 10)
+
+    const busy = clientA.state.players.get(clientB.sessionId)
+    expect(busy?.x).toBe(150)
+    expect(busy?.y).toBe(150)
+    expect(busy?.direction).toBe('down')
+    expect(busy?.motionState).toBe('idle')
+  })
+
+  it('ignores updateState while busy and keeps the last applied pose', async () => {
+    const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientB = await colyseus.connectTo(room, { displayName: 'Bob', spriteType: 'woman', accessCode: '' })
+    await waitFor(clientA, () => clientA.state.players.has(clientB.sessionId))
+    await waitFor(clientB, () => Boolean(clientB.state.players?.has(clientA.sessionId)))
+
+    clientA.send('updateState', { x: 42, y: 84, direction: 'right', motionState: 'walking' })
+    await waitFor(clientB, () => clientB.state.players.get(clientA.sessionId)?.x === 42)
+
+    clientA.send('setPresence', { presence: 'busy' })
+    await waitFor(clientB, () => clientB.state.players.get(clientA.sessionId)?.presence === 'busy')
+
+    clientA.send('updateState', { x: 99, y: 99, direction: 'left', motionState: 'sprinting' })
+    clientB.send('updateState', { x: 10, y: 20, direction: 'up', motionState: 'walking' })
+    await waitFor(clientB, () => clientB.state.players.get(clientB.sessionId)?.x === 10)
+
+    const frozen = clientB.state.players.get(clientA.sessionId)
+    expect(frozen?.x).toBe(42)
+    expect(frozen?.y).toBe(84)
+    expect(frozen?.direction).toBe('right')
+    expect(frozen?.motionState).toBe('walking')
+  })
+
+  it('applies updateState again after presence returns to available', async () => {
+    const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientB = await colyseus.connectTo(room, { displayName: 'Bob', spriteType: 'woman', accessCode: '' })
+    await waitFor(clientA, () => clientA.state.players.has(clientB.sessionId))
+    await waitFor(clientB, () => Boolean(clientB.state.players?.has(clientA.sessionId)))
+
+    clientA.send('setPresence', { presence: 'busy' })
+    await waitFor(clientB, () => clientB.state.players.get(clientA.sessionId)?.presence === 'busy')
+
+    clientA.send('setPresence', { presence: 'available' })
+    await waitFor(clientB, () => clientB.state.players.get(clientA.sessionId)?.presence === 'available')
+
+    clientA.send('updateState', { x: 42, y: 84, direction: 'right', motionState: 'walking' })
+    await waitFor(clientB, () => clientB.state.players.get(clientA.sessionId)?.x === 42)
+
+    const moved = clientB.state.players.get(clientA.sessionId)
+    expect(moved?.y).toBe(84)
+    expect(moved?.direction).toBe('right')
+    expect(moved?.motionState).toBe('walking')
+  })
+
+  it('preserves busy presence on the same session after reconnection within the grace period', async () => {
+    const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientB = await colyseus.connectTo(room, { displayName: 'Bob', spriteType: 'woman', accessCode: '' })
+    await waitFor(clientA, () => clientA.state.players.has(clientB.sessionId))
+    await waitFor(clientB, () => Boolean(clientB.state.players?.has(clientA.sessionId)))
+
+    clientB.send('setPresence', { presence: 'busy' })
+    await waitFor(clientA, () => clientA.state.players.get(clientB.sessionId)?.presence === 'busy')
+
+    const { sessionId, reconnectionToken } = clientB
+    await clientB.leave(false)
+    await waitFor(clientA, () => !clientA.state.players.has(sessionId))
+
+    const reconnectedB = await colyseus.sdk.reconnect(reconnectionToken)
+    expect(reconnectedB.sessionId).toBe(sessionId)
+    await waitFor(clientA, () => clientA.state.players.has(sessionId))
+    expect(clientA.state.players.get(sessionId)?.presence).toBe('busy')
+  })
+
   it('sends a sessionProof on join that verifies against the client\'s own sessionId', async () => {
     const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
     const client = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })

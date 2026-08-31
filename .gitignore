@@ -21,3 +21,10 @@ build/
 
 # Spec Kit machine-local state (see .specify/.gitignore)
 .specify/feature.json
+
+# Michael Local docs
+plans/*
+.cursor/*
+docs/how-to-deliver.md
+docs/how-to-discover.md
+docs/how-to-version.md

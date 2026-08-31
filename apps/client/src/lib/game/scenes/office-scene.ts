@@ -1,7 +1,7 @@
 import type { AvatarPosition, ProximityAudioControllerOptions } from '$lib/av/proximity-audio-controller'
 import type { VideoOverlayEntry } from '$lib/av/video-overlay-state.svelte'
 import type { TiledSpaceObject } from '$lib/game/map/private-zones'
-import type { AvatarDirection, AvatarMotionState, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
+import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
 import type { LocalVideoTrack, RemoteVideoTrack, Room } from 'livekit-client'
 import avatarManIdleUrl from '$lib/assets/sprites/avatar-man-idle.png?url'
 import avatarManWalkUrl from '$lib/assets/sprites/avatar-man-walk.png?url'
@@ -11,6 +11,7 @@ import { MediaControls } from '$lib/av/media-controls'
 import { PrivateRoomController } from '$lib/av/private-room-controller'
 import { ProximityAudioController } from '$lib/av/proximity-audio-controller'
 import { videoOverlayState } from '$lib/av/video-overlay-state.svelte'
+import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
 import { Avatar, AVATAR_FRAME_RANGES, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
 import { AvatarNameLabel } from '$lib/game/entities/avatar-name-label'
 import { MovementController } from '$lib/game/input/movement-controller'
@@ -23,6 +24,9 @@ import Phaser from 'phaser'
 
 /** Emitted on `game.events` once `MediaControls` is ready (T017 — see +page.svelte). */
 export const MEDIA_CONTROLS_READY_EVENT = 'mediacontrols-ready'
+
+/** Emitted on `game.events` when local presence changes (busy unpublish / restore). */
+export const LOCAL_PRESENCE_EVENT = 'local-presence'
 
 /**
  * Emitted on `game.events` when the Colyseus room join is rejected (most commonly a wrong/
@@ -107,6 +111,7 @@ interface RemoteAvatarEntry {
   avatar: Avatar
   view: Phaser.GameObjects.Sprite
   nameLabel: AvatarNameLabel
+  presence: AvatarPresence
   /** Currently rendered position — eased toward `avatar.x/y` each frame, see `updateRemoteAvatarViews`. */
   renderX: number
   renderY: number
@@ -139,6 +144,7 @@ export interface OfficeSceneData {
 
 export class OfficeScene extends Phaser.Scene {
   private readonly movementController = new MovementController()
+  private readonly busyPresenceStore = new BusyPresenceStore()
   private readonly roomConnection = new RoomConnection()
   private readonly proximityAudioController = new ProximityAudioController()
   private readonly privateRoomController = new PrivateRoomController()
@@ -152,6 +158,7 @@ export class OfficeScene extends Phaser.Scene {
   private displayName!: string
   private spriteType!: AvatarSpriteType
   private accessCode!: string
+  private presence: AvatarPresence = 'available'
   private mediaControls: MediaControls | undefined
   /** Set only while connected to a private zone's isolated room — `null` means ambient `office` audio is active. */
   private connectedPrivateRoom: Room | null = null
@@ -252,7 +259,14 @@ export class OfficeScene extends Phaser.Scene {
     this.roomConnection.onRemoteAvatarAdd((sessionId, state) => this.spawnRemoteAvatar(sessionId, state))
     this.roomConnection.onRemoteAvatarChange((sessionId, state) => this.updateRemoteAvatar(sessionId, state))
     this.roomConnection.onRemoteAvatarRemove(sessionId => this.removeRemoteAvatar(sessionId))
-    this.roomConnection.connect({ displayName: this.displayName, spriteType: this.spriteType, accessCode: this.accessCode })
+    this.presence = this.busyPresenceStore.load()
+    this.avatarNameLabel.setPresence(this.presence)
+    this.roomConnection.connect({
+      displayName: this.displayName,
+      spriteType: this.spriteType,
+      accessCode: this.accessCode,
+      presence: this.presence,
+    })
       .then(() => {
         this.game.events.emit(ROOM_JOINED_EVENT)
         this.connectProximityAudio()
@@ -290,7 +304,7 @@ export class OfficeScene extends Phaser.Scene {
     this.proximityAudioController
       .connect(
         { identity: sessionId, name: this.displayName, proof: this.roomConnection.sessionProof ?? '' },
-        { x: this.avatar.x, y: this.avatar.y },
+        { x: this.avatar.x, y: this.avatar.y, presence: this.presence },
       )
       .then(() => this.applyMediaControls(this.proximityAudioController.liveKitRoom, micEnabled, cameraEnabled))
       .catch((error: unknown) => {
@@ -305,11 +319,50 @@ export class OfficeScene extends Phaser.Scene {
    * `microphoneUnavailable`/`cameraUnavailable` instead.
    */
   private async applyMediaControls(room: Room, micEnabled: boolean, cameraEnabled: boolean): Promise<void> {
-    const mediaControls = new MediaControls(room)
-    this.mediaControls = mediaControls
-    await mediaControls.setMicrophoneEnabled(micEnabled)
-    await mediaControls.setCameraEnabled(cameraEnabled)
-    this.game.events.emit(MEDIA_CONTROLS_READY_EVENT, mediaControls)
+    const previous = this.mediaControls
+    const next = new MediaControls(room)
+    next.adoptBusyState(previous)
+    this.mediaControls = next
+    if (this.presence === 'busy') {
+      await next.beginBusy({ microphoneEnabled: micEnabled, cameraEnabled })
+    }
+    else {
+      await next.setMicrophoneEnabled(micEnabled)
+      await next.setCameraEnabled(cameraEnabled)
+    }
+    this.game.events.emit(MEDIA_CONTROLS_READY_EVENT, next)
+    this.game.events.emit(LOCAL_PRESENCE_EVENT, this.presence)
+  }
+
+  async toggleBusyPresence(): Promise<void> {
+    await this.setLocalPresence(this.presence === 'busy' ? 'available' : 'busy')
+  }
+
+  /**
+   * Single source of truth for local busy toggles (keyboard + HUD): updates local state, sends
+   * presence to Colyseus, persists the per-tab choice, applies media busy suppression, then
+   * notifies the page.
+   */
+  async setLocalPresence(presence: AvatarPresence): Promise<void> {
+    if (presence === this.presence) {
+      return
+    }
+    this.presence = presence
+    // Ahead of the media awaits below: the nameplate should never wait on LiveKit to reflect
+    // a toggle the person just made.
+    this.avatarNameLabel.setPresence(presence)
+    if (presence === 'busy') {
+      this.movementController.clear()
+    }
+    this.roomConnection.sendPresence(presence)
+    this.busyPresenceStore.save(presence)
+    if (presence === 'busy') {
+      await this.mediaControls?.beginBusy()
+    }
+    else {
+      await this.mediaControls?.endBusy()
+    }
+    this.game.events.emit(LOCAL_PRESENCE_EVENT, presence)
   }
 
   /**
@@ -336,7 +389,10 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
-    this.avatar.update(this.movementController.getIntent(), delta / 1000)
+    const intent = this.presence === 'busy'
+      ? { direction: null, sprint: false }
+      : this.movementController.getIntent()
+    this.avatar.update(intent, delta / 1000)
     this.avatarView.setPosition(this.avatar.x, this.avatar.y)
     this.avatarNameLabel.setPosition(this.avatar.x, this.avatar.y)
 
@@ -356,7 +412,7 @@ export class OfficeScene extends Phaser.Scene {
       motionState: this.avatar.motionState,
     })
 
-    const localPosition = { x: this.avatar.x, y: this.avatar.y }
+    const localPosition = { x: this.avatar.x, y: this.avatar.y, presence: this.presence }
     const remotePositions = this.remoteAvatarPositions()
 
     const { sessionId, sessionProof } = this.roomConnection
@@ -370,7 +426,13 @@ export class OfficeScene extends Phaser.Scene {
 
     if (this.connectedPrivateRoom) {
       // Isolated, small room — everyone in it is "in the call", no distance falloff needed.
-      this.updateVideoOverlay(new Set(this.connectedPrivateRoom.remoteParticipants.keys()), this.connectedPrivateRoom)
+      // Local busy still hides the strip here: this path lists all remoteParticipants, not nearby.
+      if (this.presence === 'busy') {
+        videoOverlayState.set([])
+      }
+      else {
+        this.updateVideoOverlay(new Set(this.connectedPrivateRoom.remoteParticipants.keys()), this.connectedPrivateRoom)
+      }
     }
     else {
       const nearbySessionIds = this.proximityAudioController.update(localPosition, remotePositions)
@@ -399,7 +461,7 @@ export class OfficeScene extends Phaser.Scene {
   private remoteAvatarPositions(): ReadonlyMap<string, AvatarPosition> {
     const positions = new Map<string, AvatarPosition>()
     for (const [sessionId, entry] of this.remoteAvatars) {
-      positions.set(sessionId, { x: entry.avatar.x, y: entry.avatar.y })
+      positions.set(sessionId, { x: entry.avatar.x, y: entry.avatar.y, presence: entry.presence })
     }
     return positions
   }
@@ -408,24 +470,35 @@ export class OfficeScene extends Phaser.Scene {
    * Refreshes `videoOverlayState` (T015/T016) with a fixed-position strip: the local
    * participant ("You") plus the `MAX_REMOTE_VIDEO_TILES` closest nearby ("close enough to
    * hear", `ProximityAudioController.update()`'s return value — same condition per spec.md's
-   * US2 acceptance scenarios) remote participants, closest-first. Each tile shows camera/mic
-   * state and video track (if publishing); a camera-off tile still renders (as a placeholder,
-   * per the component) rather than being omitted. Any remaining nearby participants beyond the
-   * cap collapse into a single "+N" overflow tile (still audible — this cap only affects the
-   * video strip, not `ProximityAudioController` volume). The strip itself (including "You") is
-   * hidden entirely while alone — it only appears once at least one other participant is
-   * nearby. `room` is whichever LiveKit room is currently active — `office`, or a private
-   * zone's isolated room while one is connected (see `update()`).
+   * US2 acceptance scenarios) remote participants, closest-first. Busy identities never
+   * appear: a busy local hides the strip entirely, and a busy remote is omitted before tiles
+   * (so a camera-off placeholder is not reused as a mute tile). Each remaining tile shows
+   * camera/mic state and video track (if publishing); a camera-off tile still renders (as a
+   * placeholder, per the component) rather than being omitted. Any remaining nearby
+   * participants beyond the cap collapse into a single "+N" overflow tile (still audible —
+   * this cap only affects the video strip, not `ProximityAudioController` volume). The strip
+   * itself (including "You") is hidden entirely while alone — it only appears once at least
+   * one other participant is nearby. `room` is whichever LiveKit room is currently active —
+   * `office`, or a private zone's isolated room while one is connected (see `update()`).
    */
   private updateVideoOverlay(nearbySessionIds: ReadonlySet<string>, room: Room): void {
-    if (nearbySessionIds.size === 0) {
+    if (this.presence === 'busy' || nearbySessionIds.size === 0) {
+      videoOverlayState.set([])
+      return
+    }
+
+    const visibleSessionIds = [...nearbySessionIds].filter(
+      sessionId => this.remoteAvatars.get(sessionId)?.presence !== 'busy',
+    )
+
+    if (visibleSessionIds.length === 0) {
       videoOverlayState.set([])
       return
     }
 
     const { localParticipant } = room
 
-    const closestSessionIds = [...nearbySessionIds].sort((a, b) => this.distanceToLocal(a) - this.distanceToLocal(b))
+    const closestSessionIds = visibleSessionIds.sort((a, b) => this.distanceToLocal(a) - this.distanceToLocal(b))
 
     const entries: VideoOverlayEntry[] = [{
       sessionId: localParticipant.identity,
@@ -479,8 +552,9 @@ export class OfficeScene extends Phaser.Scene {
     const view = this.add.sprite(avatar.x, avatar.y, avatarTextureKey(avatar.spriteType, 'idle'))
     view.anims.play(getSpriteAnimation(avatar.spriteType, avatar.motionState, avatar.direction).key)
     const nameLabel = new AvatarNameLabel(this, avatar.x, avatar.y, state.displayName)
+    nameLabel.setPresence(state.presence)
 
-    this.remoteAvatars.set(sessionId, { avatar, view, nameLabel, renderX: avatar.x, renderY: avatar.y })
+    this.remoteAvatars.set(sessionId, { avatar, view, nameLabel, presence: state.presence, renderX: avatar.x, renderY: avatar.y })
   }
 
   private updateRemoteAvatar(sessionId: string, state: AvatarState): void {
@@ -496,6 +570,8 @@ export class OfficeScene extends Phaser.Scene {
     entry.avatar.y = state.y
     entry.avatar.direction = state.direction
     entry.avatar.motionState = state.motionState
+    entry.presence = state.presence
+    entry.nameLabel.setPresence(state.presence)
 
     const animation = getSpriteAnimation(state.spriteType, state.motionState, state.direction)
     if (entry.view.anims.currentAnim?.key !== animation.key) {
@@ -511,6 +587,13 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
+    if (event.code === 'KeyB') {
+      if (!event.repeat) {
+        void this.toggleBusyPresence()
+      }
+      return
+    }
+
     if (SPRINT_KEYS.has(event.code)) {
       this.movementController.pressSprint()
       return

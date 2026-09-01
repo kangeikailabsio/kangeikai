@@ -1,5 +1,6 @@
 import type { AvatarPosition, ProximityAudioControllerOptions } from '$lib/av/proximity-audio-controller'
 import type { VideoOverlayEntry } from '$lib/av/video-overlay-state.svelte'
+import type { HoverTarget } from '$lib/game/entities/avatar-hover'
 import type { TiledSpaceObject } from '$lib/game/map/private-zones'
 import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
 import type { LocalVideoTrack, RemoteVideoTrack, Room } from 'livekit-client'
@@ -13,6 +14,7 @@ import { ProximityAudioController } from '$lib/av/proximity-audio-controller'
 import { videoOverlayState } from '$lib/av/video-overlay-state.svelte'
 import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
 import { Avatar, AVATAR_FRAME_RANGES, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
+import { resolveHoverTargetPosition } from '$lib/game/entities/avatar-hover'
 import { AvatarNameLabel } from '$lib/game/entities/avatar-name-label'
 import { AutoWalkController } from '$lib/game/input/auto-walk-controller'
 import { DoubleClickDetector } from '$lib/game/input/double-click-detector'
@@ -80,6 +82,16 @@ const WALK_TARGET_MARKER_COLOR = 0xE8A9C9
 const INVALID_TARGET_MARKER_COLOR = 0xEF4444
 const TARGET_MARKER_RADIUS_PX = 6
 const INVALID_TARGET_MARKER_DURATION_MS = 300
+
+/** Reuses the same accent color — both are "this is an avatar-related highlight" markers. */
+const HOVER_RING_COLOR = WALK_TARGET_MARKER_COLOR
+const HOVER_RING_STROKE_WIDTH = 2
+/**
+ * Radius of both the hover ring and its hit area — what you see is exactly what triggers it.
+ * Centered on the sprite's frame middle (see `makeAvatarHoverable`), large enough to frame the
+ * whole 32×64 sprite rather than just a small mark at the feet.
+ */
+const AVATAR_HOVER_RADIUS_PX = 34
 
 /** Frame width/height for every avatar spritesheet (768x64px, 32px-wide frames — see avatar.ts). */
 const AVATAR_FRAME_SIZE = { frameWidth: 32, frameHeight: 64 }
@@ -163,6 +175,8 @@ export class OfficeScene extends Phaser.Scene {
   private readonly autoWalkController = new AutoWalkController()
   private readonly doubleClickDetector = new DoubleClickDetector()
   private walkTargetMarker: Phaser.GameObjects.Arc | undefined
+  private hoveredTarget: HoverTarget | undefined
+  private hoverRing: Phaser.GameObjects.Arc | undefined
   private readonly busyPresenceStore = new BusyPresenceStore()
   private readonly roomConnection = new RoomConnection()
   private readonly proximityAudioController = new ProximityAudioController()
@@ -269,6 +283,7 @@ export class OfficeScene extends Phaser.Scene {
 
     this.avatarView = this.add.sprite(this.avatar.x, this.avatar.y, avatarTextureKey(this.spriteType, 'idle'))
     this.avatarView.anims.play(getSpriteAnimation(this.avatar.spriteType, this.avatar.motionState, this.avatar.direction).key)
+    this.makeAvatarHoverable(this.avatarView, 'local')
     this.avatarNameLabel = new AvatarNameLabel(this, this.avatar.x, this.avatar.y, 'You')
 
     this.input.keyboard?.on('keydown', this.handleKeyDown, this)
@@ -486,6 +501,7 @@ export class OfficeScene extends Phaser.Scene {
     }
 
     this.updateRemoteAvatarViews(delta / 1000)
+    this.updateHoverRing()
   }
 
   /**
@@ -597,6 +613,7 @@ export class OfficeScene extends Phaser.Scene {
 
     const view = this.add.sprite(avatar.x, avatar.y, avatarTextureKey(avatar.spriteType, 'idle'))
     view.anims.play(getSpriteAnimation(avatar.spriteType, avatar.motionState, avatar.direction).key)
+    this.makeAvatarHoverable(view, sessionId)
     const nameLabel = new AvatarNameLabel(this, avatar.x, avatar.y, state.displayName)
     nameLabel.setPresence(state.presence)
 
@@ -630,6 +647,9 @@ export class OfficeScene extends Phaser.Scene {
     entry?.view.destroy()
     entry?.nameLabel.destroy()
     this.remoteAvatars.delete(sessionId)
+    if (this.hoveredTarget === sessionId) {
+      this.hoveredTarget = undefined
+    }
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
@@ -702,5 +722,44 @@ export class OfficeScene extends Phaser.Scene {
   private showInvalidTargetFeedback(point: { x: number, y: number }): void {
     const marker = this.add.circle(point.x, point.y, TARGET_MARKER_RADIUS_PX, INVALID_TARGET_MARKER_COLOR, 0.9)
     this.time.delayedCall(INVALID_TARGET_MARKER_DURATION_MS, () => marker.destroy())
+  }
+
+  /**
+   * Cosmetic only, no click behavior attached — `pointerover`/`pointerout` are separate event
+   * types from `pointerdown`, so this doesn't affect click-to-move's hit-testing at all. The
+   * circular hit area is centered on the frame's middle (in frame-space, independent of the
+   * sprite's origin), matching where the visual ring is drawn.
+   */
+  private makeAvatarHoverable(view: Phaser.GameObjects.Sprite, target: HoverTarget): void {
+    const hitArea = new Phaser.Geom.Circle(AVATAR_FRAME_SIZE.frameWidth / 2, AVATAR_FRAME_SIZE.frameHeight / 2, AVATAR_HOVER_RADIUS_PX)
+    view.setInteractive(hitArea, Phaser.Geom.Circle.Contains)
+    view.on('pointerover', () => {
+      this.hoveredTarget = target
+    })
+    view.on('pointerout', () => {
+      if (this.hoveredTarget === target) {
+        this.hoveredTarget = undefined
+      }
+    })
+  }
+
+  /** Follows the hovered avatar (local or remote) each frame, since it may be walking. */
+  private updateHoverRing(): void {
+    const remotePositions = new Map(
+      [...this.remoteAvatars].map(([sessionId, entry]) => [sessionId, { x: entry.renderX, y: entry.renderY }] as const),
+    )
+    const position = resolveHoverTargetPosition(this.hoveredTarget, { x: this.avatar.x, y: this.avatar.y }, remotePositions)
+
+    if (!position) {
+      this.hoverRing?.destroy()
+      this.hoverRing = undefined
+      return
+    }
+
+    if (!this.hoverRing) {
+      this.hoverRing = this.add.circle(position.x, position.y, AVATAR_HOVER_RADIUS_PX)
+        .setStrokeStyle(HOVER_RING_STROKE_WIDTH, HOVER_RING_COLOR)
+    }
+    this.hoverRing.setPosition(position.x, position.y)
   }
 }

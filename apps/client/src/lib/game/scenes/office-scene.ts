@@ -14,6 +14,8 @@ import { videoOverlayState } from '$lib/av/video-overlay-state.svelte'
 import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
 import { Avatar, AVATAR_FRAME_RANGES, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
 import { AvatarNameLabel } from '$lib/game/entities/avatar-name-label'
+import { AutoWalkController } from '$lib/game/input/auto-walk-controller'
+import { DoubleClickDetector } from '$lib/game/input/double-click-detector'
 import { MovementController } from '$lib/game/input/movement-controller'
 import { queueActiveMapLoad } from '$lib/game/map/active-map'
 import { resolvePrivateZones } from '$lib/game/map/private-zones'
@@ -71,6 +73,13 @@ const KEY_TO_DIRECTION: Record<string, AvatarDirection> = {
 
 /** Either Shift key holds the sprint modifier. */
 const SPRINT_KEYS = new Set(['ShiftLeft', 'ShiftRight'])
+
+/** Accent color already used elsewhere in the app (e.g. entry-form.svelte's submit button). */
+const WALK_TARGET_MARKER_COLOR = 0xE8A9C9
+/** Same red as the busy indicator (avatar-name-label.ts) — reused for "not accessible" feedback. */
+const INVALID_TARGET_MARKER_COLOR = 0xEF4444
+const TARGET_MARKER_RADIUS_PX = 6
+const INVALID_TARGET_MARKER_DURATION_MS = 300
 
 /** Frame width/height for every avatar spritesheet (768x64px, 32px-wide frames — see avatar.ts). */
 const AVATAR_FRAME_SIZE = { frameWidth: 32, frameHeight: 64 }
@@ -151,6 +160,9 @@ export interface OfficeSceneData {
 
 export class OfficeScene extends Phaser.Scene {
   private readonly movementController = new MovementController()
+  private readonly autoWalkController = new AutoWalkController()
+  private readonly doubleClickDetector = new DoubleClickDetector()
+  private walkTargetMarker: Phaser.GameObjects.Arc | undefined
   private readonly busyPresenceStore = new BusyPresenceStore()
   private readonly roomConnection = new RoomConnection()
   private readonly proximityAudioController = new ProximityAudioController()
@@ -261,6 +273,7 @@ export class OfficeScene extends Phaser.Scene {
 
     this.input.keyboard?.on('keydown', this.handleKeyDown, this)
     this.input.keyboard?.on('keyup', this.handleKeyUp, this)
+    this.input.on('pointerdown', this.handlePointerDown, this)
     this.game.events.on(Phaser.Core.Events.BLUR, this.handleBlur, this)
 
     this.roomConnection.onRemoteAvatarAdd((sessionId, state) => this.spawnRemoteAvatar(sessionId, state))
@@ -287,6 +300,7 @@ export class OfficeScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.input.keyboard?.off('keydown', this.handleKeyDown, this)
       this.input.keyboard?.off('keyup', this.handleKeyUp, this)
+      this.input.off('pointerdown', this.handlePointerDown, this)
       this.game.events.off(Phaser.Core.Events.BLUR, this.handleBlur, this)
       this.roomConnection.disconnect()
       this.proximityAudioController.disconnect()
@@ -397,10 +411,34 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
-    const intent = this.presence === 'busy'
+    const manualIntent = this.presence === 'busy'
       ? { direction: null, sprint: false }
       : this.movementController.getIntent()
+
+    let intent = manualIntent
+    if (manualIntent.direction) {
+      // A manual key always wins over an in-progress auto-walk.
+      this.autoWalkController.cancel()
+      this.clearWalkTargetMarker()
+    }
+    else if (this.autoWalkController.active) {
+      intent = this.autoWalkController.getIntent(this.avatar.x, this.avatar.y)
+      if (!this.autoWalkController.active) {
+        // Arrived this frame.
+        this.clearWalkTargetMarker()
+      }
+    }
+
+    const previousX = this.avatar.x
+    const previousY = this.avatar.y
     this.avatar.update(intent, delta / 1000)
+
+    if (this.autoWalkController.active && this.avatar.x === previousX && this.avatar.y === previousY) {
+      // A step was blocked by a collider — stop trying rather than animate against it forever.
+      this.autoWalkController.cancel()
+      this.clearWalkTargetMarker()
+    }
+
     this.avatarView.setPosition(this.avatar.x, this.avatar.y)
     this.avatarNameLabel.setPosition(this.avatar.x, this.avatar.y)
 
@@ -625,5 +663,44 @@ export class OfficeScene extends Phaser.Scene {
 
   private handleBlur(): void {
     this.movementController.clear()
+  }
+
+  /**
+   * Double-click-to-walk (FR click-to-move): a double-click landing within the map's pixel
+   * bounds sets an auto-walk target; outside those bounds (the letterboxed margin shown when
+   * the browser viewport is larger than the map — see `clampedCameraScroll`) shows brief
+   * "not accessible" feedback instead. No presence check here: `BusyOverlay`'s full-screen,
+   * pointer-events:auto div already intercepts the click before it reaches this canvas.
+   */
+  private handlePointerDown(pointer: Phaser.Input.Pointer): void {
+    const isDoubleClick = this.doubleClickDetector.registerClick({ x: pointer.x, y: pointer.y }, this.time.now)
+    if (!isDoubleClick) {
+      return
+    }
+
+    const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y)
+    if (worldPoint.x < 0 || worldPoint.x > this.mapWidthPx || worldPoint.y < 0 || worldPoint.y > this.mapHeightPx) {
+      this.showInvalidTargetFeedback(worldPoint)
+      return
+    }
+
+    this.autoWalkController.setTarget({ x: worldPoint.x, y: worldPoint.y })
+    this.showWalkTargetMarker(worldPoint)
+  }
+
+  private showWalkTargetMarker(point: { x: number, y: number }): void {
+    this.clearWalkTargetMarker()
+    this.walkTargetMarker = this.add.circle(point.x, point.y, TARGET_MARKER_RADIUS_PX, WALK_TARGET_MARKER_COLOR, 0.9)
+      .setStrokeStyle(2, WALK_TARGET_MARKER_COLOR)
+  }
+
+  private clearWalkTargetMarker(): void {
+    this.walkTargetMarker?.destroy()
+    this.walkTargetMarker = undefined
+  }
+
+  private showInvalidTargetFeedback(point: { x: number, y: number }): void {
+    const marker = this.add.circle(point.x, point.y, TARGET_MARKER_RADIUS_PX, INVALID_TARGET_MARKER_COLOR, 0.9)
+    this.time.delayedCall(INVALID_TARGET_MARKER_DURATION_MS, () => marker.destroy())
   }
 }

@@ -8,13 +8,14 @@ const LABEL_CORNER_RADIUS = 4
 const LABEL_ARROW_WIDTH = 10
 const LABEL_ARROW_HEIGHT = 5
 const LABEL_DEPTH = 10_000
-const LABEL_BUSY_DOT_COLOR = 0xFBBF24
+// Amber is reserved for a future "away" status — busy uses red so the two stay visually distinct.
+const LABEL_BUSY_DOT_COLOR = 0xEF4444
 const LABEL_BUSY_DOT_RADIUS = 3
 const LABEL_BUSY_DOT_GAP = 5
 
 /**
  * Persistent identity label anchored above an avatar. Keeping the visual composition in a
- * container lets the busy indicator sit alongside the name: an amber dot drawn into the same
+ * container lets the busy indicator sit alongside the name: a red dot drawn into the same
  * `Graphics` as the pill, so presence changes never create or destroy game objects.
  */
 export class AvatarNameLabel {

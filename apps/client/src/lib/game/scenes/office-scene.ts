@@ -44,6 +44,13 @@ export const ROOM_JOIN_FAILED_EVENT = 'room-join-failed'
 export const ROOM_JOINED_EVENT = 'room-joined'
 
 /**
+ * Emitted on `game.events` as soon as `RoomConnection` exists (before `connect()` resolves) —
+ * `+page.svelte`'s members sidebar subscribes directly to the instance's event hooks rather
+ * than going through this scene's per-frame loop.
+ */
+export const ROOM_CONNECTION_READY_EVENT = 'room-connection-ready'
+
+/**
  * Cap on remote video tiles shown in the strip at once — beyond this, the closest
  * `MAX_REMOTE_VIDEO_TILES` remain visible and the rest collapse into a single "+N" overflow
  * tile (`updateVideoOverlay`). Keeps tiles legible regardless of how many participants share a
@@ -259,6 +266,7 @@ export class OfficeScene extends Phaser.Scene {
     this.roomConnection.onRemoteAvatarAdd((sessionId, state) => this.spawnRemoteAvatar(sessionId, state))
     this.roomConnection.onRemoteAvatarChange((sessionId, state) => this.updateRemoteAvatar(sessionId, state))
     this.roomConnection.onRemoteAvatarRemove(sessionId => this.removeRemoteAvatar(sessionId))
+    this.game.events.emit(ROOM_CONNECTION_READY_EVENT, this.roomConnection)
     this.presence = this.busyPresenceStore.load()
     this.avatarNameLabel.setPresence(this.presence)
     this.roomConnection.connect({

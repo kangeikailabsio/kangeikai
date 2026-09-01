@@ -44,4 +44,20 @@ describe('autoWalkController', () => {
     expect(intent).toEqual({ direction: null, sprint: false })
     expect(controller.active).toBe(false)
   })
+
+  it('commits to the chosen axis until it resolves, instead of flickering every frame on a diagonal target', () => {
+    const controller = new AutoWalkController()
+    controller.setTarget({ x: 100, y: 100 })
+
+    // Diagonal target (dx starts equal to dy): once "right" is picked, it must stay "right"
+    // even as dy overtakes dx while x approaches — recomputing from scratch each frame used to
+    // flip direction (and restart the walk animation) every single frame on a target like this.
+    expect(controller.getIntent(0, 0).direction).toBe('right')
+    expect(controller.getIntent(50, 0).direction).toBe('right')
+    expect(controller.getIntent(90, 0).direction).toBe('right')
+
+    // Only switches once the committed axis is actually resolved.
+    expect(controller.getIntent(97, 0).direction).toBe('down')
+    expect(controller.getIntent(97, 50).direction).toBe('down')
+  })
 })

@@ -1,12 +1,15 @@
 <script lang='ts'>
   import type { MediaControls } from '$lib/av/media-controls'
   import type { GuestProfile } from '$lib/entry/guest-profile-schema'
+  import type { RoomConnection } from '$lib/network/room-connection'
   import type { AvatarPresence } from '@kangeikai/shared'
   import AvatarVideoOverlay from '$lib/av/avatar-video-overlay.svelte'
   import BusyOverlay from '$lib/av/busy-overlay.svelte'
   import EntryForm from '$lib/entry/entry-form.svelte'
   import { GuestProfileStore } from '$lib/entry/guest-profile-store'
-  import { LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT } from '$lib/game/scenes/office-scene'
+  import { LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT } from '$lib/game/scenes/office-scene'
+  import MembersSidebar from '$lib/people/members-sidebar.svelte'
+  import { rosterState } from '$lib/people/roster-state.svelte'
   import Phaser from 'phaser'
   import { onDestroy } from 'svelte'
 
@@ -27,6 +30,8 @@
   let micUnavailable = $state(false)
   let cameraUnavailable = $state(false)
   let localPresence: AvatarPresence = $state('available')
+  let membersOpen = $state(false)
+  let unwireRoster: (() => void) | undefined
 
   /** Mounts the game only once entry is confirmed (FR-009) — see `EntryForm` below. */
   function handleEntryConfirm(profile: GuestProfile, accessCode: string): void {
@@ -53,6 +58,12 @@
 
     game.scene.add('office', OfficeScene, true, { displayName: profile.displayName, spriteType: profile.avatarType, accessCode })
 
+    rosterState.reset()
+    rosterState.setLocalName(profile.displayName)
+    game.events.on(ROOM_CONNECTION_READY_EVENT, (roomConnection: RoomConnection) => {
+      unwireRoster = rosterState.connect(roomConnection)
+    })
+
     // OfficeScene creates MediaControls only once its own LiveKit room connection resolves
     // (spec 003 FR-008's same gating, reused for media) — see office-scene.ts.
     game.events.on(MEDIA_CONTROLS_READY_EVENT, (controls: MediaControls) => {
@@ -65,6 +76,7 @@
 
     game.events.on(LOCAL_PRESENCE_EVENT, (presence: AvatarPresence) => {
       localPresence = presence
+      rosterState.setLocalPresence(presence)
     })
 
     game.events.on(ROOM_JOINED_EVENT, () => {
@@ -79,11 +91,15 @@
       guestProfile = undefined
       connecting = false
       joinError = 'Could not join — check the access code and try again.'
+      unwireRoster?.()
+      rosterState.reset()
+      membersOpen = false
     })
   }
 
   onDestroy(() => {
     game?.destroy(true)
+    unwireRoster?.()
   })
 
   async function toggleMicrophone(): Promise<void> {
@@ -114,6 +130,7 @@
   {#if guestProfile && !connecting}
     <AvatarVideoOverlay />
     <BusyOverlay active={localPresence === 'busy'} />
+    <MembersSidebar open={membersOpen} />
   {/if}
 </div>
 
@@ -144,6 +161,14 @@
       onclick={toggleBusy}
     >
       ⛔ Busy
+    </button>
+    <button
+      type='button'
+      aria-pressed={membersOpen}
+      title={membersOpen ? 'Hide members list' : 'Show members list'}
+      onclick={() => (membersOpen = !membersOpen)}
+    >
+      👥 Members
     </button>
   </div>
 {/if}

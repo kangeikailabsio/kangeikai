@@ -13,6 +13,8 @@ import avatarWomanWalkUrl from '$lib/assets/sprites/avatar-woman-walk.png?url'
 import { MediaControls } from '$lib/av/media-controls'
 import { PrivateRoomController } from '$lib/av/private-room-controller'
 import { ProximityAudioController } from '$lib/av/proximity-audio-controller'
+import { buildScreenShareGridTiles } from '$lib/av/screen-share-grid'
+import { screenShareGridState } from '$lib/av/screen-share-grid-state.svelte'
 import { videoOverlayState } from '$lib/av/video-overlay-state.svelte'
 import { buildVideoOverlayTiles } from '$lib/av/video-overlay-tiles'
 import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
@@ -606,11 +608,14 @@ export class OfficeScene extends Phaser.Scene {
    * this cap only affects the strip). The strip itself (including "You") is hidden entirely
    * while alone — it only appears once at least one other participant is nearby. `room` is
    * whichever LiveKit room is currently active — `office`, or a private zone's isolated room
-   * while one is connected (see `update()`).
+   * while one is connected (see `update()`). Also refreshes `screenShareGridState` (#99) from
+   * the exact same candidate lists, for the full-screen grid overlay (#100) — every active
+   * screen share nearby, with no cap (unlike the strip above).
    */
   private updateVideoOverlay(nearbySessionIds: ReadonlySet<string>, room: Room): void {
     if (this.presence === 'busy') {
       videoOverlayState.set([])
+      screenShareGridState.set([])
       return
     }
 
@@ -681,6 +686,9 @@ export class OfficeScene extends Phaser.Scene {
     }
 
     videoOverlayState.set(buildVideoOverlayTiles(local, remotes, MAX_REMOTE_VIDEO_TILES))
+    // Full-screen grid overlay (#100): every active share nearby, uncapped — built from the
+    // exact same candidate lists as the strip above, just filtered down to the screen ones.
+    screenShareGridState.set(buildScreenShareGridTiles(local, remotes))
   }
 
   /** Euclidean distance in map pixels between the local avatar and a remote avatar. */

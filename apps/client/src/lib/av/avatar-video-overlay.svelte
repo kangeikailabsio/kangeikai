@@ -1,25 +1,6 @@
 <script lang='ts'>
-  import type { LocalVideoTrack, RemoteVideoTrack } from 'livekit-client'
-  import type { Action } from 'svelte/action'
+  import { attachVideoTrack } from '$lib/av/attach-video-track'
   import { isOverflowTile, videoOverlayState } from '$lib/av/video-overlay-state.svelte'
-
-  /** Attaches/detaches a LiveKit video track to this element as the track prop changes. */
-  const attachVideoTrack: Action<HTMLVideoElement, LocalVideoTrack | RemoteVideoTrack | undefined> = (node, track) => {
-    track?.attach(node)
-    return {
-      update(nextTrack) {
-        if (nextTrack === track) {
-          return
-        }
-        track?.detach(node)
-        nextTrack?.attach(node)
-        track = nextTrack
-      },
-      destroy() {
-        track?.detach(node)
-      },
-    }
-  }
 
   function initial(name: string): string {
     return name.trim().charAt(0).toUpperCase() || '?'

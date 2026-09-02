@@ -13,6 +13,7 @@ import { PrivateRoomController } from '$lib/av/private-room-controller'
 import { ProximityAudioController } from '$lib/av/proximity-audio-controller'
 import { videoOverlayState } from '$lib/av/video-overlay-state.svelte'
 import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
+import { clampedCameraCenter, clampZoom, fitToMapZoom } from '$lib/game/camera/camera-math'
 import { Avatar, AVATAR_FRAME_RANGES, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
 import { resolveHoverTargetPosition } from '$lib/game/entities/avatar-hover'
 import { AvatarNameLabel } from '$lib/game/entities/avatar-name-label'
@@ -116,32 +117,25 @@ function avatarTextureKey(spriteType: AvatarSpriteType, segment: 'idle' | 'walk'
 }
 
 /**
- * Fixed at native tile size (1 tile-px = 1 screen-px), matching Gather's approach: a fixed,
- * comfortable zoom level rather than scaling to fit the screen — Gather's maps are simply
- * authored large enough that panning (FR-006) is the norm, not an edge case. This test map
- * (welcome.tmj) is smaller than that today, so it leaves empty margin on large screens; that's
- * expected to resolve itself once the real map is built out larger, not something to compensate
- * for here. User-controlled zoom (Gather has scroll-wheel zoom in/out) is a separate, not yet
- * scoped feature — this is only the fixed base zoom.
+ * Native tile size (1 tile-px = 1 screen-px) — the starting zoom on load and the level scroll-
+ * wheel zooming (#89) returns toward as you zoom back out, before hitting `minZoom`.
  */
-const CAMERA_ZOOM = 1
+const DEFAULT_ZOOM = 1
+
+/** How much closer scroll-wheel zoom-in can get, relative to `DEFAULT_ZOOM` (#89). */
+const MAX_ZOOM = DEFAULT_ZOOM * 2
 
 /**
- * Camera scroll for one axis, in world units. When the (zoom-adjusted) viewport is smaller than
- * the map, follows the avatar centered, clamped so the camera never shows area outside the map
- * (FR-006). When the viewport is *larger* than the map along this axis (e.g. a wide monitor and
- * the current, smaller-than-typical office map), the whole map already fits — statically center
- * it rather than panning within the slack space, which would otherwise bias the map toward
- * whichever edge the avatar is nearest (not what "keep the avatar in view" should look like when
- * the avatar, and everything else, is already always in view).
+ * Multiplicative zoom-per-wheel-event factor: `zoom *= exp(-deltaY * WHEEL_ZOOM_SENSITIVITY)`.
+ * Exponential (rather than a flat per-event step) keeps a wheel notch feeling like the same
+ * proportional zoom change regardless of the current zoom level. Tuned so a typical mouse
+ * wheel notch (~100px deltaY) changes zoom by roughly 10%; trackpads report smaller, more
+ * frequent deltas and so zoom more smoothly per physical scroll gesture.
  */
-function clampedCameraScroll(avatarPos: number, viewportSize: number, mapSize: number): number {
-  if (mapSize <= viewportSize) {
-    return (mapSize - viewportSize) / 2
-  }
-  const desired = avatarPos - viewportSize / 2
-  return Math.min(Math.max(desired, 0), mapSize - viewportSize)
-}
+const WHEEL_ZOOM_SENSITIVITY = 0.001
+
+/** Duration of the eased `camera.zoomTo` tween triggered by each wheel event (#89). */
+const ZOOM_TWEEN_DURATION_MS = 150
 
 interface RemoteAvatarEntry {
   /** `x`/`y` hold the latest raw position received over the network (the interpolation target). */
@@ -196,6 +190,13 @@ export class OfficeScene extends Phaser.Scene {
   private avatarNameLabel!: AvatarNameLabel
   private mapWidthPx = 0
   private mapHeightPx = 0
+  /**
+   * The zoom `handleWheel`/`handleResize` are steering the camera toward (#89) — read back on
+   * resize instead of `camera.zoom` since a `zoomTo` tween may still be mid-flight.
+   */
+  private targetZoom = DEFAULT_ZOOM
+  /** Recomputed on `create()`/resize from the current viewport — see `resolveMinZoom` (#89). */
+  private minZoom = DEFAULT_ZOOM
   private mapKey!: string
   private displayName!: string
   private spriteType!: AvatarSpriteType
@@ -243,7 +244,9 @@ export class OfficeScene extends Phaser.Scene {
 
     this.mapWidthPx = map.widthInPixels
     this.mapHeightPx = map.heightInPixels
-    this.cameras.main.setZoom(CAMERA_ZOOM)
+    this.minZoom = this.resolveMinZoom(this.cameras.main.width, this.cameras.main.height)
+    this.targetZoom = DEFAULT_ZOOM
+    this.cameras.main.setZoom(this.targetZoom)
 
     // The "spaces" object layer's `private: true` objects — each one an isolated conversation
     // room, not an ambient-volume zone (spec 004's private-room refactor).
@@ -298,6 +301,8 @@ export class OfficeScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown', this.handleKeyDown, this)
     this.input.keyboard?.on('keyup', this.handleKeyUp, this)
     this.input.on('pointerdown', this.handlePointerDown, this)
+    this.input.on('wheel', this.handleWheel, this)
+    this.scale.on(Phaser.Scale.Events.RESIZE, this.handleResize, this)
     this.game.events.on(Phaser.Core.Events.BLUR, this.handleBlur, this)
 
     this.roomConnection.onRemoteAvatarAdd((sessionId, state) => this.spawnRemoteAvatar(sessionId, state))
@@ -325,6 +330,8 @@ export class OfficeScene extends Phaser.Scene {
       this.input.keyboard?.off('keydown', this.handleKeyDown, this)
       this.input.keyboard?.off('keyup', this.handleKeyUp, this)
       this.input.off('pointerdown', this.handlePointerDown, this)
+      this.input.off('wheel', this.handleWheel, this)
+      this.scale.off(Phaser.Scale.Events.RESIZE, this.handleResize, this)
       this.game.events.off(Phaser.Core.Events.BLUR, this.handleBlur, this)
       this.roomConnection.disconnect()
       this.proximityAudioController.disconnect()
@@ -472,8 +479,9 @@ export class OfficeScene extends Phaser.Scene {
     }
 
     const camera = this.cameras.main
-    camera.scrollX = clampedCameraScroll(this.avatar.x, camera.width / camera.zoom, this.mapWidthPx)
-    camera.scrollY = clampedCameraScroll(this.avatar.y, camera.height / camera.zoom, this.mapHeightPx)
+    const centerX = clampedCameraCenter(this.avatar.x, camera.width / camera.zoom, this.mapWidthPx)
+    const centerY = clampedCameraCenter(this.avatar.y, camera.height / camera.zoom, this.mapHeightPx)
+    camera.centerOn(centerX, centerY)
 
     this.roomConnection.sendState({
       x: this.avatar.x,
@@ -695,10 +703,48 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   /**
+   * Scroll-wheel zoom (#89): scales `targetZoom` by an exponential factor of the wheel's deltaY,
+   * so each physical scroll gesture reads as the same proportional zoom change regardless of the
+   * current zoom level, then tweens the camera toward the clamped result. Always anchored on the
+   * avatar rather than the cursor: `update()`'s `camera.centerOn` call already re-centers on it
+   * every frame at any zoom, so no separate anchor math is needed here.
+   */
+  private handleWheel(_pointer: Phaser.Input.Pointer, _currentlyOver: Phaser.GameObjects.GameObject[], _deltaX: number, deltaY: number): void {
+    const factor = Math.exp(-deltaY * WHEEL_ZOOM_SENSITIVITY)
+    this.targetZoom = clampZoom(this.targetZoom * factor, this.minZoom, MAX_ZOOM)
+    this.cameras.main.zoomTo(this.targetZoom, ZOOM_TWEEN_DURATION_MS)
+  }
+
+  /**
+   * The zoom at which the whole map fits the viewport (#89) — the floor for scroll-wheel zoom-
+   * out, so the user can never zoom out further than "see everything." Clamped to never exceed
+   * `DEFAULT_ZOOM`: on a viewport large enough relative to a small map, fitting the whole map
+   * would otherwise require zooming *in* past the default, which would put the default (kept as
+   * the always-valid starting point) outside the allowed `[minZoom, MAX_ZOOM]` range.
+   */
+  private resolveMinZoom(viewportWidth: number, viewportHeight: number): number {
+    return Math.min(fitToMapZoom(viewportWidth, viewportHeight, this.mapWidthPx, this.mapHeightPx), DEFAULT_ZOOM)
+  }
+
+  /**
+   * Browser window resize (#89): recomputes `minZoom` for the new viewport. If the camera was
+   * sitting exactly at the previous fit-to-map minimum, re-snaps to the new one so the whole map
+   * stays visible and centered; otherwise the user's chosen zoom is left alone, only reclamped
+   * back into range in case the new minimum now exceeds it.
+   */
+  private handleResize(): void {
+    const camera = this.cameras.main
+    const wasAtMinZoom = this.targetZoom === this.minZoom
+    this.minZoom = this.resolveMinZoom(camera.width, camera.height)
+    this.targetZoom = wasAtMinZoom ? this.minZoom : clampZoom(this.targetZoom, this.minZoom, MAX_ZOOM)
+    camera.setZoom(this.targetZoom)
+  }
+
+  /**
    * Double-click-to-walk (FR click-to-move): a double-click landing within the map's pixel
    * bounds sets an auto-walk target; outside those bounds (the letterboxed margin shown when
-   * the browser viewport is larger than the map — see `clampedCameraScroll`) shows brief
-   * "not accessible" feedback instead. No presence check here: `BusyOverlay`'s full-screen,
+   * the viewport shows more than the map, e.g. at the minimum zoom) shows brief "not accessible"
+   * feedback instead. No presence check here: `BusyOverlay`'s full-screen,
    * pointer-events:auto div already intercepts the click before it reaches this canvas.
    */
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {

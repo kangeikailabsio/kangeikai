@@ -45,8 +45,9 @@
       parent: gameContainer,
       width: window.innerWidth,
       height: window.innerHeight,
-      // Nearest-neighbor texture filtering, so the 32px-tile art stays crisp at the camera's
-      // fixed zoom (office-scene.ts's CAMERA_ZOOM) instead of blurring like photo content would.
+      // Nearest-neighbor texture filtering, so the 32px-tile art stays crisp at any of the
+      // camera's zoom levels (office-scene.ts's DEFAULT_ZOOM/MAX_ZOOM) instead of blurring like
+      // photo content would.
       pixelArt: true,
       scale: {
         // Keeps the canvas (and, via CameraManager.onResize, the main camera) in sync with

@@ -13,6 +13,7 @@ import { PrivateRoomController } from '$lib/av/private-room-controller'
 import { ProximityAudioController } from '$lib/av/proximity-audio-controller'
 import { videoOverlayState } from '$lib/av/video-overlay-state.svelte'
 import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
+import { clampedCameraScroll } from '$lib/game/camera/camera-math'
 import { Avatar, AVATAR_FRAME_RANGES, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
 import { resolveHoverTargetPosition } from '$lib/game/entities/avatar-hover'
 import { AvatarNameLabel } from '$lib/game/entities/avatar-name-label'
@@ -125,23 +126,6 @@ function avatarTextureKey(spriteType: AvatarSpriteType, segment: 'idle' | 'walk'
  * scoped feature — this is only the fixed base zoom.
  */
 const CAMERA_ZOOM = 1
-
-/**
- * Camera scroll for one axis, in world units. When the (zoom-adjusted) viewport is smaller than
- * the map, follows the avatar centered, clamped so the camera never shows area outside the map
- * (FR-006). When the viewport is *larger* than the map along this axis (e.g. a wide monitor and
- * the current, smaller-than-typical office map), the whole map already fits — statically center
- * it rather than panning within the slack space, which would otherwise bias the map toward
- * whichever edge the avatar is nearest (not what "keep the avatar in view" should look like when
- * the avatar, and everything else, is already always in view).
- */
-function clampedCameraScroll(avatarPos: number, viewportSize: number, mapSize: number): number {
-  if (mapSize <= viewportSize) {
-    return (mapSize - viewportSize) / 2
-  }
-  const desired = avatarPos - viewportSize / 2
-  return Math.min(Math.max(desired, 0), mapSize - viewportSize)
-}
 
 interface RemoteAvatarEntry {
   /** `x`/`y` hold the latest raw position received over the network (the interpolation target). */

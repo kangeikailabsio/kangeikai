@@ -7,7 +7,7 @@
   import BusyOverlay from '$lib/av/busy-overlay.svelte'
   import EntryForm from '$lib/entry/entry-form.svelte'
   import { GuestProfileStore } from '$lib/entry/guest-profile-store'
-  import { LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT } from '$lib/game/scenes/office-scene'
+  import { LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT, SCREEN_SHARE_ENDED_EVENT } from '$lib/game/scenes/office-scene'
   import MembersSidebar from '$lib/people/members-sidebar.svelte'
   import { rosterState } from '$lib/people/roster-state.svelte'
   import Toast from '$lib/ui/toast.svelte'
@@ -28,8 +28,10 @@
   let mediaControls: MediaControls | undefined = $state()
   let micEnabled = $state(false)
   let cameraEnabled = $state(false)
+  let shareEnabled = $state(false)
   let micUnavailable = $state(false)
   let cameraUnavailable = $state(false)
+  let shareUnavailable = $state(false)
   let localPresence: AvatarPresence = $state('available')
   let membersOpen = $state(false)
   let unwireRoster: (() => void) | undefined
@@ -72,8 +74,16 @@
       mediaControls = controls
       micEnabled = controls.microphoneEnabled
       cameraEnabled = controls.cameraEnabled
+      shareEnabled = controls.screenShareEnabled
       micUnavailable = controls.microphoneUnavailable
       cameraUnavailable = controls.cameraUnavailable
+      shareUnavailable = controls.screenShareUnavailable
+    })
+
+    // Fires both for our own "Share screen" toggle and for the browser's native "Stop
+    // sharing" control — either way the track is gone, so the button always reflects it.
+    game.events.on(SCREEN_SHARE_ENDED_EVENT, () => {
+      shareEnabled = false
     })
 
     game.events.on(LOCAL_PRESENCE_EVENT, (presence: AvatarPresence) => {
@@ -122,6 +132,15 @@
     cameraUnavailable = mediaControls.cameraUnavailable
   }
 
+  async function toggleScreenShare(): Promise<void> {
+    if (localPresence === 'busy' || !mediaControls) {
+      return
+    }
+    await mediaControls.setScreenShareEnabled(!shareEnabled)
+    shareEnabled = mediaControls.screenShareEnabled
+    shareUnavailable = mediaControls.screenShareUnavailable
+  }
+
   async function toggleBusy(): Promise<void> {
     const officeScene = game?.scene.getScene('office') as OfficeScene | undefined
     await officeScene?.toggleBusyPresence()
@@ -156,6 +175,15 @@
       onclick={toggleCamera}
     >
       {cameraUnavailable ? '📷 Camera unavailable' : cameraEnabled ? '📷 Turn camera off' : '📷 Turn camera on'}
+    </button>
+    <button
+      type='button'
+      aria-pressed={shareEnabled}
+      disabled={!mediaControls || shareUnavailable || localPresence === 'busy'}
+      title={localPresence === 'busy' ? 'Turn off Busy to use Share screen' : undefined}
+      onclick={toggleScreenShare}
+    >
+      {shareUnavailable ? '🖥️ Share unavailable' : shareEnabled ? '🖥️ Stop sharing' : '🖥️ Share screen'}
     </button>
     <button
       type='button'

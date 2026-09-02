@@ -164,3 +164,31 @@ describe('findPath with a real desk collider and the real feetHitbox (regression
     return row * g.cols + col
   }
 })
+
+describe('findPath with welcome.tmj\'s stray zero-size collider (regression, reported live)', () => {
+  // welcome.tmj's collisions layer has one degenerate object, `{ x: 414, y: 2139, width: 0,
+  // height: 0 }` — almost certainly a Tiled authoring slip, sitting right in the middle of the
+  // corridor between the map's two entrance walls. `rectsOverlap`'s strict-inequality math alone
+  // can still report a collision against a zero-area rect whenever another box's interior
+  // strictly contains that single point (see collision.spec.ts) — which a plain per-frame avatar
+  // step rarely lands on exactly, but pathfinding's much denser sampling does. The avatar visibly
+  // "walked confidently then got stuck" right by the entrance walls, which read as clipping their
+  // corner, but was actually this single stray point in the middle of the gap between them.
+  const wallBottomLeft: CollisionRect = { x: 3, y: 2229, width: 249, height: 40 }
+  const wallBottomRight: CollisionRect = { x: 448, y: 2226, width: 233, height: 45 }
+  const wallTopLeft: CollisionRect = { x: 1, y: 2015, width: 252, height: 61 }
+  const wallTopRight: CollisionRect = { x: 448.667, y: 2017.33, width: 669, height: 58 }
+  const strayPoint: CollisionRect = { x: 414, y: 2139, width: 0, height: 0 }
+  const colliders = [wallBottomLeft, wallBottomRight, wallTopLeft, wallTopRight, strayPoint]
+
+  it('routes through the entrance gap without clipping the stray point', () => {
+    const start: WalkTarget = { x: 419.5, y: 354 }
+    const goal: WalkTarget = { x: 403, y: 2226 }
+    const grid = buildPathfindingGrid(colliders, 2560, 2560, CELL_SIZE, hitboxAt)
+
+    const result = findPath(grid, colliders, hitboxAt, start, goal)
+
+    expect(result).not.toBeNull()
+    expect(isPathWalkable(colliders, hitboxAt, start, result!)).toBe(true)
+  })
+})

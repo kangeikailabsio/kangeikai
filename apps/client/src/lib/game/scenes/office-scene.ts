@@ -1,5 +1,5 @@
 import type { AvatarPosition, ProximityAudioControllerOptions } from '$lib/av/proximity-audio-controller'
-import type { VideoOverlayEntry } from '$lib/av/video-overlay-state.svelte'
+import type { RemoteVideoOverlayCandidate, VideoOverlayParticipant } from '$lib/av/video-overlay-tiles'
 import type { HoverTarget } from '$lib/game/entities/avatar-hover'
 import type { CollisionRect } from '$lib/game/map/collision'
 import type { PathfindingGrid } from '$lib/game/map/pathfinding'
@@ -14,6 +14,7 @@ import { MediaControls } from '$lib/av/media-controls'
 import { PrivateRoomController } from '$lib/av/private-room-controller'
 import { ProximityAudioController } from '$lib/av/proximity-audio-controller'
 import { videoOverlayState } from '$lib/av/video-overlay-state.svelte'
+import { buildVideoOverlayTiles } from '$lib/av/video-overlay-tiles'
 import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
 import { clampedCameraCenter, clampZoom, fitToMapZoom } from '$lib/game/camera/camera-math'
 import { Avatar, AVATAR_FRAME_RANGES, feetHitbox, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
@@ -590,7 +591,7 @@ export class OfficeScene extends Phaser.Scene {
    * `office`, or a private zone's isolated room while one is connected (see `update()`).
    */
   private updateVideoOverlay(nearbySessionIds: ReadonlySet<string>, room: Room): void {
-    if (this.presence === 'busy' || nearbySessionIds.size === 0) {
+    if (this.presence === 'busy') {
       videoOverlayState.set([])
       return
     }
@@ -599,48 +600,36 @@ export class OfficeScene extends Phaser.Scene {
       sessionId => this.remoteAvatars.get(sessionId)?.presence !== 'busy',
     )
 
-    if (visibleSessionIds.length === 0) {
-      videoOverlayState.set([])
-      return
-    }
-
     const { localParticipant } = room
 
-    const closestSessionIds = visibleSessionIds.sort((a, b) => this.distanceToLocal(a) - this.distanceToLocal(b))
-
-    const entries: VideoOverlayEntry[] = [{
-      sessionId: localParticipant.identity,
-      name: localParticipant.name ?? 'You',
-      isLocal: true,
-      cameraEnabled: localParticipant.isCameraEnabled,
-      micEnabled: localParticipant.isMicrophoneEnabled,
-      speaking: localParticipant.isSpeaking,
-      videoTrack: localParticipant.getTrackPublication(Track.Source.Camera)?.track as LocalVideoTrack | undefined,
-    }]
-
-    for (const sessionId of closestSessionIds.slice(0, MAX_REMOTE_VIDEO_TILES)) {
+    const remotes: RemoteVideoOverlayCandidate[] = []
+    for (const sessionId of visibleSessionIds) {
       const participant = room.remoteParticipants.get(sessionId)
       if (!participant) {
         continue
       }
 
-      entries.push({
+      remotes.push({
         sessionId,
         name: participant.name || sessionId,
-        isLocal: false,
         cameraEnabled: participant.isCameraEnabled,
         micEnabled: participant.isMicrophoneEnabled,
         speaking: participant.isSpeaking,
         videoTrack: participant.getTrackPublication(Track.Source.Camera)?.track as RemoteVideoTrack | undefined,
+        distance: this.distanceToLocal(sessionId),
       })
     }
 
-    const overflowCount = closestSessionIds.length - MAX_REMOTE_VIDEO_TILES
-    if (overflowCount > 0) {
-      entries.push({ overflowCount })
+    const local: VideoOverlayParticipant = {
+      sessionId: localParticipant.identity,
+      name: localParticipant.name ?? 'You',
+      cameraEnabled: localParticipant.isCameraEnabled,
+      micEnabled: localParticipant.isMicrophoneEnabled,
+      speaking: localParticipant.isSpeaking,
+      videoTrack: localParticipant.getTrackPublication(Track.Source.Camera)?.track as LocalVideoTrack | undefined,
     }
 
-    videoOverlayState.set(entries)
+    videoOverlayState.set(buildVideoOverlayTiles(local, remotes, MAX_REMOTE_VIDEO_TILES))
   }
 
   /** Euclidean distance in map pixels between the local avatar and a remote avatar. */

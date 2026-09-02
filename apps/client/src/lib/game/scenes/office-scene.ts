@@ -83,18 +83,27 @@ const INVALID_TARGET_MARKER_COLOR = 0xEF4444
 const TARGET_MARKER_RADIUS_PX = 6
 const INVALID_TARGET_MARKER_DURATION_MS = 300
 
+/** Frame width/height for every avatar spritesheet (768x64px, 32px-wide frames — see avatar.ts). */
+const AVATAR_FRAME_SIZE = { frameWidth: 32, frameHeight: 64 }
+
 /** Reuses the same accent color — both are "this is an avatar-related highlight" markers. */
 const HOVER_RING_COLOR = WALK_TARGET_MARKER_COLOR
 const HOVER_RING_STROKE_WIDTH = 2
+/** Soft fill so the ring reads as a highlight glow without hiding the sprite art under it. */
+const HOVER_RING_FILL_ALPHA = 0.15
 /**
  * Radius of both the hover ring and its hit area — what you see is exactly what triggers it.
- * Centered on the sprite's frame middle (see `makeAvatarHoverable`), large enough to frame the
- * whole 32×64 sprite rather than just a small mark at the feet.
  */
-const AVATAR_HOVER_RADIUS_PX = 34
-
-/** Frame width/height for every avatar spritesheet (768x64px, 32px-wide frames — see avatar.ts). */
-const AVATAR_FRAME_SIZE = { frameWidth: 32, frameHeight: 64 }
+const AVATAR_HOVER_RADIUS_PX = 36
+/**
+ * Shifts the ring/hit area down from the raw frame middle, toward the feet — a middle ground
+ * between the frame's geometric center and `feetHitbox`'s bottom edge in avatar.ts
+ * (`y + SPRITE_HEIGHT / 2`): fully anchoring at the feet needed a much bigger radius to avoid
+ * clipping the head (the sprite is top-heavy — a wide hat over comparatively thin legs), which
+ * read as too large; this keeps the ring compact while still leaning toward "stands in it"
+ * rather than "centered on the torso".
+ */
+const AVATAR_VISUAL_CENTER_OFFSET_Y = 16
 
 const AVATAR_SPRITE_TYPES: AvatarSpriteType[] = ['man', 'woman']
 
@@ -727,11 +736,15 @@ export class OfficeScene extends Phaser.Scene {
   /**
    * Cosmetic only, no click behavior attached — `pointerover`/`pointerout` are separate event
    * types from `pointerdown`, so this doesn't affect click-to-move's hit-testing at all. The
-   * circular hit area is centered on the frame's middle (in frame-space, independent of the
-   * sprite's origin), matching where the visual ring is drawn.
+   * circular hit area is centered on the character's visual center (in frame-space, independent
+   * of the sprite's origin), matching where the visual ring is drawn.
    */
   private makeAvatarHoverable(view: Phaser.GameObjects.Sprite, target: HoverTarget): void {
-    const hitArea = new Phaser.Geom.Circle(AVATAR_FRAME_SIZE.frameWidth / 2, AVATAR_FRAME_SIZE.frameHeight / 2, AVATAR_HOVER_RADIUS_PX)
+    const hitArea = new Phaser.Geom.Circle(
+      AVATAR_FRAME_SIZE.frameWidth / 2,
+      AVATAR_FRAME_SIZE.frameHeight / 2 + AVATAR_VISUAL_CENTER_OFFSET_Y,
+      AVATAR_HOVER_RADIUS_PX,
+    )
     view.setInteractive(hitArea, Phaser.Geom.Circle.Contains)
     view.on('pointerover', () => {
       this.hoveredTarget = target
@@ -756,10 +769,12 @@ export class OfficeScene extends Phaser.Scene {
       return
     }
 
+    const centerY = position.y + AVATAR_VISUAL_CENTER_OFFSET_Y
+
     if (!this.hoverRing) {
-      this.hoverRing = this.add.circle(position.x, position.y, AVATAR_HOVER_RADIUS_PX)
+      this.hoverRing = this.add.circle(position.x, centerY, AVATAR_HOVER_RADIUS_PX, HOVER_RING_COLOR, HOVER_RING_FILL_ALPHA)
         .setStrokeStyle(HOVER_RING_STROKE_WIDTH, HOVER_RING_COLOR)
     }
-    this.hoverRing.setPosition(position.x, position.y)
+    this.hoverRing.setPosition(position.x, centerY)
   }
 }

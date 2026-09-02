@@ -15,9 +15,18 @@ describe('rectsOverlap', () => {
     expect(rectsOverlap({ x: 0, y: 0, width: 10, height: 10 }, { x: 10, y: 0, width: 10, height: 10 })).toBe(false)
   })
 
-  it('never overlaps a zero-width or zero-height rect', () => {
+  it('never overlaps a zero-width or zero-height rect sitting on another rect\'s edge', () => {
     expect(rectsOverlap({ x: 5, y: 5, width: 10, height: 10 }, { x: 5, y: 5, width: 0, height: 10 })).toBe(false)
     expect(rectsOverlap({ x: 5, y: 5, width: 10, height: 10 }, { x: 5, y: 5, width: 10, height: 0 })).toBe(false)
+  })
+
+  it('never overlaps a zero-area rect even strictly inside another rect\'s interior', () => {
+    // The unguarded strict-inequality math alone actually says these overlap (a point strictly
+    // inside another rect's interior still satisfies every `<`/`>` check) — reported live via a
+    // real stray zero-size object in the map's collisions layer blocking a pathfinding route.
+    expect(rectsOverlap({ x: 0, y: 0, width: 10, height: 10 }, { x: 5, y: 5, width: 0, height: 0 })).toBe(false)
+    expect(rectsOverlap({ x: 0, y: 0, width: 10, height: 10 }, { x: 5, y: 5, width: 0, height: 3 })).toBe(false)
+    expect(rectsOverlap({ x: 0, y: 0, width: 10, height: 10 }, { x: 5, y: 5, width: 3, height: 0 })).toBe(false)
   })
 })
 

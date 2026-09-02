@@ -66,8 +66,13 @@ export function getSpriteAnimation(spriteType: AvatarSpriteType, motionState: Av
   }
 }
 
-/** The avatar's collision hitbox at a given position — a small box at its feet, not the full sprite (see COLLISION_HITBOX_WIDTH/HEIGHT). */
-function feetHitbox(x: number, y: number): CollisionRect {
+/**
+ * The avatar's collision hitbox at a given position — a small box at its feet, not the full
+ * sprite (see COLLISION_HITBOX_WIDTH/HEIGHT). Exported so pathfinding.ts's grid uses the exact
+ * same walkability test as real movement (#92) — never a coarser approximation that could let
+ * the grid consider a cell walkable that would actually block the avatar, or vice versa.
+ */
+export function feetHitbox(x: number, y: number): CollisionRect {
   return {
     x: x - COLLISION_HITBOX_WIDTH / 2,
     y: y + SPRITE_HEIGHT / 2 - COLLISION_HITBOX_HEIGHT,

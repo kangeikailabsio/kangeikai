@@ -1,6 +1,8 @@
 import type { AvatarPosition, ProximityAudioControllerOptions } from '$lib/av/proximity-audio-controller'
 import type { VideoOverlayEntry } from '$lib/av/video-overlay-state.svelte'
 import type { HoverTarget } from '$lib/game/entities/avatar-hover'
+import type { CollisionRect } from '$lib/game/map/collision'
+import type { PathfindingGrid } from '$lib/game/map/pathfinding'
 import type { TiledSpaceObject } from '$lib/game/map/private-zones'
 import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
 import type { LocalVideoTrack, RemoteVideoTrack, Room } from 'livekit-client'
@@ -14,16 +16,18 @@ import { ProximityAudioController } from '$lib/av/proximity-audio-controller'
 import { videoOverlayState } from '$lib/av/video-overlay-state.svelte'
 import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
 import { clampedCameraCenter, clampZoom, fitToMapZoom } from '$lib/game/camera/camera-math'
-import { Avatar, AVATAR_FRAME_RANGES, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
+import { Avatar, AVATAR_FRAME_RANGES, feetHitbox, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
 import { resolveHoverTargetPosition } from '$lib/game/entities/avatar-hover'
 import { AvatarNameLabel } from '$lib/game/entities/avatar-name-label'
 import { AutoWalkController } from '$lib/game/input/auto-walk-controller'
 import { DoubleClickDetector } from '$lib/game/input/double-click-detector'
 import { MovementController } from '$lib/game/input/movement-controller'
 import { queueActiveMapLoad } from '$lib/game/map/active-map'
+import { buildPathfindingGrid, findPath } from '$lib/game/map/pathfinding'
 import { resolvePrivateZones } from '$lib/game/map/private-zones'
 import { resolveRespawnPoint } from '$lib/game/map/respawn-point'
 import { RoomConnection } from '$lib/network/room-connection'
+import { toastState } from '$lib/ui/toast-state.svelte'
 import { Track } from 'livekit-client'
 import Phaser from 'phaser'
 
@@ -83,6 +87,15 @@ const WALK_TARGET_MARKER_COLOR = 0xE8A9C9
 const INVALID_TARGET_MARKER_COLOR = 0xEF4444
 const TARGET_MARKER_RADIUS_PX = 6
 const INVALID_TARGET_MARKER_DURATION_MS = 300
+/** Shown for both an off-map click and an on-map click with no open route to it (#92) — from the user's point of view the result is the same. */
+const PATH_UNREACHABLE_MESSAGE = 'Não é possível chegar até aí'
+
+/**
+ * Pathfinding grid cell size (#92) — half a tile (tiles are 32px), giving routes room to fit
+ * through doorways/gaps without the grid resolution itself being the limiting factor. Cheap at
+ * this map's scale (tens of thousands of cells) either way; see pathfinding.ts.
+ */
+const PATHFINDING_CELL_SIZE_PX = 16
 
 /** Frame width/height for every avatar spritesheet (768x64px, 32px-wide frames — see avatar.ts). */
 const AVATAR_FRAME_SIZE = { frameWidth: 32, frameHeight: 64 }
@@ -190,6 +203,10 @@ export class OfficeScene extends Phaser.Scene {
   private avatarNameLabel!: AvatarNameLabel
   private mapWidthPx = 0
   private mapHeightPx = 0
+  /** The map's `collisions` layer, read once in `create()` — also passed to `findPath` for its exact-goal-point check (#92). */
+  private colliders: readonly CollisionRect[] = []
+  /** Built once from `colliders` in `create()` (#92) — see pathfinding.ts. */
+  private pathfindingGrid!: PathfindingGrid
   /**
    * The zoom `handleWheel`/`handleResize` are steering the camera toward (#89) — read back on
    * resize instead of `camera.zoom` since a `zoomTo` tween may still be mid-flight.
@@ -292,6 +309,14 @@ export class OfficeScene extends Phaser.Scene {
       height: object.height ?? 0,
     }))
     this.avatar.setColliders(collisionObjects)
+    this.colliders = collisionObjects
+    this.pathfindingGrid = buildPathfindingGrid(
+      collisionObjects,
+      this.mapWidthPx,
+      this.mapHeightPx,
+      PATHFINDING_CELL_SIZE_PX,
+      feetHitbox,
+    )
 
     this.avatarView = this.add.sprite(this.avatar.x, this.avatar.y, avatarTextureKey(this.spriteType, 'idle'))
     this.avatarView.anims.play(getSpriteAnimation(this.avatar.spriteType, this.avatar.motionState, this.avatar.direction).key)
@@ -466,8 +491,12 @@ export class OfficeScene extends Phaser.Scene {
 
     if (this.autoWalkController.active && this.avatar.x === previousX && this.avatar.y === previousY) {
       // A step was blocked by a collider — stop trying rather than animate against it forever.
+      // Should be effectively unreachable now that the path itself is computed against the exact
+      // same collision check (#92's pathfindingGrid), but kept as a safety net for grid-cell-
+      // boundary edge cases; same "not accessible" feedback as a click that was rejected upfront.
       this.autoWalkController.cancel()
       this.clearWalkTargetMarker()
+      toastState.show(PATH_UNREACHABLE_MESSAGE)
     }
 
     this.avatarView.setPosition(this.avatar.x, this.avatar.y)
@@ -742,10 +771,12 @@ export class OfficeScene extends Phaser.Scene {
 
   /**
    * Double-click-to-walk (FR click-to-move): a double-click landing within the map's pixel
-   * bounds sets an auto-walk target; outside those bounds (the letterboxed margin shown when
-   * the viewport shows more than the map, e.g. at the minimum zoom) shows brief "not accessible"
-   * feedback instead. No presence check here: `BusyOverlay`'s full-screen,
-   * pointer-events:auto div already intercepts the click before it reaches this canvas.
+   * bounds routes the avatar there around any obstacles in the way (#92's pathfindingGrid) —
+   * outside those bounds (the letterboxed margin shown when the viewport shows more than the
+   * map, e.g. at the minimum zoom), or on an in-bounds point with no open route to it at all
+   * (walled off), shows the same "not accessible" feedback instead. No presence check here:
+   * `BusyOverlay`'s full-screen, pointer-events:auto div already intercepts the click before it
+   * reaches this canvas.
    */
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
     const isDoubleClick = this.doubleClickDetector.registerClick({ x: pointer.x, y: pointer.y }, this.time.now)
@@ -755,11 +786,17 @@ export class OfficeScene extends Phaser.Scene {
 
     const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y)
     if (worldPoint.x < 0 || worldPoint.x > this.mapWidthPx || worldPoint.y < 0 || worldPoint.y > this.mapHeightPx) {
-      this.showInvalidTargetFeedback(worldPoint)
+      this.showUnreachableTargetFeedback(worldPoint)
       return
     }
 
-    this.autoWalkController.setTarget({ x: worldPoint.x, y: worldPoint.y })
+    const path = findPath(this.pathfindingGrid, this.colliders, feetHitbox, { x: this.avatar.x, y: this.avatar.y }, { x: worldPoint.x, y: worldPoint.y })
+    if (!path) {
+      this.showUnreachableTargetFeedback(worldPoint)
+      return
+    }
+
+    this.autoWalkController.setPath(path)
     this.showWalkTargetMarker(worldPoint)
   }
 
@@ -774,9 +811,11 @@ export class OfficeScene extends Phaser.Scene {
     this.walkTargetMarker = undefined
   }
 
-  private showInvalidTargetFeedback(point: { x: number, y: number }): void {
+  /** Off-map click, or an in-bounds one with no open route to it (#92) — same red flash + toast either way. */
+  private showUnreachableTargetFeedback(point: { x: number, y: number }): void {
     const marker = this.add.circle(point.x, point.y, TARGET_MARKER_RADIUS_PX, INVALID_TARGET_MARKER_COLOR, 0.9)
     this.time.delayedCall(INVALID_TARGET_MARKER_DURATION_MS, () => marker.destroy())
+    toastState.show(PATH_UNREACHABLE_MESSAGE)
   }
 
   /**

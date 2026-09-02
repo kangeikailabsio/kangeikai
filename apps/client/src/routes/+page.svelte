@@ -10,6 +10,7 @@
   import { LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT } from '$lib/game/scenes/office-scene'
   import MembersSidebar from '$lib/people/members-sidebar.svelte'
   import { rosterState } from '$lib/people/roster-state.svelte'
+  import Toast from '$lib/ui/toast.svelte'
   import Phaser from 'phaser'
   import { onDestroy } from 'svelte'
 
@@ -132,6 +133,7 @@
     <AvatarVideoOverlay />
     <BusyOverlay active={localPresence === 'busy'} />
     <MembersSidebar open={membersOpen} />
+    <Toast />
   {/if}
 </div>
 

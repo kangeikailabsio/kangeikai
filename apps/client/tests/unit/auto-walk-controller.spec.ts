@@ -60,4 +60,51 @@ describe('autoWalkController', () => {
     expect(controller.getIntent(97, 0).direction).toBe('down')
     expect(controller.getIntent(97, 50).direction).toBe('down')
   })
+
+  it('setPath behaves like setTarget for a single waypoint', () => {
+    const controller = new AutoWalkController()
+
+    controller.setPath([{ x: 100, y: 0 }])
+
+    expect(controller.active).toBe(true)
+    expect(controller.getIntent(0, 0)).toEqual({ direction: 'right', sprint: false })
+  })
+
+  it('setPath with no waypoints behaves like cancel', () => {
+    const controller = new AutoWalkController()
+    controller.setTarget({ x: 100, y: 0 })
+
+    controller.setPath([])
+
+    expect(controller.active).toBe(false)
+  })
+
+  it('advances to the next waypoint on arrival instead of going idle, staying active until the last one', () => {
+    const controller = new AutoWalkController()
+    controller.setPath([{ x: 100, y: 0 }, { x: 100, y: 100 }])
+
+    // Arrives at the first waypoint this call (within tolerance) and immediately continues
+    // toward the second, in the same call — no idle frame in between.
+    expect(controller.getIntent(97, 0)).toEqual({ direction: 'down', sprint: false })
+    expect(controller.active).toBe(true)
+
+    // Still walking toward the second (and last) waypoint.
+    expect(controller.getIntent(100, 50)).toEqual({ direction: 'down', sprint: false })
+    expect(controller.active).toBe(true)
+
+    // Arriving at the last waypoint self-cancels, same as a single setTarget.
+    const finalIntent = controller.getIntent(100, 97)
+    expect(finalIntent).toEqual({ direction: null, sprint: false })
+    expect(controller.active).toBe(false)
+  })
+
+  it('setTarget after setPath drops any remaining queued waypoints', () => {
+    const controller = new AutoWalkController()
+    controller.setPath([{ x: 100, y: 0 }, { x: 100, y: 100 }])
+
+    controller.setTarget({ x: 0, y: 0 })
+    controller.getIntent(0, 0) // arrives immediately (already at 0,0)
+
+    expect(controller.active).toBe(false)
+  })
 })

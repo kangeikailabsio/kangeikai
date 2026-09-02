@@ -86,7 +86,7 @@ export function findPath(
     goal,
   ]
 
-  return simplifyPath(grid, waypoints).slice(1)
+  return simplifyPath(colliders, hitboxAt, waypoints).slice(1)
 }
 
 const NEIGHBOR_OFFSETS: ReadonlyArray<{ dc: number, dr: number }> = [
@@ -238,8 +238,25 @@ function reconstructPath(grid: PathfindingGrid, cameFrom: Int32Array, endIndex: 
   return path
 }
 
-/** Greedy line-of-sight shortcutting ("string pulling"): from each kept waypoint, skips ahead to the farthest later one still reachable in one straight "L" hop. */
-function simplifyPath(grid: PathfindingGrid, waypoints: readonly WalkTarget[]): WalkTarget[] {
+/**
+ * Longest step (in px) between samples when precisely sweeping a segment for
+ * `canWalkDirectly`/`isSegmentClear` — well under the avatar's feet hitbox's smaller dimension
+ * (`COLLISION_HITBOX_HEIGHT`, 12px in avatar.ts), so no obstacle edge along the way can be
+ * skipped over between two consecutive sample points.
+ */
+const SEGMENT_SAMPLE_STEP_PX = 4
+
+/**
+ * Greedy line-of-sight shortcutting ("string pulling"): from each kept waypoint, skips ahead to
+ * the farthest later one still reachable in one straight "L" hop. Checks the exact segments
+ * against `colliders` directly (not `grid`'s cell-center approximation): a segment fixed at, say,
+ * a click point's exact y doesn't line up with the row `grid` precomputed "blocked" for — that
+ * row's flag only reflects its own center. That mismatch is harmless for segments between two
+ * grid-cell-center waypoints (their shared row/column IS that row/column's center), but `a`/`b`
+ * are frequently `start`/`goal` themselves, at arbitrary, non-cell-centered positions — reported
+ * live as the avatar clipping a wall's corner right where a route turned.
+ */
+function simplifyPath(colliders: readonly CollisionRect[], hitboxAt: (x: number, y: number) => CollisionRect, waypoints: readonly WalkTarget[]): WalkTarget[] {
   if (waypoints.length <= 2) {
     return [...waypoints]
   }
@@ -248,7 +265,7 @@ function simplifyPath(grid: PathfindingGrid, waypoints: readonly WalkTarget[]): 
   let anchorIndex = 0
   for (let i = 1; i < waypoints.length; i++) {
     const isLast = i === waypoints.length - 1
-    if (isLast || !canWalkDirectly(grid, waypoints[anchorIndex], waypoints[i + 1])) {
+    if (isLast || !canWalkDirectly(colliders, hitboxAt, waypoints[anchorIndex], waypoints[i + 1])) {
       simplified.push(waypoints[i])
       anchorIndex = i
     }
@@ -257,31 +274,23 @@ function simplifyPath(grid: PathfindingGrid, waypoints: readonly WalkTarget[]): 
 }
 
 /** Whether the avatar's actual one-axis-then-the-other walk from `a` to `b` (never a diagonal straight line) stays clear of every obstacle. */
-function canWalkDirectly(grid: PathfindingGrid, a: WalkTarget, b: WalkTarget): boolean {
+function canWalkDirectly(colliders: readonly CollisionRect[], hitboxAt: (x: number, y: number) => CollisionRect, a: WalkTarget, b: WalkTarget): boolean {
   const dx = b.x - a.x
   const dy = b.y - a.y
   const corner: WalkTarget = Math.abs(dx) >= Math.abs(dy) ? { x: b.x, y: a.y } : { x: a.x, y: b.y }
-  return isSegmentClear(grid, a, corner) && isSegmentClear(grid, corner, b)
+  return isSegmentClear(colliders, hitboxAt, a, corner) && isSegmentClear(colliders, hitboxAt, corner, b)
 }
 
-/** `a`/`b` must share an x or y coordinate — sweeps every grid cell the axis-aligned segment between them crosses. */
-function isSegmentClear(grid: PathfindingGrid, a: WalkTarget, b: WalkTarget): boolean {
-  const cellA = cellAt(grid, a)
-  const cellB = cellAt(grid, b)
+/** Sweeps the avatar's real hitbox along the (axis-aligned) segment from `a` to `b` at `SEGMENT_SAMPLE_STEP_PX` steps, checking real collision at each. */
+function isSegmentClear(colliders: readonly CollisionRect[], hitboxAt: (x: number, y: number) => CollisionRect, a: WalkTarget, b: WalkTarget): boolean {
+  const distance = Math.hypot(b.x - a.x, b.y - a.y)
+  const steps = Math.max(1, Math.ceil(distance / SEGMENT_SAMPLE_STEP_PX))
 
-  if (a.y === b.y) {
-    const [from, to] = cellA.col <= cellB.col ? [cellA.col, cellB.col] : [cellB.col, cellA.col]
-    for (let col = from; col <= to; col++) {
-      if (grid.blocked[cellA.row * grid.cols + col]) {
-        return false
-      }
-    }
-    return true
-  }
-
-  const [from, to] = cellA.row <= cellB.row ? [cellA.row, cellB.row] : [cellB.row, cellA.row]
-  for (let row = from; row <= to; row++) {
-    if (grid.blocked[row * grid.cols + cellA.col]) {
+  for (let step = 0; step <= steps; step++) {
+    const t = step / steps
+    const x = a.x + (b.x - a.x) * t
+    const y = a.y + (b.y - a.y) * t
+    if (collidesWithAny(hitboxAt(x, y), colliders)) {
       return false
     }
   }

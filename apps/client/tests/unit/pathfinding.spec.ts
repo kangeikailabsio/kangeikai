@@ -1,7 +1,7 @@
 import type { WalkTarget } from '$lib/game/input/auto-walk-controller'
 import type { CollisionRect } from '$lib/game/map/collision'
 import { feetHitbox } from '$lib/game/entities/avatar'
-import { rectsOverlap } from '$lib/game/map/collision'
+import { collidesWithAny, rectsOverlap } from '$lib/game/map/collision'
 import { buildPathfindingGrid, findPath } from '$lib/game/map/pathfinding'
 import { describe, expect, it } from 'vitest'
 
@@ -16,6 +16,38 @@ function hitboxAt(x: number, y: number): CollisionRect {
 function path(colliders: CollisionRect[], start: WalkTarget, goal: WalkTarget) {
   const grid = buildPathfindingGrid(colliders, MAP_SIZE, MAP_SIZE, CELL_SIZE, hitboxAt)
   return findPath(grid, colliders, hitboxAt, start, goal)
+}
+
+/**
+ * Precisely re-walks a returned path exactly as `AutoWalkController` really would — one axis
+ * fully, then the other, per hop — sweeping the real hitbox at a fine step and checking real
+ * collision the whole way, not through the pathfinding grid's cell-center approximation. Used to
+ * assert the actual invariant that matters (never clips an obstacle), independent of how the
+ * route was computed internally.
+ */
+function isPathWalkable(colliders: readonly CollisionRect[], hitbox: (x: number, y: number) => CollisionRect, start: WalkTarget, waypoints: readonly WalkTarget[]): boolean {
+  let current = start
+  for (const waypoint of waypoints) {
+    const dx = waypoint.x - current.x
+    const dy = waypoint.y - current.y
+    const corner: WalkTarget = Math.abs(dx) >= Math.abs(dy) ? { x: waypoint.x, y: current.y } : { x: current.x, y: waypoint.y }
+    if (!isHopClear(current, corner) || !isHopClear(corner, waypoint)) {
+      return false
+    }
+    current = waypoint
+  }
+  return true
+
+  function isHopClear(a: WalkTarget, b: WalkTarget): boolean {
+    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 2))
+    for (let step = 0; step <= steps; step++) {
+      const t = step / steps
+      if (collidesWithAny(hitbox(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t), colliders)) {
+        return false
+      }
+    }
+    return true
+  }
 }
 
 describe('findPath', () => {
@@ -39,13 +71,16 @@ describe('findPath', () => {
     // A wall splitting the map in two, with a gap around y=150-190 to walk through.
     const wallTop: CollisionRect = { x: 150, y: 0, width: 20, height: 150 }
     const wallBottom: CollisionRect = { x: 150, y: 190, width: 20, height: MAP_SIZE - 190 }
+    const colliders = [wallTop, wallBottom]
+    const start: WalkTarget = { x: 20, y: 20 }
 
-    const result = path([wallTop, wallBottom], { x: 20, y: 20 }, { x: 300, y: 20 })
+    const result = path(colliders, start, { x: 300, y: 20 })
 
     expect(result).not.toBeNull()
     expect(result!.at(-1)).toEqual({ x: 300, y: 20 })
     // Must actually detour down through the gap and back up, not go straight across x=150-170.
     expect(result!.some(point => point.y > 100)).toBe(true)
+    expect(isPathWalkable(colliders, hitboxAt, start, result!)).toBe(true)
   })
 
   it('simplifies the route to few waypoints instead of one per grid cell', () => {
@@ -81,6 +116,26 @@ describe('findPath', () => {
     const obstacle: CollisionRect = { x: 108, y: 108, width: 32, height: 32 }
 
     expect(path([obstacle], { x: 20, y: 20 }, { x: 120, y: 120 })).toBeNull()
+  })
+
+  it('never returns a route that clips an obstacle corner, even starting from an exact, off-grid point right next to it', () => {
+    // Reported live: the avatar walked confidently toward the destination, then got stuck right
+    // at a wall's corner. Root cause: the old simplification checked segments against the grid's
+    // per-cell-center "blocked" flags, using whichever row/column an arbitrary point (like this
+    // `start`, at a real avatar position, never a "nice" round number) happens to fall into —
+    // but that row/column's flag only reflects its own center, not the exact point tested. This
+    // exact start (found by sweeping many points against the pre-fix simplification) reproduces
+    // it: the old code returned [{ x: 184, y: 104 }, { x: 300, y: 20 }], which clips wallTop's
+    // corner on the first hop.
+    const wallTop: CollisionRect = { x: 150, y: 0, width: 20, height: 150 }
+    const wallBottom: CollisionRect = { x: 150, y: 190, width: 20, height: MAP_SIZE - 190 }
+    const colliders = [wallTop, wallBottom]
+    const start: WalkTarget = { x: 100, y: 184.6 }
+
+    const result = path(colliders, start, { x: 300, y: 20 })
+
+    expect(result).not.toBeNull()
+    expect(isPathWalkable(colliders, hitboxAt, start, result!)).toBe(true)
   })
 })
 

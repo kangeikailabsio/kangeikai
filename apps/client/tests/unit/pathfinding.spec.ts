@@ -1,6 +1,7 @@
 import type { WalkTarget } from '$lib/game/input/auto-walk-controller'
 import type { CollisionRect } from '$lib/game/map/collision'
-import { feetHitbox } from '$lib/game/entities/avatar'
+import { Avatar, feetHitbox } from '$lib/game/entities/avatar'
+import { AutoWalkController } from '$lib/game/input/auto-walk-controller'
 import { collidesWithAny, rectsOverlap } from '$lib/game/map/collision'
 import { buildPathfindingGrid, findPath } from '$lib/game/map/pathfinding'
 import { describe, expect, it } from 'vitest'
@@ -148,7 +149,7 @@ describe('findPath with a real desk collider and the real feetHitbox (regression
   const grid = buildPathfindingGrid([desk], 3232, 2560, 16, feetHitbox)
 
   it('reaches the clicked point, not just its cell center', () => {
-    const clickedPoint: WalkTarget = { x: 320, y: 305 }
+    const clickedPoint: WalkTarget = { x: 304, y: 304 }
     expect(rectsOverlap(feetHitbox(clickedPoint.x, clickedPoint.y), desk)).toBe(false) // the click itself is genuinely open...
     expect(grid.blocked[cellIndexFor(grid, clickedPoint)]).toBe(1) // ...even though its cell reads as blocked
 
@@ -190,5 +191,42 @@ describe('findPath with welcome.tmj\'s stray zero-size collider (regression, rep
 
     expect(result).not.toBeNull()
     expect(isPathWalkable(colliders, hitboxAt, start, result!)).toBe(true)
+  })
+})
+
+describe('findPath leaves enough real clearance for AutoWalkController to actually complete a route (regression, reported live)', () => {
+  // Reported live (with a frame-by-frame trace): the avatar walked confidently around a wall's
+  // corner, then got permanently stuck a step later. Root cause: a waypoint was validated with
+  // only ~0.3px of real clearance from the wall — enough to pass an exact-coordinate check, but
+  // AutoWalkController only guarantees stopping *within* ARRIVAL_TOLERANCE_PX (4px) of a
+  // waypoint before committing to the next axis, not exactly on it. The avatar's real stop
+  // position landed ~1.6px short of the waypoint — just enough to turn "barely clear" into
+  // "colliding" — and it was then stuck forever trying to move into that same collider every
+  // frame. findPath now pads its clearance checks by that same tolerance, so every waypoint it
+  // returns has enough real margin for the avatar to actually complete the hop, not just enough
+  // for the exact waypoint coordinate to check out on paper.
+  const wallTopRight: CollisionRect = { x: 448.667, y: 2017.33, width: 669, height: 58 }
+  const colliders = [wallTopRight]
+  const start: WalkTarget = { x: 1086.4, y: 2098.8 }
+  const goal: WalkTarget = { x: 1090, y: 1980 }
+
+  it('completes the route end to end via the real AutoWalkController + Avatar, not just on paper', () => {
+    const grid = buildPathfindingGrid(colliders, 3232, 2560, CELL_SIZE, feetHitbox)
+    const path = findPath(grid, colliders, feetHitbox, start, goal)
+    expect(path).not.toBeNull()
+
+    const avatar = new Avatar(start.x, start.y, 'man', 3232, 2560)
+    avatar.setColliders(colliders)
+    const controller = new AutoWalkController()
+    controller.setPath(path!)
+
+    const DELTA_SECONDS = 1 / 60
+    for (let frame = 0; frame < 600 && controller.active; frame++) {
+      const intent = controller.getIntent(avatar.x, avatar.y)
+      avatar.update(intent, DELTA_SECONDS)
+    }
+
+    expect(controller.active).toBe(false) // arrived, rather than stuck forever
+    expect(Math.hypot(avatar.x - goal.x, avatar.y - goal.y)).toBeLessThan(10)
   })
 })

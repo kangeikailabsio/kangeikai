@@ -1,5 +1,6 @@
 import type { WalkTarget } from '$lib/game/input/auto-walk-controller'
 import type { CollisionRect } from '$lib/game/map/collision'
+import { ARRIVAL_TOLERANCE_PX } from '$lib/game/input/auto-walk-controller'
 import { collidesWithAny } from '$lib/game/map/collision'
 
 interface Cell {
@@ -17,11 +18,12 @@ export interface PathfindingGrid {
 
 /**
  * Discretizes the map into `cellSize`-px cells for pathfinding (#92), each marked blocked if a
- * hitbox centered on it (via `hitboxAt`, e.g. `Avatar`'s `feetHitbox`) collides with any of
- * `colliders`. Reusing the real movement hitbox here — rather than a coarser "does any part of a
- * collision rect touch this cell" test — means the grid's notion of "blocked" always matches what
- * would actually stop the avatar, so `findPath` can never return a route that isn't really
- * walkable. Built once per map load; the static `collisions` layer never changes at runtime.
+ * hitbox centered on it (via `hitboxAt`, e.g. `Avatar`'s `feetHitbox`, padded by
+ * `ARRIVAL_TOLERANCE_PX` — see `withClearanceMargin`) collides with any of `colliders`. Reusing
+ * the real movement hitbox here — rather than a coarser "does any part of a collision rect touch
+ * this cell" test — means the grid's notion of "blocked" always matches what would actually stop
+ * the avatar, so `findPath` can never return a route that isn't really walkable. Built once per
+ * map load; the static `collisions` layer never changes at runtime.
  */
 export function buildPathfindingGrid(
   colliders: readonly CollisionRect[],
@@ -30,6 +32,7 @@ export function buildPathfindingGrid(
   cellSize: number,
   hitboxAt: (x: number, y: number) => CollisionRect,
 ): PathfindingGrid {
+  const safeHitboxAt = withClearanceMargin(hitboxAt)
   const cols = Math.max(1, Math.ceil(mapWidthPx / cellSize))
   const rows = Math.max(1, Math.ceil(mapHeightPx / cellSize))
   const blocked = new Uint8Array(cols * rows)
@@ -38,13 +41,34 @@ export function buildPathfindingGrid(
     for (let col = 0; col < cols; col++) {
       const x = col * cellSize + cellSize / 2
       const y = row * cellSize + cellSize / 2
-      if (collidesWithAny(hitboxAt(x, y), colliders)) {
+      if (collidesWithAny(safeHitboxAt(x, y), colliders)) {
         blocked[row * cols + col] = 1
       }
     }
   }
 
   return { cellSize, cols, rows, blocked }
+}
+
+/**
+ * Pads a hitbox test by `ARRIVAL_TOLERANCE_PX` on every side before checking it against
+ * `colliders` — `AutoWalkController` only guarantees stopping *within* that tolerance of a
+ * waypoint before switching axes, not exactly on it, so a waypoint validated at its bare, exact
+ * clearance can still have the avatar's real, slightly-short-of-it stop position clip an
+ * obstacle. Reported live: a route validated as clear left only ~0.3px of real clearance at a
+ * wall's corner — comfortably inside the up-to-4px the avatar can actually stop short of that
+ * waypoint by — and the avatar clipped it and got stuck exactly there.
+ */
+function withClearanceMargin(hitboxAt: (x: number, y: number) => CollisionRect): (x: number, y: number) => CollisionRect {
+  return (x, y) => {
+    const box = hitboxAt(x, y)
+    return {
+      x: box.x - ARRIVAL_TOLERANCE_PX,
+      y: box.y - ARRIVAL_TOLERANCE_PX,
+      width: box.width + ARRIVAL_TOLERANCE_PX * 2,
+      height: box.height + ARRIVAL_TOLERANCE_PX * 2,
+    }
+  }
 }
 
 /**
@@ -71,7 +95,8 @@ export function findPath(
   start: WalkTarget,
   goal: WalkTarget,
 ): WalkTarget[] | null {
-  if (collidesWithAny(hitboxAt(goal.x, goal.y), colliders)) {
+  const safeHitboxAt = withClearanceMargin(hitboxAt)
+  if (collidesWithAny(safeHitboxAt(goal.x, goal.y), colliders)) {
     return null
   }
 
@@ -86,7 +111,7 @@ export function findPath(
     goal,
   ]
 
-  return simplifyPath(colliders, hitboxAt, waypoints).slice(1)
+  return simplifyPath(colliders, safeHitboxAt, waypoints).slice(1)
 }
 
 const NEIGHBOR_OFFSETS: ReadonlyArray<{ dc: number, dr: number }> = [

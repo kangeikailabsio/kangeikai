@@ -248,28 +248,46 @@ const SEGMENT_SAMPLE_STEP_PX = 4
 
 /**
  * Greedy line-of-sight shortcutting ("string pulling"): from each kept waypoint, skips ahead to
- * the farthest later one still reachable in one straight "L" hop. Checks the exact segments
- * against `colliders` directly (not `grid`'s cell-center approximation): a segment fixed at, say,
- * a click point's exact y doesn't line up with the row `grid` precomputed "blocked" for — that
- * row's flag only reflects its own center. That mismatch is harmless for segments between two
- * grid-cell-center waypoints (their shared row/column IS that row/column's center), but `a`/`b`
- * are frequently `start`/`goal` themselves, at arbitrary, non-cell-centered positions — reported
- * live as the avatar clipping a wall's corner right where a route turned.
+ * the farthest later one still reachable in one straight "L" hop, checking the exact segments
+ * against `colliders` directly (not `grid`'s cell-center approximation — see `isSegmentClear`).
+ *
+ * Every hop that ends up in the returned list is explicitly verified via `canWalkDirectly` —
+ * deliberately never assumed safe just because it's one raw, single A* step between two
+ * originally-adjacent waypoints. That assumption *would* hold between two grid-cell-center
+ * waypoints (their shared row/column is exactly that row/column's own center, by construction),
+ * but `waypoints[0]`/`waypoints[waypoints.length - 1]` are `start`/`goal` themselves — arbitrary,
+ * essentially never cell-centered points (a real avatar position, a real click) — and skipping
+ * their validation is exactly what let the avatar clip a wall's corner on its very first or last
+ * leg, reported live twice over (first found to be imprecise, then found to be entirely
+ * unchecked).
  */
 function simplifyPath(colliders: readonly CollisionRect[], hitboxAt: (x: number, y: number) => CollisionRect, waypoints: readonly WalkTarget[]): WalkTarget[] {
-  if (waypoints.length <= 2) {
-    return [...waypoints]
+  if (waypoints.length === 0) {
+    return []
   }
 
   const simplified: WalkTarget[] = [waypoints[0]]
   let anchorIndex = 0
-  for (let i = 1; i < waypoints.length; i++) {
-    const isLast = i === waypoints.length - 1
-    if (isLast || !canWalkDirectly(colliders, hitboxAt, waypoints[anchorIndex], waypoints[i + 1])) {
-      simplified.push(waypoints[i])
-      anchorIndex = i
+
+  while (anchorIndex < waypoints.length - 1) {
+    let farthest = anchorIndex
+    for (let candidate = anchorIndex + 1; candidate < waypoints.length; candidate++) {
+      if (canWalkDirectly(colliders, hitboxAt, waypoints[anchorIndex], waypoints[candidate])) {
+        farthest = candidate
+        continue
+      }
+      if (farthest === anchorIndex) {
+        // Not even the immediate next raw waypoint validates directly from the anchor — can only
+        // happen right next to `start`/`goal` (see above); take it anyway as the best available
+        // step. The per-frame "stuck" fallback (office-scene.ts) covers this residual case.
+        farthest = candidate
+      }
+      break
     }
+    simplified.push(waypoints[farthest])
+    anchorIndex = farthest
   }
+
   return simplified
 }
 

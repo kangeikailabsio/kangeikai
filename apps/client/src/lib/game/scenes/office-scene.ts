@@ -39,6 +39,13 @@ export const MEDIA_CONTROLS_READY_EVENT = 'mediacontrols-ready'
 export const LOCAL_PRESENCE_EVENT = 'local-presence'
 
 /**
+ * Emitted on `game.events` when the local screen-share track is unpublished for any reason
+ * other than a room switch (own toggle, or the browser's native "Stop sharing" control) — see
+ * `MediaControls`'s `onScreenShareEnded` callback, wired in `applyMediaControls`.
+ */
+export const SCREEN_SHARE_ENDED_EVENT = 'screen-share-ended'
+
+/**
  * Emitted on `game.events` when the Colyseus room join is rejected (most commonly a wrong/
  * missing access code, `OfficeRoom.onAuth`) — `+page.svelte` tears down the game and returns
  * to `EntryForm` on this event, since there's no meaningful in-game state to show otherwise.
@@ -374,7 +381,7 @@ export class OfficeScene extends Phaser.Scene {
    * private call ends, carrying forward whatever mic/camera state the person had going into it
    * instead of resetting to the just-joined defaults.
    */
-  private connectProximityAudio(micEnabled = true, cameraEnabled = false): void {
+  private connectProximityAudio(micEnabled = true, cameraEnabled = false, screenShareEnabled = false): void {
     const { sessionId } = this.roomConnection
     if (!sessionId) {
       return
@@ -385,7 +392,7 @@ export class OfficeScene extends Phaser.Scene {
         { identity: sessionId, name: this.displayName, proof: this.roomConnection.sessionProof ?? '' },
         { x: this.avatar.x, y: this.avatar.y, presence: this.presence },
       )
-      .then(() => this.applyMediaControls(this.proximityAudioController.liveKitRoom, micEnabled, cameraEnabled))
+      .then(() => this.applyMediaControls(this.proximityAudioController.liveKitRoom, micEnabled, cameraEnabled, screenShareEnabled))
       .catch((error: unknown) => {
         console.warn('kangeikai: failed to connect proximity audio/video', error)
       })
@@ -393,13 +400,15 @@ export class OfficeScene extends Phaser.Scene {
 
   /**
    * (Re-)creates `MediaControls` for whichever LiveKit room is now active — `office` or a
-   * private zone's isolated room — and applies the given mic/camera state to it. A denied
-   * permission or missing device (US3) never throws here — `MediaControls` records it as
-   * `microphoneUnavailable`/`cameraUnavailable` instead.
+   * private zone's isolated room — and applies the given mic/camera/screen-share state to it.
+   * A denied permission or missing device (US3) never throws here — `MediaControls` records it
+   * as `microphoneUnavailable`/`cameraUnavailable`/`screenShareUnavailable` instead. Screen
+   * share is never (re)started while busy — the HUD button is disabled for that case, and a
+   * room switch mid-busy shouldn't start one either.
    */
-  private async applyMediaControls(room: Room, micEnabled: boolean, cameraEnabled: boolean): Promise<void> {
+  private async applyMediaControls(room: Room, micEnabled: boolean, cameraEnabled: boolean, screenShareEnabled: boolean): Promise<void> {
     const previous = this.mediaControls
-    const next = new MediaControls(room)
+    const next = new MediaControls(room, () => this.game.events.emit(SCREEN_SHARE_ENDED_EVENT))
     next.adoptBusyState(previous)
     this.mediaControls = next
     if (this.presence === 'busy') {
@@ -408,6 +417,7 @@ export class OfficeScene extends Phaser.Scene {
     else {
       await next.setMicrophoneEnabled(micEnabled)
       await next.setCameraEnabled(cameraEnabled)
+      await next.setScreenShareEnabled(screenShareEnabled)
     }
     this.game.events.emit(MEDIA_CONTROLS_READY_EVENT, next)
     this.game.events.emit(LOCAL_PRESENCE_EVENT, this.presence)
@@ -452,7 +462,12 @@ export class OfficeScene extends Phaser.Scene {
   private handlePrivateRoomConnect(room: Room): void {
     this.proximityAudioController.disconnect()
     this.connectedPrivateRoom = room
-    void this.applyMediaControls(room, this.mediaControls?.microphoneEnabled ?? true, this.mediaControls?.cameraEnabled ?? false)
+    void this.applyMediaControls(
+      room,
+      this.mediaControls?.microphoneEnabled ?? true,
+      this.mediaControls?.cameraEnabled ?? false,
+      this.mediaControls?.screenShareEnabled ?? false,
+    )
   }
 
   /**
@@ -463,8 +478,9 @@ export class OfficeScene extends Phaser.Scene {
   private handlePrivateRoomDisconnect(): void {
     const micEnabled = this.mediaControls?.microphoneEnabled ?? true
     const cameraEnabled = this.mediaControls?.cameraEnabled ?? false
+    const screenShareEnabled = this.mediaControls?.screenShareEnabled ?? false
     this.connectedPrivateRoom = null
-    this.connectProximityAudio(micEnabled, cameraEnabled)
+    this.connectProximityAudio(micEnabled, cameraEnabled, screenShareEnabled)
   }
 
   update(_time: number, delta: number): void {

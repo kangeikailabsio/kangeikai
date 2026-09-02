@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.3.0...v0.4.0) (2026-09-02)
+
+
+### Features
+
+* add members sidebar listing people on the map ([#83](https://github.com/kangeikailabsio/kangeikai/issues/83)) ([74640d4](https://github.com/kangeikailabsio/kangeikai/commit/74640d44daa72969ad12785e6664178528c76154)), closes [#82](https://github.com/kangeikailabsio/kangeikai/issues/82)
+* show a ring around a hovered avatar ([#88](https://github.com/kangeikailabsio/kangeikai/issues/88)) ([cf94f38](https://github.com/kangeikailabsio/kangeikai/commit/cf94f389715bc2a61137b915a878f5230b0eaa5b))
+* walk to a double-clicked point on the map ([#86](https://github.com/kangeikailabsio/kangeikai/issues/86)) ([72bf7bb](https://github.com/kangeikailabsio/kangeikai/commit/72bf7bbf7c5fdcbdbcdb8765b9f29043b240157d))
+
 ## [0.3.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.2.0...v0.3.0) (2026-08-27)
 
 

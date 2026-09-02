@@ -27,7 +27,7 @@
 </script>
 
 <div class='strip'>
-  {#each videoOverlayState.tiles as tile (isOverflowTile(tile) ? 'overflow' : tile.sessionId)}
+  {#each videoOverlayState.tiles as tile (isOverflowTile(tile) ? 'overflow' : `${tile.sessionId}:${tile.kind}`)}
     {#if isOverflowTile(tile)}
       <div class='tile overflow'>
         <span class='overflow-count'>+{tile.overflowCount}</span>
@@ -35,7 +35,17 @@
     {:else}
       <div class='tile' class:speaking={tile.speaking}>
         <div class='tile-content'>
-          {#if tile.cameraEnabled && tile.videoTrack}
+          {#if tile.kind === 'screen'}
+            {#if tile.videoTrack}
+              <video
+                use:attachVideoTrack={tile.videoTrack}
+                autoplay
+                playsinline
+                muted={tile.isLocal}
+              ></video>
+            {/if}
+            <span class='screen-badge' title='Sharing screen'>🖥️</span>
+          {:else if tile.cameraEnabled && tile.videoTrack}
             <video
               use:attachVideoTrack={tile.videoTrack}
               autoplay
@@ -157,6 +167,17 @@
 
   .mic-dot.on {
     background: #22c55e;
+  }
+
+  .screen-badge {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: rgb(0 0 0 / 60%);
+    font-size: 14px;
+    line-height: 1.4;
   }
 
   .tile.overflow {

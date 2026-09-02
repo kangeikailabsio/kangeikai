@@ -593,18 +593,20 @@ export class OfficeScene extends Phaser.Scene {
 
   /**
    * Refreshes `videoOverlayState` (T015/T016) with a fixed-position strip: the local
-   * participant ("You") plus the `MAX_REMOTE_VIDEO_TILES` closest nearby ("close enough to
-   * hear", `ProximityAudioController.update()`'s return value — same condition per spec.md's
-   * US2 acceptance scenarios) remote participants, closest-first. Busy identities never
-   * appear: a busy local hides the strip entirely, and a busy remote is omitted before tiles
-   * (so a camera-off placeholder is not reused as a mute tile). Each remaining tile shows
-   * camera/mic state and video track (if publishing); a camera-off tile still renders (as a
-   * placeholder, per the component) rather than being omitted. Any remaining nearby
-   * participants beyond the cap collapse into a single "+N" overflow tile (still audible —
-   * this cap only affects the video strip, not `ProximityAudioController` volume). The strip
-   * itself (including "You") is hidden entirely while alone — it only appears once at least
-   * one other participant is nearby. `room` is whichever LiveKit room is currently active —
-   * `office`, or a private zone's isolated room while one is connected (see `update()`).
+   * participant's tile(s) ("You") first, then the `MAX_REMOTE_VIDEO_TILES` closest nearby
+   * ("close enough to hear", `ProximityAudioController.update()`'s return value — same
+   * condition per spec.md's US2 acceptance scenarios) remote tiles, screen-share tiles ahead of
+   * camera tiles within that cap (#98). Busy identities never appear: a busy local hides the
+   * strip entirely, and a busy remote is omitted before tiles (so a camera-off placeholder is
+   * not reused as a mute tile). Every visible participant always gets a `kind: 'camera'` tile —
+   * camera on or off, a camera-off tile still renders as a placeholder — plus a *second*,
+   * separate `kind: 'screen'` tile when that person is sharing their screen (screen share never
+   * replaces the camera tile, per #94's grill Q6). Any remaining nearby tiles beyond the cap
+   * collapse into a single "+N" overflow tile (still audible/visible in the full grid later —
+   * this cap only affects the strip). The strip itself (including "You") is hidden entirely
+   * while alone — it only appears once at least one other participant is nearby. `room` is
+   * whichever LiveKit room is currently active — `office`, or a private zone's isolated room
+   * while one is connected (see `update()`).
    */
   private updateVideoOverlay(nearbySessionIds: ReadonlySet<string>, room: Room): void {
     if (this.presence === 'busy') {
@@ -625,24 +627,57 @@ export class OfficeScene extends Phaser.Scene {
         continue
       }
 
+      const name = participant.name || sessionId
+      const distance = this.distanceToLocal(sessionId)
+
       remotes.push({
         sessionId,
-        name: participant.name || sessionId,
+        name,
+        kind: 'camera',
         cameraEnabled: participant.isCameraEnabled,
         micEnabled: participant.isMicrophoneEnabled,
         speaking: participant.isSpeaking,
         videoTrack: participant.getTrackPublication(Track.Source.Camera)?.track as RemoteVideoTrack | undefined,
-        distance: this.distanceToLocal(sessionId),
+        distance,
       })
+
+      const screenShareTrack = participant.getTrackPublication(Track.Source.ScreenShare)?.track as RemoteVideoTrack | undefined
+      if (screenShareTrack) {
+        remotes.push({
+          sessionId,
+          name,
+          kind: 'screen',
+          cameraEnabled: participant.isCameraEnabled,
+          micEnabled: participant.isMicrophoneEnabled,
+          speaking: participant.isSpeaking,
+          videoTrack: screenShareTrack,
+          distance,
+        })
+      }
     }
 
-    const local: VideoOverlayParticipant = {
+    const localName = localParticipant.name ?? 'You'
+    const local: VideoOverlayParticipant[] = [{
       sessionId: localParticipant.identity,
-      name: localParticipant.name ?? 'You',
+      name: localName,
+      kind: 'camera',
       cameraEnabled: localParticipant.isCameraEnabled,
       micEnabled: localParticipant.isMicrophoneEnabled,
       speaking: localParticipant.isSpeaking,
       videoTrack: localParticipant.getTrackPublication(Track.Source.Camera)?.track as LocalVideoTrack | undefined,
+    }]
+
+    const localScreenShareTrack = localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track as LocalVideoTrack | undefined
+    if (localScreenShareTrack) {
+      local.push({
+        sessionId: localParticipant.identity,
+        name: localName,
+        kind: 'screen',
+        cameraEnabled: localParticipant.isCameraEnabled,
+        micEnabled: localParticipant.isMicrophoneEnabled,
+        speaking: localParticipant.isSpeaking,
+        videoTrack: localScreenShareTrack,
+      })
     }
 
     videoOverlayState.set(buildVideoOverlayTiles(local, remotes, MAX_REMOTE_VIDEO_TILES))

@@ -5,12 +5,17 @@ import type { LocalVideoTrack, RemoteVideoTrack } from 'livekit-client'
  * participant ("You") plus the closest nearby remote participants (capped, see
  * `office-scene.ts`'s `MAX_REMOTE_VIDEO_TILES`), camera on or off (a camera-off tile still
  * renders a placeholder, per spec.md's US2 acceptance scenarios treating "nearby" as the
- * visibility gate, not camera state).
+ * visibility gate, not camera state). A person sharing their screen gets a *second*, separate
+ * `kind: 'screen'` tile alongside their `kind: 'camera'` one — screen share never replaces the
+ * camera tile (#94's grill Q6) — with `videoTrack` pointing at whichever track that tile shows.
+ * `kind: 'screen'` tiles are prioritized over `kind: 'camera'` ones when the cap trims the strip
+ * (`video-overlay-tiles.ts`'s `buildVideoOverlayTiles`).
  */
 export interface VideoOverlayTile {
   sessionId: string
   name: string
   isLocal: boolean
+  kind: 'camera' | 'screen'
   cameraEnabled: boolean
   micEnabled: boolean
   /**

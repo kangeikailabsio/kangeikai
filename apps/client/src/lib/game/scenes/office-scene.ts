@@ -1,6 +1,7 @@
 import type { AvatarPosition, ProximityAudioControllerOptions } from '$lib/av/proximity-audio-controller'
 import type { VideoOverlayEntry } from '$lib/av/video-overlay-state.svelte'
 import type { HoverTarget } from '$lib/game/entities/avatar-hover'
+import type { CollisionRect } from '$lib/game/map/collision'
 import type { PathfindingGrid } from '$lib/game/map/pathfinding'
 import type { TiledSpaceObject } from '$lib/game/map/private-zones'
 import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
@@ -202,7 +203,9 @@ export class OfficeScene extends Phaser.Scene {
   private avatarNameLabel!: AvatarNameLabel
   private mapWidthPx = 0
   private mapHeightPx = 0
-  /** Built once from the map's `collisions` layer in `create()` (#92) — see pathfinding.ts. */
+  /** The map's `collisions` layer, read once in `create()` — also passed to `findPath` for its exact-goal-point check (#92). */
+  private colliders: readonly CollisionRect[] = []
+  /** Built once from `colliders` in `create()` (#92) — see pathfinding.ts. */
   private pathfindingGrid!: PathfindingGrid
   /**
    * The zoom `handleWheel`/`handleResize` are steering the camera toward (#89) — read back on
@@ -306,6 +309,7 @@ export class OfficeScene extends Phaser.Scene {
       height: object.height ?? 0,
     }))
     this.avatar.setColliders(collisionObjects)
+    this.colliders = collisionObjects
     this.pathfindingGrid = buildPathfindingGrid(
       collisionObjects,
       this.mapWidthPx,
@@ -786,7 +790,7 @@ export class OfficeScene extends Phaser.Scene {
       return
     }
 
-    const path = findPath(this.pathfindingGrid, { x: this.avatar.x, y: this.avatar.y }, { x: worldPoint.x, y: worldPoint.y })
+    const path = findPath(this.pathfindingGrid, this.colliders, feetHitbox, { x: this.avatar.x, y: this.avatar.y }, { x: worldPoint.x, y: worldPoint.y })
     if (!path) {
       this.showUnreachableTargetFeedback(worldPoint)
       return

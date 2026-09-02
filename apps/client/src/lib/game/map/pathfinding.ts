@@ -56,8 +56,25 @@ export function buildPathfindingGrid(
  * waypoint every `cellSize` px, visibly "staircasing" through any diagonal-ish corridor. Doesn't
  * include `start` itself — like `AutoWalkController.setTarget`, this is a list of places to walk
  * to, not including where the avatar already is.
+ *
+ * `colliders`/`hitboxAt` (the same pair `grid` was built from) are used once here, to test
+ * `goal`'s exact clicked point directly rather than trusting the grid's cell-center approximation
+ * for it: a click landing close to an obstacle's corner can fall in a cell whose center reads as
+ * blocked even though the actual clicked pixel is open — the grid's resolution (`cellSize`) is a
+ * reasonable tradeoff for the route in general, but the one point a person actually clicked
+ * deserves an exact answer, not an approximated one.
  */
-export function findPath(grid: PathfindingGrid, start: WalkTarget, goal: WalkTarget): WalkTarget[] | null {
+export function findPath(
+  grid: PathfindingGrid,
+  colliders: readonly CollisionRect[],
+  hitboxAt: (x: number, y: number) => CollisionRect,
+  start: WalkTarget,
+  goal: WalkTarget,
+): WalkTarget[] | null {
+  if (collidesWithAny(hitboxAt(goal.x, goal.y), colliders)) {
+    return null
+  }
+
   const cellPath = searchCellPath(grid, cellAt(grid, start), cellAt(grid, goal))
   if (!cellPath) {
     return null
@@ -161,13 +178,14 @@ class MinHeap<T> {
   }
 }
 
-/** Cell-space A*, `start` always treated as walkable regardless of `grid.blocked` (the avatar is already standing there). */
+/**
+ * Cell-space A*. `start` and `goal` are always treated as walkable regardless of `grid.blocked`
+ * — the avatar is already standing at `start`, and `findPath` has already verified `goal`'s exact
+ * point precisely (not through the grid's cell-center approximation) before calling this.
+ */
 function searchCellPath(grid: PathfindingGrid, start: Cell, goal: Cell): Cell[] | null {
   const startIndex = cellIndex(grid, start)
   const goalIndex = cellIndex(grid, goal)
-  if (grid.blocked[goalIndex]) {
-    return null
-  }
 
   const cellCount = grid.cols * grid.rows
   const cameFrom = new Int32Array(cellCount).fill(-1)
@@ -196,7 +214,7 @@ function searchCellPath(grid: PathfindingGrid, start: Cell, goal: Cell): Cell[] 
         continue
       }
       const neighborIndex = row * grid.cols + col
-      if (grid.blocked[neighborIndex]) {
+      if (neighborIndex !== goalIndex && grid.blocked[neighborIndex]) {
         continue
       }
       const tentativeG = gScore[currentIndex] + grid.cellSize

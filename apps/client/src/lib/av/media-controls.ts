@@ -1,4 +1,5 @@
-import type { Room } from 'livekit-client'
+import type { LocalTrackPublication, Room } from 'livekit-client'
+import { ParticipantEvent, Track } from 'livekit-client'
 
 interface EnabledSnapshot {
   microphoneEnabled: boolean
@@ -6,20 +7,39 @@ interface EnabledSnapshot {
 }
 
 /**
- * Controls the local participant's own microphone/camera publishing (FR-004/FR-005).
+ * Controls the local participant's own microphone/camera/screen-share publishing
+ * (FR-004/FR-005, and screen share per issue #96).
  *
- * `setMicrophoneEnabled`/`setCameraEnabled` never throw: a denied permission or missing
- * device (spec.md US3) is caught and recorded as `microphoneUnavailable`/`cameraUnavailable`
- * instead, so callers (the auto-enable attempt on connect, and the UI's toggle buttons) can
- * treat it as a normal state to disable/label around rather than an error to handle.
+ * `setMicrophoneEnabled`/`setCameraEnabled`/`setScreenShareEnabled` never throw: a denied
+ * permission, missing device, or cancelled screen-share picker (spec.md US3) is caught and
+ * recorded as `*Unavailable` instead, so callers (the auto-enable attempt on connect, and the
+ * UI's toggle buttons) can treat it as a normal state to disable/label around rather than an
+ * error to handle.
  */
 export class MediaControls {
   private micUnavailable = false
   private cameraUnavailableFlag = false
+  private screenShareUnavailableFlag = false
   private busySuppression = false
   private busySnapshot: EnabledSnapshot | null = null
 
-  constructor(private readonly room: Room) {}
+  /**
+   * Fires `onScreenShareEnded` when the screen-share track is unpublished for any reason,
+   * including the browser's native "Stop sharing" control (LiveKit fires this same event for
+   * that case — see `LocalTrackUnpublished`'s docs) — not just when we call
+   * `setScreenShareEnabled(false)` ourselves. No explicit teardown: this instance (and its
+   * `room`) is discarded wholesale on the next room switch (`OfficeScene.applyMediaControls`),
+   * same as every other `MediaControls` listener today.
+   */
+  private readonly handleLocalTrackUnpublished = (publication: LocalTrackPublication): void => {
+    if (publication.source === Track.Source.ScreenShare) {
+      this.onScreenShareEnded?.()
+    }
+  }
+
+  constructor(private readonly room: Room, private readonly onScreenShareEnded?: () => void) {
+    this.room.localParticipant.on(ParticipantEvent.LocalTrackUnpublished, this.handleLocalTrackUnpublished)
+  }
 
   get microphoneEnabled(): boolean {
     return this.room.localParticipant.isMicrophoneEnabled
@@ -29,12 +49,20 @@ export class MediaControls {
     return this.room.localParticipant.isCameraEnabled
   }
 
+  get screenShareEnabled(): boolean {
+    return this.room.localParticipant.isScreenShareEnabled
+  }
+
   get microphoneUnavailable(): boolean {
     return this.micUnavailable
   }
 
   get cameraUnavailable(): boolean {
     return this.cameraUnavailableFlag
+  }
+
+  get screenShareUnavailable(): boolean {
+    return this.screenShareUnavailableFlag
   }
 
   async setMicrophoneEnabled(enabled: boolean): Promise<void> {
@@ -56,6 +84,21 @@ export class MediaControls {
     catch (error) {
       this.cameraUnavailableFlag = true
       console.warn('kangeikai: camera unavailable (permission denied or no device)', error)
+    }
+  }
+
+  /**
+   * Also rejects if the person cancels the browser's screen/window/tab picker — caught the
+   * same way as a denied mic/camera permission, never left to bubble up as an error.
+   */
+  async setScreenShareEnabled(enabled: boolean): Promise<void> {
+    try {
+      await this.room.localParticipant.setScreenShareEnabled(enabled)
+      this.screenShareUnavailableFlag = false
+    }
+    catch (error) {
+      this.screenShareUnavailableFlag = true
+      console.warn('kangeikai: screen share unavailable (permission denied or picker cancelled)', error)
     }
   }
 

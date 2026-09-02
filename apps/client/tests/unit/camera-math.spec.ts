@@ -1,25 +1,25 @@
-import { clampedCameraScroll, clampZoom, fitToMapZoom } from '$lib/game/camera/camera-math'
+import { clampedCameraCenter, clampZoom, fitToMapZoom } from '$lib/game/camera/camera-math'
 import { describe, expect, it } from 'vitest'
 
-describe('clampedCameraScroll', () => {
-  it('centers the avatar when the map is larger than the viewport', () => {
-    expect(clampedCameraScroll(500, 200, 1000)).toBe(400)
+describe('clampedCameraCenter', () => {
+  it('centers on the avatar when the map is larger than the viewport', () => {
+    expect(clampedCameraCenter(500, 200, 1000)).toBe(500)
   })
 
-  it('clamps to the map start so the camera never shows area before it', () => {
-    expect(clampedCameraScroll(10, 200, 1000)).toBe(0)
+  it('clamps so the view never shows area before the map start', () => {
+    expect(clampedCameraCenter(10, 200, 1000)).toBe(100)
   })
 
-  it('clamps to the map end so the camera never shows area past it', () => {
-    expect(clampedCameraScroll(990, 200, 1000)).toBe(800)
+  it('clamps so the view never shows area past the map end', () => {
+    expect(clampedCameraCenter(990, 200, 1000)).toBe(900)
   })
 
-  it('statically centers the map when the viewport is larger than the map', () => {
-    expect(clampedCameraScroll(50, 1000, 400)).toBe(-300)
+  it('statically centers on the map center when the viewport is larger than the map', () => {
+    expect(clampedCameraCenter(50, 1000, 400)).toBe(200)
   })
 
-  it('statically centers the map when the viewport exactly matches the map size', () => {
-    expect(clampedCameraScroll(50, 400, 400)).toBe(0)
+  it('statically centers on the map center when the viewport exactly matches the map size', () => {
+    expect(clampedCameraCenter(50, 400, 400)).toBe(200)
   })
 })
 

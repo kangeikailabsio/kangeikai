@@ -13,7 +13,7 @@ import { PrivateRoomController } from '$lib/av/private-room-controller'
 import { ProximityAudioController } from '$lib/av/proximity-audio-controller'
 import { videoOverlayState } from '$lib/av/video-overlay-state.svelte'
 import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
-import { clampedCameraScroll, clampZoom, fitToMapZoom } from '$lib/game/camera/camera-math'
+import { clampedCameraCenter, clampZoom, fitToMapZoom } from '$lib/game/camera/camera-math'
 import { Avatar, AVATAR_FRAME_RANGES, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
 import { resolveHoverTargetPosition } from '$lib/game/entities/avatar-hover'
 import { AvatarNameLabel } from '$lib/game/entities/avatar-name-label'
@@ -479,8 +479,9 @@ export class OfficeScene extends Phaser.Scene {
     }
 
     const camera = this.cameras.main
-    camera.scrollX = clampedCameraScroll(this.avatar.x, camera.width / camera.zoom, this.mapWidthPx)
-    camera.scrollY = clampedCameraScroll(this.avatar.y, camera.height / camera.zoom, this.mapHeightPx)
+    const centerX = clampedCameraCenter(this.avatar.x, camera.width / camera.zoom, this.mapWidthPx)
+    const centerY = clampedCameraCenter(this.avatar.y, camera.height / camera.zoom, this.mapHeightPx)
+    camera.centerOn(centerX, centerY)
 
     this.roomConnection.sendState({
       x: this.avatar.x,
@@ -705,7 +706,7 @@ export class OfficeScene extends Phaser.Scene {
    * Scroll-wheel zoom (#89): scales `targetZoom` by an exponential factor of the wheel's deltaY,
    * so each physical scroll gesture reads as the same proportional zoom change regardless of the
    * current zoom level, then tweens the camera toward the clamped result. Always anchored on the
-   * avatar rather than the cursor: `update()`'s `clampedCameraScroll` already re-centers on it
+   * avatar rather than the cursor: `update()`'s `camera.centerOn` call already re-centers on it
    * every frame at any zoom, so no separate anchor math is needed here.
    */
   private handleWheel(_pointer: Phaser.Input.Pointer, _currentlyOver: Phaser.GameObjects.GameObject[], _deltaX: number, deltaY: number): void {
@@ -742,8 +743,8 @@ export class OfficeScene extends Phaser.Scene {
   /**
    * Double-click-to-walk (FR click-to-move): a double-click landing within the map's pixel
    * bounds sets an auto-walk target; outside those bounds (the letterboxed margin shown when
-   * the browser viewport is larger than the map — see `clampedCameraScroll`) shows brief
-   * "not accessible" feedback instead. No presence check here: `BusyOverlay`'s full-screen,
+   * the viewport shows more than the map, e.g. at the minimum zoom) shows brief "not accessible"
+   * feedback instead. No presence check here: `BusyOverlay`'s full-screen,
    * pointer-events:auto div already intercepts the click before it reaches this canvas.
    */
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {

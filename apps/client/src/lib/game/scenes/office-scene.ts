@@ -13,6 +13,7 @@ import avatarWomanWalkUrl from '$lib/assets/sprites/avatar-woman-walk.png?url'
 import { MediaControls } from '$lib/av/media-controls'
 import { PrivateRoomController } from '$lib/av/private-room-controller'
 import { ProximityAudioController } from '$lib/av/proximity-audio-controller'
+import { isBusyBlockedByScreenShare } from '$lib/av/screen-share-busy-guard'
 import { buildScreenShareGridTiles } from '$lib/av/screen-share-grid'
 import { screenShareGridState } from '$lib/av/screen-share-grid-state.svelte'
 import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
@@ -435,10 +436,15 @@ export class OfficeScene extends Phaser.Scene {
   /**
    * Single source of truth for local busy toggles (keyboard + HUD): updates local state, sends
    * presence to Colyseus, persists the per-tab choice, applies media busy suppression, then
-   * notifies the page.
+   * notifies the page. Refuses to enter busy while screen sharing (#105) — busy would otherwise
+   * leave the screen-share track published behind the AV isolation it promises.
    */
   async setLocalPresence(presence: AvatarPresence): Promise<void> {
     if (presence === this.presence) {
+      return
+    }
+    if (isBusyBlockedByScreenShare(this.mediaControls?.screenShareEnabled ?? false, presence)) {
+      toastState.show('Stop sharing your screen to go Busy')
       return
     }
     this.presence = presence

@@ -197,7 +197,8 @@
     <button
       type='button'
       aria-pressed={localPresence === 'busy'}
-      title={localPresence === 'busy' ? 'Turn off Busy' : 'Turn on Busy'}
+      disabled={shareEnabled && localPresence !== 'busy'}
+      title={shareEnabled && localPresence !== 'busy' ? 'Stop sharing your screen to use Busy' : localPresence === 'busy' ? 'Turn off Busy' : 'Turn on Busy'}
       onclick={toggleBusy}
     >
       ⛔ Busy

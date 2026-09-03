@@ -32,4 +32,22 @@ describe('resolveScreenShareQuality', () => {
     expect(bitrates[0]).toBeLessThan(bitrates[1])
     expect(bitrates[1]).toBeLessThan(bitrates[2])
   })
+
+  it('does not request audio capture by default', () => {
+    const { captureOptions } = resolveScreenShareQuality('1080p')
+
+    expect(captureOptions.audio).toBe(false)
+  })
+
+  it('requests audio capture when shareAudio is true, for every tier', () => {
+    for (const tier of ['720p', '1080p', '2k'] as const) {
+      expect(resolveScreenShareQuality(tier, true).captureOptions.audio).toBe(true)
+    }
+  })
+
+  it('does not request audio capture when shareAudio is explicitly false', () => {
+    const { captureOptions } = resolveScreenShareQuality('1080p', false)
+
+    expect(captureOptions.audio).toBe(false)
+  })
 })

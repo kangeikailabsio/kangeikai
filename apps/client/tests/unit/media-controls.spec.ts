@@ -100,6 +100,48 @@ describe('mediaControls screen share', () => {
     expect(controls.screenShareQuality).toBe('2k')
   })
 
+  it('does not request audio capture by default', async () => {
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant))
+
+    await controls.setScreenShareEnabled(true)
+
+    const { captureOptions, publishOptions } = resolveScreenShareQuality('1080p', false)
+    expect(participant.setScreenShareEnabled).toHaveBeenCalledWith(true, captureOptions, publishOptions)
+    expect(controls.screenShareAudio).toBe(false)
+  })
+
+  it('requests audio capture when shareAudio is passed as true', async () => {
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant))
+
+    await controls.setScreenShareEnabled(true, '1080p', true)
+
+    const { captureOptions, publishOptions } = resolveScreenShareQuality('1080p', true)
+    expect(participant.setScreenShareEnabled).toHaveBeenCalledWith(true, captureOptions, publishOptions)
+    expect(controls.screenShareAudio).toBe(true)
+  })
+
+  it('reuses the last-applied shareAudio choice when re-enabling without an explicit value (room-switch carry-forward)', async () => {
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant))
+
+    await controls.setScreenShareEnabled(true, '1080p', true)
+    await controls.setScreenShareEnabled(false)
+    await controls.setScreenShareEnabled(true)
+
+    const { captureOptions, publishOptions } = resolveScreenShareQuality('1080p', true)
+    expect(participant.setScreenShareEnabled).toHaveBeenLastCalledWith(true, captureOptions, publishOptions)
+    expect(controls.screenShareAudio).toBe(true)
+  })
+
+  it('defaults screenShareAudio to false before any share has ever started', () => {
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant))
+
+    expect(controls.screenShareAudio).toBe(false)
+  })
+
   it('defaults screenShareQuality to 1080p before any share has ever started', () => {
     const participant = createFakeLocalParticipant()
     const controls = new MediaControls(createFakeRoom(participant))

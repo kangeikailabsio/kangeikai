@@ -22,41 +22,47 @@ describe('screenShareQualityStore', () => {
     vi.unstubAllGlobals()
   })
 
-  it('defaults to 1080p when nothing is stored', () => {
-    expect(new ScreenShareQualityStore().load()).toBe('1080p')
+  it('defaults to 1080p with audio off when nothing is stored', () => {
+    expect(new ScreenShareQualityStore().load()).toEqual({ tier: '1080p', shareAudio: false })
   })
 
-  it('round-trips a saved tier', () => {
+  it('round-trips a saved tier + shareAudio choice', () => {
     const store = new ScreenShareQualityStore()
 
-    store.save('2k')
+    store.save({ tier: '2k', shareAudio: true })
 
-    expect(store.load()).toBe('2k')
+    expect(store.load()).toEqual({ tier: '2k', shareAudio: true })
   })
 
-  it('save() replaces any previously stored tier', () => {
+  it('save() replaces any previously stored settings', () => {
     const store = new ScreenShareQualityStore()
 
-    store.save('720p')
-    store.save('2k')
+    store.save({ tier: '720p', shareAudio: true })
+    store.save({ tier: '2k', shareAudio: false })
 
-    expect(store.load()).toBe('2k')
+    expect(store.load()).toEqual({ tier: '2k', shareAudio: false })
   })
 
-  it('falls back to 1080p for a corrupted/removed-preset stored value', () => {
-    localStorage.setItem(SCREEN_SHARE_QUALITY_STORAGE_KEY, JSON.stringify('4k'))
+  it('falls back to the default for a corrupted/removed-preset stored value', () => {
+    localStorage.setItem(SCREEN_SHARE_QUALITY_STORAGE_KEY, JSON.stringify({ tier: '4k', shareAudio: true }))
 
-    expect(new ScreenShareQualityStore().load()).toBe('1080p')
+    expect(new ScreenShareQualityStore().load()).toEqual({ tier: '1080p', shareAudio: false })
   })
 
-  it('load() degrades to 1080p when localStorage throws', () => {
+  it('falls back to the default for the pre-#113 shape (a bare tier string)', () => {
+    localStorage.setItem(SCREEN_SHARE_QUALITY_STORAGE_KEY, JSON.stringify('2k'))
+
+    expect(new ScreenShareQualityStore().load()).toEqual({ tier: '1080p', shareAudio: false })
+  })
+
+  it('load() degrades to the default when localStorage throws', () => {
     vi.stubGlobal('localStorage', {
       getItem: () => {
         throw new Error('storage disabled')
       },
     })
 
-    expect(new ScreenShareQualityStore().load()).toBe('1080p')
+    expect(new ScreenShareQualityStore().load()).toEqual({ tier: '1080p', shareAudio: false })
   })
 
   it('save() silently does nothing when localStorage throws', () => {
@@ -66,6 +72,6 @@ describe('screenShareQualityStore', () => {
       },
     })
 
-    expect(() => new ScreenShareQualityStore().save('2k')).not.toThrow()
+    expect(() => new ScreenShareQualityStore().save({ tier: '2k', shareAudio: true })).not.toThrow()
   })
 })

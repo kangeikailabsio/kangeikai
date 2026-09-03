@@ -1,6 +1,6 @@
 import type { AvatarState } from '@kangeikai/shared'
 import { PUBLIC_LIVEKIT_TOKEN_ENDPOINT } from '$env/static/public'
-import { Room } from 'livekit-client'
+import { Room, Track } from 'livekit-client'
 import { attachRemoteAudioElements } from './attach-remote-audio'
 import { busyProximityVolume } from './busy-proximity-volume'
 import { fetchLiveKitToken } from './livekit-token-client'
@@ -91,7 +91,11 @@ export class ProximityAudioController {
         remotePosition.presence,
       )
 
+      // Mic defaults implicitly to `Track.Source.Microphone`; screen-share audio (issue #113)
+      // needs its own explicit call. Both are no-ops on the SDK side when that participant has
+      // no publication for the given source, so this is safe even when they aren't sharing audio.
       participant.setVolume(volume)
+      participant.setVolume(volume, Track.Source.ScreenShareAudio)
       if (volume > 0) {
         nearby.add(identity)
       }

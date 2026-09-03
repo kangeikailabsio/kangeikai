@@ -15,6 +15,7 @@ import { PrivateRoomController } from '$lib/av/private-room-controller'
 import { ProximityAudioController } from '$lib/av/proximity-audio-controller'
 import { buildScreenShareGridTiles } from '$lib/av/screen-share-grid'
 import { screenShareGridState } from '$lib/av/screen-share-grid-state.svelte'
+import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
 import { videoOverlayState } from '$lib/av/video-overlay-state.svelte'
 import { buildVideoOverlayTiles } from '$lib/av/video-overlay-tiles'
 import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
@@ -230,6 +231,8 @@ export class OfficeScene extends Phaser.Scene {
   private accessCode!: string
   private presence: AvatarPresence = 'available'
   private mediaControls: MediaControls | undefined
+  /** Tracks the screen-share overlay's previous open state, to edge-trigger `movementController.clear()` (#100) only on the transition into it, not every frame it stays open. */
+  private wasScreenShareOverlayExpanded = false
   /** Set only while connected to a private zone's isolated room — `null` means ambient `office` audio is active. */
   private connectedPrivateRoom: Room | null = null
 
@@ -486,7 +489,15 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
-    const manualIntent = this.presence === 'busy'
+    const screenShareOverlayOpen = screenShareOverlayState.expanded
+    if (screenShareOverlayOpen && !this.wasScreenShareOverlayExpanded) {
+      // Same care as setLocalPresence's busy transition: cancel whatever's already pressed so
+      // the avatar doesn't keep sliding for a frame before the block below takes effect.
+      this.movementController.clear()
+    }
+    this.wasScreenShareOverlayExpanded = screenShareOverlayOpen
+
+    const manualIntent = (this.presence === 'busy' || screenShareOverlayOpen)
       ? { direction: null, sprint: false }
       : this.movementController.getIntent()
 

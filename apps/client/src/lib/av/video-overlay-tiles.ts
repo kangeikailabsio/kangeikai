@@ -17,16 +17,22 @@ export interface RemoteVideoOverlayCandidate extends VideoOverlayParticipant {
  * is expected to already be the exact set of tile candidates to consider (up to two per person:
  * one `camera` tile, one `screen` tile when that person is sharing).
  *
- * The strip is hidden entirely (including the local tile(s)) when `remotes` is empty — matching
- * `office-scene.ts`'s "only appears once at least one other participant is nearby" rule.
+ * The strip is hidden entirely when `remotes` is empty AND the local person isn't sharing their
+ * screen — matching `office-scene.ts`'s "only appears once at least one other participant is
+ * nearby" rule for camera-only tiles. A lone local screen-share tile is the exception: with
+ * nobody nearby to fill the strip, it's still shown (and only it — the local camera tile stays
+ * hidden too) purely as the one way back into the full-screen overlay after minimizing it (#100)
+ * — otherwise a lone presenter would have no way to reopen their own share.
  */
 export function buildVideoOverlayTiles(
   local: readonly VideoOverlayParticipant[],
   remotes: readonly RemoteVideoOverlayCandidate[],
   maxRemoteTiles: number,
 ): VideoOverlayEntry[] {
+  const localScreenTiles = local.filter(tile => tile.kind === 'screen')
+
   if (remotes.length === 0) {
-    return []
+    return localScreenTiles.map(tile => ({ ...tile, isLocal: true }))
   }
 
   const closest = [...remotes].sort((a, b) => {

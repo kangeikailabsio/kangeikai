@@ -1,5 +1,6 @@
 <script lang='ts'>
   import { attachVideoTrack } from '$lib/av/attach-video-track'
+  import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
   import { isOverflowTile, videoOverlayState } from '$lib/av/video-overlay-state.svelte'
 
   function initial(name: string): string {
@@ -13,20 +14,38 @@
       <div class='tile overflow'>
         <span class='overflow-count'>+{tile.overflowCount}</span>
       </div>
+    {:else if tile.kind === 'screen'}
+      <!-- Click to expand into the full-screen grid (#100) — the only interactive tile kind. -->
+      <div
+        class='tile clickable'
+        class:speaking={tile.speaking}
+        role='button'
+        tabindex='0'
+        onclick={() => screenShareOverlayState.set(true)}
+        onkeydown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            screenShareOverlayState.set(true)
+          }
+        }}
+      >
+        <div class='tile-content'>
+          {#if tile.videoTrack}
+            <video
+              use:attachVideoTrack={tile.videoTrack}
+              autoplay
+              playsinline
+              muted={tile.isLocal}
+            ></video>
+          {/if}
+          <span class='screen-badge' title='Sharing screen'>🖥️</span>
+        </div>
+        <span class='name-label'>{tile.isLocal ? 'You' : tile.name}</span>
+      </div>
     {:else}
       <div class='tile' class:speaking={tile.speaking}>
         <div class='tile-content'>
-          {#if tile.kind === 'screen'}
-            {#if tile.videoTrack}
-              <video
-                use:attachVideoTrack={tile.videoTrack}
-                autoplay
-                playsinline
-                muted={tile.isLocal}
-              ></video>
-            {/if}
-            <span class='screen-badge' title='Sharing screen'>🖥️</span>
-          {:else if tile.cameraEnabled && tile.videoTrack}
+          {#if tile.cameraEnabled && tile.videoTrack}
             <video
               use:attachVideoTrack={tile.videoTrack}
               autoplay
@@ -89,6 +108,13 @@
   /* Gather-style speaking indicator, driven by LiveKit's built-in active-speaker detection. */
   .tile.speaking {
     box-shadow: 0 0 0 2px #3b82f6;
+  }
+
+  /* Only screen tiles are interactive (click/Enter/Space to expand, #100) — the strip itself
+     stays `pointer-events: none` for every other tile kind. */
+  .tile.clickable {
+    cursor: pointer;
+    pointer-events: auto;
   }
 
   .tile-content {

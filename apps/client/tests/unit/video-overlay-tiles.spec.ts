@@ -31,8 +31,15 @@ function tileKey(entry: ReturnType<typeof buildVideoOverlayTiles>[number]): stri
 }
 
 describe('buildVideoOverlayTiles', () => {
-  it('is empty when there are no remotes, hiding the local tile(s) too', () => {
+  it('is empty when there are no remotes and the local person is not sharing', () => {
     expect(buildVideoOverlayTiles([localCameraTile], [], 4)).toEqual([])
+  })
+
+  it('shows only the local screen tile when alone and sharing (a way back into the full overlay after minimizing)', () => {
+    const localScreenTile: VideoOverlayParticipant = { ...localCameraTile, kind: 'screen' }
+    const entries = buildVideoOverlayTiles([localCameraTile, localScreenTile], [], 4)
+
+    expect(entries.map(tileKey)).toEqual(['local:screen'])
   })
 
   it('puts the local tile(s) first, marked isLocal', () => {

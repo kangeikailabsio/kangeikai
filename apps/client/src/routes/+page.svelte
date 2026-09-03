@@ -5,6 +5,8 @@
   import type { AvatarPresence } from '@kangeikai/shared'
   import AvatarVideoOverlay from '$lib/av/avatar-video-overlay.svelte'
   import BusyOverlay from '$lib/av/busy-overlay.svelte'
+  import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
+  import ScreenShareOverlay from '$lib/av/screen-share-overlay.svelte'
   import EntryForm from '$lib/entry/entry-form.svelte'
   import { GuestProfileStore } from '$lib/entry/guest-profile-store'
   import { LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT, SCREEN_SHARE_ENDED_EVENT } from '$lib/game/scenes/office-scene'
@@ -139,6 +141,12 @@
     await mediaControls.setScreenShareEnabled(!shareEnabled)
     shareEnabled = mediaControls.screenShareEnabled
     shareUnavailable = mediaControls.screenShareUnavailable
+    // Starting a share jumps straight into the full-screen view (#94's grill: "quando
+    // compartilhar irá abrir um overlay sobre a tela"); stopping never auto-closes it — the
+    // grid's own empty-check (screen-share-overlay.svelte) handles that once it actually empties.
+    if (shareEnabled) {
+      screenShareOverlayState.set(true)
+    }
   }
 
   async function toggleBusy(): Promise<void> {
@@ -150,6 +158,7 @@
 <div class='game-container' bind:this={gameContainer}>
   {#if guestProfile && !connecting}
     <AvatarVideoOverlay />
+    <ScreenShareOverlay />
     <BusyOverlay active={localPresence === 'busy'} />
     <MembersSidebar open={membersOpen} />
     <Toast />

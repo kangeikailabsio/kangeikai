@@ -1,5 +1,6 @@
 <script lang='ts'>
   import type { MediaControls } from '$lib/av/media-controls'
+  import type { ScreenShareQualityTier } from '$lib/av/screen-share-quality'
   import type { GuestProfile } from '$lib/entry/guest-profile-schema'
   import type { RoomConnection } from '$lib/network/room-connection'
   import type { AvatarPresence } from '@kangeikai/shared'
@@ -7,6 +8,8 @@
   import BusyOverlay from '$lib/av/busy-overlay.svelte'
   import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
   import ScreenShareOverlay from '$lib/av/screen-share-overlay.svelte'
+  import ScreenShareQualityPopover from '$lib/av/screen-share-quality-popover.svelte'
+  import { ScreenShareQualityStore } from '$lib/av/screen-share-quality-store'
   import EntryForm from '$lib/entry/entry-form.svelte'
   import { GuestProfileStore } from '$lib/entry/guest-profile-store'
   import { LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT, SCREEN_SHARE_ENDED_EVENT } from '$lib/game/scenes/office-scene'
@@ -20,6 +23,7 @@
   let game: Phaser.Game | undefined
 
   const guestProfileStore = new GuestProfileStore()
+  const screenShareQualityStore = new ScreenShareQualityStore()
 
   let guestProfile: GuestProfile | undefined = $state()
   // True from the moment the game is constructed until the Colyseus join actually succeeds —
@@ -34,6 +38,9 @@
   let micUnavailable = $state(false)
   let cameraUnavailable = $state(false)
   let shareUnavailable = $state(false)
+  // Pre-fills the quality popover with the last-saved choice (issue #111's grill).
+  let screenShareQualityChoice: ScreenShareQualityTier = $state(screenShareQualityStore.load())
+  let screenSharePopoverOpen = $state(false)
   let localPresence: AvatarPresence = $state('available')
   let membersOpen = $state(false)
   let unwireRoster: (() => void) | undefined
@@ -134,11 +141,33 @@
     cameraUnavailable = mediaControls.cameraUnavailable
   }
 
+  /**
+   * Stopping a share needs no quality choice — it goes straight through. Starting one opens the
+   * quality popover instead (issue #111's grill: the popover always appears, pre-selected with
+   * the last saved choice); the actual `setScreenShareEnabled(true, tier)` call happens in
+   * `confirmScreenShareQuality` once the person picks.
+   */
   async function toggleScreenShare(): Promise<void> {
     if (localPresence === 'busy' || !mediaControls) {
       return
     }
-    await mediaControls.setScreenShareEnabled(!shareEnabled)
+    if (shareEnabled) {
+      await mediaControls.setScreenShareEnabled(false)
+      shareEnabled = mediaControls.screenShareEnabled
+      shareUnavailable = mediaControls.screenShareUnavailable
+      return
+    }
+    screenSharePopoverOpen = true
+  }
+
+  async function confirmScreenShareQuality(tier: ScreenShareQualityTier): Promise<void> {
+    screenSharePopoverOpen = false
+    screenShareQualityChoice = tier
+    screenShareQualityStore.save(tier)
+    if (!mediaControls) {
+      return
+    }
+    await mediaControls.setScreenShareEnabled(true, tier)
     shareEnabled = mediaControls.screenShareEnabled
     shareUnavailable = mediaControls.screenShareUnavailable
     // Starting a share jumps straight into the full-screen view (#94's grill: "quando
@@ -147,6 +176,10 @@
     if (shareEnabled) {
       screenShareOverlayState.set(true)
     }
+  }
+
+  function cancelScreenShareQuality(): void {
+    screenSharePopoverOpen = false
   }
 
   async function toggleBusy(): Promise<void> {
@@ -212,6 +245,13 @@
       👥 Members
     </button>
   </div>
+  {#if screenSharePopoverOpen}
+    <ScreenShareQualityPopover
+      selected={screenShareQualityChoice}
+      onConfirm={confirmScreenShareQuality}
+      onCancel={cancelScreenShareQuality}
+    />
+  {/if}
 {/if}
 
 <style>

@@ -1,5 +1,6 @@
 import type { Room } from 'livekit-client'
 import { MediaControls } from '$lib/av/media-controls'
+import { resolveScreenShareQuality } from '$lib/av/screen-share-quality'
 import { ParticipantEvent, Track } from 'livekit-client'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -55,14 +56,55 @@ describe('mediaControls screen share', () => {
     expect(controls.screenShareEnabled).toBe(true)
   })
 
-  it('publishes the screen share track and clears screenShareUnavailable on success', async () => {
+  it('publishes the screen share track at the default (1080p) quality and clears screenShareUnavailable on success', async () => {
     const participant = createFakeLocalParticipant()
     const controls = new MediaControls(createFakeRoom(participant))
 
     await controls.setScreenShareEnabled(true)
 
-    expect(participant.setScreenShareEnabled).toHaveBeenCalledWith(true)
+    const { captureOptions, publishOptions } = resolveScreenShareQuality('1080p')
+    expect(participant.setScreenShareEnabled).toHaveBeenCalledWith(true, captureOptions, publishOptions)
     expect(controls.screenShareUnavailable).toBe(false)
+  })
+
+  it('stops sharing without passing capture/publish options', async () => {
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant))
+
+    await controls.setScreenShareEnabled(false)
+
+    expect(participant.setScreenShareEnabled).toHaveBeenCalledWith(false)
+  })
+
+  it.each(['720p', '1080p', '2k'] as const)('publishes at the requested %s tier', async (tier) => {
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant))
+
+    await controls.setScreenShareEnabled(true, tier)
+
+    const { captureOptions, publishOptions } = resolveScreenShareQuality(tier)
+    expect(participant.setScreenShareEnabled).toHaveBeenCalledWith(true, captureOptions, publishOptions)
+    expect(controls.screenShareQuality).toBe(tier)
+  })
+
+  it('reuses the last-applied quality when re-enabling without an explicit tier (room-switch carry-forward)', async () => {
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant))
+
+    await controls.setScreenShareEnabled(true, '2k')
+    await controls.setScreenShareEnabled(false)
+    await controls.setScreenShareEnabled(true)
+
+    const { captureOptions, publishOptions } = resolveScreenShareQuality('2k')
+    expect(participant.setScreenShareEnabled).toHaveBeenLastCalledWith(true, captureOptions, publishOptions)
+    expect(controls.screenShareQuality).toBe('2k')
+  })
+
+  it('defaults screenShareQuality to 1080p before any share has ever started', () => {
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant))
+
+    expect(controls.screenShareQuality).toBe('1080p')
   })
 
   it('swallows a rejected publish (denied permission or cancelled picker) into screenShareUnavailable, never throwing', async () => {

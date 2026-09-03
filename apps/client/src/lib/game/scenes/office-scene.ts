@@ -388,7 +388,7 @@ export class OfficeScene extends Phaser.Scene {
    * private call ends, carrying forward whatever mic/camera state the person had going into it
    * instead of resetting to the just-joined defaults.
    */
-  private connectProximityAudio(micEnabled = true, cameraEnabled = false, screenShareEnabled = false, screenShareQuality?: ScreenShareQualityTier): void {
+  private connectProximityAudio(micEnabled = true, cameraEnabled = false, screenShareEnabled = false, screenShareQuality?: ScreenShareQualityTier, screenShareAudio = false): void {
     const { sessionId } = this.roomConnection
     if (!sessionId) {
       return
@@ -399,7 +399,7 @@ export class OfficeScene extends Phaser.Scene {
         { identity: sessionId, name: this.displayName, proof: this.roomConnection.sessionProof ?? '' },
         { x: this.avatar.x, y: this.avatar.y, presence: this.presence },
       )
-      .then(() => this.applyMediaControls(this.proximityAudioController.liveKitRoom, micEnabled, cameraEnabled, screenShareEnabled, screenShareQuality))
+      .then(() => this.applyMediaControls(this.proximityAudioController.liveKitRoom, micEnabled, cameraEnabled, screenShareEnabled, screenShareQuality, screenShareAudio))
       .catch((error: unknown) => {
         console.warn('kangeikai: failed to connect proximity audio/video', error)
       })
@@ -413,7 +413,7 @@ export class OfficeScene extends Phaser.Scene {
    * share is never (re)started while busy — the HUD button is disabled for that case, and a
    * room switch mid-busy shouldn't start one either.
    */
-  private async applyMediaControls(room: Room, micEnabled: boolean, cameraEnabled: boolean, screenShareEnabled: boolean, screenShareQuality?: ScreenShareQualityTier): Promise<void> {
+  private async applyMediaControls(room: Room, micEnabled: boolean, cameraEnabled: boolean, screenShareEnabled: boolean, screenShareQuality?: ScreenShareQualityTier, screenShareAudio = false): Promise<void> {
     const previous = this.mediaControls
     const next = new MediaControls(room, () => this.game.events.emit(SCREEN_SHARE_ENDED_EVENT))
     next.adoptBusyState(previous)
@@ -425,7 +425,7 @@ export class OfficeScene extends Phaser.Scene {
       await next.setMicrophoneEnabled(micEnabled)
       await next.setCameraEnabled(cameraEnabled)
       await (screenShareQuality
-        ? next.setScreenShareEnabled(screenShareEnabled, screenShareQuality)
+        ? next.setScreenShareEnabled(screenShareEnabled, screenShareQuality, screenShareAudio)
         : next.setScreenShareEnabled(screenShareEnabled))
     }
     this.game.events.emit(MEDIA_CONTROLS_READY_EVENT, next)
@@ -482,6 +482,7 @@ export class OfficeScene extends Phaser.Scene {
       this.mediaControls?.cameraEnabled ?? false,
       this.mediaControls?.screenShareEnabled ?? false,
       this.mediaControls?.screenShareQuality,
+      this.mediaControls?.screenShareAudio ?? false,
     )
   }
 
@@ -495,8 +496,9 @@ export class OfficeScene extends Phaser.Scene {
     const cameraEnabled = this.mediaControls?.cameraEnabled ?? false
     const screenShareEnabled = this.mediaControls?.screenShareEnabled ?? false
     const screenShareQuality = this.mediaControls?.screenShareQuality
+    const screenShareAudio = this.mediaControls?.screenShareAudio ?? false
     this.connectedPrivateRoom = null
-    this.connectProximityAudio(micEnabled, cameraEnabled, screenShareEnabled, screenShareQuality)
+    this.connectProximityAudio(micEnabled, cameraEnabled, screenShareEnabled, screenShareQuality, screenShareAudio)
   }
 
   update(_time: number, delta: number): void {

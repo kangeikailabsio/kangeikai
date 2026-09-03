@@ -38,8 +38,11 @@
   let micUnavailable = $state(false)
   let cameraUnavailable = $state(false)
   let shareUnavailable = $state(false)
-  // Pre-fills the quality popover with the last-saved choice (issue #111's grill).
-  let screenShareQualityChoice: ScreenShareQualityTier = $state(screenShareQualityStore.load())
+  // Pre-fills the quality popover with the last-saved choice (issue #111's grill, extended for
+  // "share audio too" by #113).
+  const savedScreenShareSettings = screenShareQualityStore.load()
+  let screenShareQualityChoice: ScreenShareQualityTier = $state(savedScreenShareSettings.tier)
+  let screenShareAudioChoice = $state(savedScreenShareSettings.shareAudio)
   let screenSharePopoverOpen = $state(false)
   let localPresence: AvatarPresence = $state('available')
   let membersOpen = $state(false)
@@ -160,14 +163,15 @@
     screenSharePopoverOpen = true
   }
 
-  async function confirmScreenShareQuality(tier: ScreenShareQualityTier): Promise<void> {
+  async function confirmScreenShareQuality(tier: ScreenShareQualityTier, shareAudio: boolean): Promise<void> {
     screenSharePopoverOpen = false
     screenShareQualityChoice = tier
-    screenShareQualityStore.save(tier)
+    screenShareAudioChoice = shareAudio
+    screenShareQualityStore.save({ tier, shareAudio })
     if (!mediaControls) {
       return
     }
-    await mediaControls.setScreenShareEnabled(true, tier)
+    await mediaControls.setScreenShareEnabled(true, tier, shareAudio)
     shareEnabled = mediaControls.screenShareEnabled
     shareUnavailable = mediaControls.screenShareUnavailable
     // Starting a share jumps straight into the full-screen view (#94's grill: "quando
@@ -248,6 +252,7 @@
   {#if screenSharePopoverOpen}
     <ScreenShareQualityPopover
       selected={screenShareQualityChoice}
+      audioSelected={screenShareAudioChoice}
       onConfirm={confirmScreenShareQuality}
       onCancel={cancelScreenShareQuality}
     />

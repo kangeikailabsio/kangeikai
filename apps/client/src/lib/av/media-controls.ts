@@ -25,6 +25,7 @@ export class MediaControls {
   private busySuppression = false
   private busySnapshot: EnabledSnapshot | null = null
   private screenShareQualityTier: ScreenShareQualityTier = DEFAULT_SCREEN_SHARE_QUALITY_TIER
+  private screenShareAudioPreference = false
 
   /**
    * Fires `onScreenShareEnded` when the screen-share track is unpublished for any reason,
@@ -77,6 +78,14 @@ export class MediaControls {
     return this.screenShareQualityTier
   }
 
+  /**
+   * The "share audio too" choice last passed to (or defaulted by) `setScreenShareEnabled` —
+   * carried forward across a room switch the same way `screenShareQuality` is (issue #113).
+   */
+  get screenShareAudio(): boolean {
+    return this.screenShareAudioPreference
+  }
+
   async setMicrophoneEnabled(enabled: boolean): Promise<void> {
     try {
       await this.room.localParticipant.setMicrophoneEnabled(enabled)
@@ -103,17 +112,18 @@ export class MediaControls {
    * Also rejects if the person cancels the browser's screen/window/tab picker — caught the
    * same way as a denied mic/camera permission, never left to bubble up as an error.
    *
-   * `quality` (issue #111) defaults to whatever was last applied (or `DEFAULT_SCREEN_SHARE_
-   * QUALITY_TIER` if never set) — callers that just carry forward an already-running share
-   * across a room switch don't need to pass it, while the popover-driven toggle in `+page.svelte`
-   * always passes the tier the person just picked. Only resolved into capture/publish options
-   * when actually turning sharing on; a disable call doesn't need them.
+   * `quality` (issue #111) and `shareAudio` (issue #113) default to whatever was last applied
+   * (or their defaults if never set) — callers that just carry forward an already-running share
+   * across a room switch don't need to pass them, while the popover-driven toggle in
+   * `+page.svelte` always passes what the person just picked. Only resolved into capture/publish
+   * options when actually turning sharing on; a disable call doesn't need them.
    */
-  async setScreenShareEnabled(enabled: boolean, quality: ScreenShareQualityTier = this.screenShareQualityTier): Promise<void> {
+  async setScreenShareEnabled(enabled: boolean, quality: ScreenShareQualityTier = this.screenShareQualityTier, shareAudio: boolean = this.screenShareAudioPreference): Promise<void> {
     this.screenShareQualityTier = quality
+    this.screenShareAudioPreference = shareAudio
     try {
       if (enabled) {
-        const { captureOptions, publishOptions } = resolveScreenShareQuality(quality)
+        const { captureOptions, publishOptions } = resolveScreenShareQuality(quality, shareAudio)
         await this.room.localParticipant.setScreenShareEnabled(true, captureOptions, publishOptions)
       }
       else {

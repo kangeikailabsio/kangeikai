@@ -5,13 +5,16 @@
   interface Props {
     /** Pre-selected tier — the last saved choice (issue #111's grill: always pre-filled, never blank). */
     selected: ScreenShareQualityTier
-    onConfirm: (tier: ScreenShareQualityTier) => void
+    /** Pre-checked "share audio too" state — the last saved choice (issue #113). */
+    audioSelected: boolean
+    onConfirm: (tier: ScreenShareQualityTier, shareAudio: boolean) => void
     onCancel: () => void
   }
 
-  const { selected, onConfirm, onCancel }: Props = $props()
+  const { selected, audioSelected, onConfirm, onCancel }: Props = $props()
 
   let choice: ScreenShareQualityTier = $state(selected)
+  let shareAudio: boolean = $state(audioSelected)
 
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
@@ -32,9 +35,13 @@
       </label>
     {/each}
   </fieldset>
+  <label>
+    <input type='checkbox' checked={shareAudio} onchange={event => (shareAudio = event.currentTarget.checked)} />
+    Share audio too
+  </label>
   <div class='actions'>
     <button type='button' class='cancel' onclick={onCancel}>Cancel</button>
-    <button type='button' class='confirm' onclick={() => onConfirm(choice)}>Share</button>
+    <button type='button' class='confirm' onclick={() => onConfirm(choice, shareAudio)}>Share</button>
   </div>
 </div>
 

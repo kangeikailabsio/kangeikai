@@ -29,14 +29,17 @@ const PRESET_BY_TIER: Record<ScreenShareQualityTier, VideoPreset> = {
   '2k': TWO_K_SCREEN_SHARE_PRESET,
 }
 
-/** Pure mapping from a chosen tier to the LiveKit options `MediaControls` passes through. */
-export function resolveScreenShareQuality(tier: ScreenShareQualityTier): {
+/**
+ * Pure mapping from a chosen tier (+ whether to also request the shared surface's audio,
+ * issue #113) to the LiveKit options `MediaControls` passes through.
+ */
+export function resolveScreenShareQuality(tier: ScreenShareQualityTier, shareAudio = false): {
   captureOptions: ScreenShareCaptureOptions
   publishOptions: Pick<TrackPublishOptions, 'screenShareEncoding'>
 } {
   const preset = PRESET_BY_TIER[tier]
   return {
-    captureOptions: { resolution: preset.resolution },
+    captureOptions: { resolution: preset.resolution, audio: shareAudio },
     publishOptions: { screenShareEncoding: preset.encoding },
   }
 }

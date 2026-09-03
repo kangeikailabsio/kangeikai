@@ -1,25 +1,7 @@
 <script lang='ts'>
-  import type { LocalVideoTrack, RemoteVideoTrack } from 'livekit-client'
-  import type { Action } from 'svelte/action'
+  import { attachVideoTrack } from '$lib/av/attach-video-track'
+  import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
   import { isOverflowTile, videoOverlayState } from '$lib/av/video-overlay-state.svelte'
-
-  /** Attaches/detaches a LiveKit video track to this element as the track prop changes. */
-  const attachVideoTrack: Action<HTMLVideoElement, LocalVideoTrack | RemoteVideoTrack | undefined> = (node, track) => {
-    track?.attach(node)
-    return {
-      update(nextTrack) {
-        if (nextTrack === track) {
-          return
-        }
-        track?.detach(node)
-        nextTrack?.attach(node)
-        track = nextTrack
-      },
-      destroy() {
-        track?.detach(node)
-      },
-    }
-  }
 
   function initial(name: string): string {
     return name.trim().charAt(0).toUpperCase() || '?'
@@ -27,10 +9,38 @@
 </script>
 
 <div class='strip'>
-  {#each videoOverlayState.tiles as tile (isOverflowTile(tile) ? 'overflow' : tile.sessionId)}
+  {#each videoOverlayState.tiles as tile (isOverflowTile(tile) ? 'overflow' : `${tile.sessionId}:${tile.kind}`)}
     {#if isOverflowTile(tile)}
       <div class='tile overflow'>
         <span class='overflow-count'>+{tile.overflowCount}</span>
+      </div>
+    {:else if tile.kind === 'screen'}
+      <!-- Click to expand into the full-screen grid (#100) — the only interactive tile kind. -->
+      <div
+        class='tile clickable'
+        class:speaking={tile.speaking}
+        role='button'
+        tabindex='0'
+        onclick={() => screenShareOverlayState.set(true)}
+        onkeydown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            screenShareOverlayState.set(true)
+          }
+        }}
+      >
+        <div class='tile-content'>
+          {#if tile.videoTrack}
+            <video
+              use:attachVideoTrack={tile.videoTrack}
+              autoplay
+              playsinline
+              muted={tile.isLocal}
+            ></video>
+          {/if}
+          <span class='screen-badge' title='Sharing screen'>🖥️</span>
+        </div>
+        <span class='name-label'>{tile.isLocal ? 'You' : tile.name}</span>
       </div>
     {:else}
       <div class='tile' class:speaking={tile.speaking}>
@@ -100,6 +110,13 @@
     box-shadow: 0 0 0 2px #3b82f6;
   }
 
+  /* Only screen tiles are interactive (click/Enter/Space to expand, #100) — the strip itself
+     stays `pointer-events: none` for every other tile kind. */
+  .tile.clickable {
+    cursor: pointer;
+    pointer-events: auto;
+  }
+
   .tile-content {
     width: 100%;
     height: 100%;
@@ -157,6 +174,17 @@
 
   .mic-dot.on {
     background: #22c55e;
+  }
+
+  .screen-badge {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: rgb(0 0 0 / 60%);
+    font-size: 14px;
+    line-height: 1.4;
   }
 
   .tile.overflow {

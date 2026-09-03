@@ -1,5 +1,5 @@
 import type { AvatarPosition, ProximityAudioControllerOptions } from '$lib/av/proximity-audio-controller'
-import type { VideoOverlayEntry } from '$lib/av/video-overlay-state.svelte'
+import type { RemoteVideoOverlayCandidate, VideoOverlayParticipant } from '$lib/av/video-overlay-tiles'
 import type { HoverTarget } from '$lib/game/entities/avatar-hover'
 import type { CollisionRect } from '$lib/game/map/collision'
 import type { PathfindingGrid } from '$lib/game/map/pathfinding'
@@ -13,7 +13,12 @@ import avatarWomanWalkUrl from '$lib/assets/sprites/avatar-woman-walk.png?url'
 import { MediaControls } from '$lib/av/media-controls'
 import { PrivateRoomController } from '$lib/av/private-room-controller'
 import { ProximityAudioController } from '$lib/av/proximity-audio-controller'
+import { isBusyBlockedByScreenShare } from '$lib/av/screen-share-busy-guard'
+import { buildScreenShareGridTiles } from '$lib/av/screen-share-grid'
+import { screenShareGridState } from '$lib/av/screen-share-grid-state.svelte'
+import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
 import { videoOverlayState } from '$lib/av/video-overlay-state.svelte'
+import { buildVideoOverlayTiles } from '$lib/av/video-overlay-tiles'
 import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
 import { clampedCameraCenter, clampZoom, fitToMapZoom } from '$lib/game/camera/camera-math'
 import { Avatar, AVATAR_FRAME_RANGES, feetHitbox, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
@@ -36,6 +41,13 @@ export const MEDIA_CONTROLS_READY_EVENT = 'mediacontrols-ready'
 
 /** Emitted on `game.events` when local presence changes (busy unpublish / restore). */
 export const LOCAL_PRESENCE_EVENT = 'local-presence'
+
+/**
+ * Emitted on `game.events` when the local screen-share track is unpublished for any reason
+ * other than a room switch (own toggle, or the browser's native "Stop sharing" control) — see
+ * `MediaControls`'s `onScreenShareEnded` callback, wired in `applyMediaControls`.
+ */
+export const SCREEN_SHARE_ENDED_EVENT = 'screen-share-ended'
 
 /**
  * Emitted on `game.events` when the Colyseus room join is rejected (most commonly a wrong/
@@ -220,6 +232,8 @@ export class OfficeScene extends Phaser.Scene {
   private accessCode!: string
   private presence: AvatarPresence = 'available'
   private mediaControls: MediaControls | undefined
+  /** Tracks the screen-share overlay's previous open state, to edge-trigger `movementController.clear()` (#100) only on the transition into it, not every frame it stays open. */
+  private wasScreenShareOverlayExpanded = false
   /** Set only while connected to a private zone's isolated room — `null` means ambient `office` audio is active. */
   private connectedPrivateRoom: Room | null = null
 
@@ -373,7 +387,7 @@ export class OfficeScene extends Phaser.Scene {
    * private call ends, carrying forward whatever mic/camera state the person had going into it
    * instead of resetting to the just-joined defaults.
    */
-  private connectProximityAudio(micEnabled = true, cameraEnabled = false): void {
+  private connectProximityAudio(micEnabled = true, cameraEnabled = false, screenShareEnabled = false): void {
     const { sessionId } = this.roomConnection
     if (!sessionId) {
       return
@@ -384,7 +398,7 @@ export class OfficeScene extends Phaser.Scene {
         { identity: sessionId, name: this.displayName, proof: this.roomConnection.sessionProof ?? '' },
         { x: this.avatar.x, y: this.avatar.y, presence: this.presence },
       )
-      .then(() => this.applyMediaControls(this.proximityAudioController.liveKitRoom, micEnabled, cameraEnabled))
+      .then(() => this.applyMediaControls(this.proximityAudioController.liveKitRoom, micEnabled, cameraEnabled, screenShareEnabled))
       .catch((error: unknown) => {
         console.warn('kangeikai: failed to connect proximity audio/video', error)
       })
@@ -392,13 +406,15 @@ export class OfficeScene extends Phaser.Scene {
 
   /**
    * (Re-)creates `MediaControls` for whichever LiveKit room is now active — `office` or a
-   * private zone's isolated room — and applies the given mic/camera state to it. A denied
-   * permission or missing device (US3) never throws here — `MediaControls` records it as
-   * `microphoneUnavailable`/`cameraUnavailable` instead.
+   * private zone's isolated room — and applies the given mic/camera/screen-share state to it.
+   * A denied permission or missing device (US3) never throws here — `MediaControls` records it
+   * as `microphoneUnavailable`/`cameraUnavailable`/`screenShareUnavailable` instead. Screen
+   * share is never (re)started while busy — the HUD button is disabled for that case, and a
+   * room switch mid-busy shouldn't start one either.
    */
-  private async applyMediaControls(room: Room, micEnabled: boolean, cameraEnabled: boolean): Promise<void> {
+  private async applyMediaControls(room: Room, micEnabled: boolean, cameraEnabled: boolean, screenShareEnabled: boolean): Promise<void> {
     const previous = this.mediaControls
-    const next = new MediaControls(room)
+    const next = new MediaControls(room, () => this.game.events.emit(SCREEN_SHARE_ENDED_EVENT))
     next.adoptBusyState(previous)
     this.mediaControls = next
     if (this.presence === 'busy') {
@@ -407,6 +423,7 @@ export class OfficeScene extends Phaser.Scene {
     else {
       await next.setMicrophoneEnabled(micEnabled)
       await next.setCameraEnabled(cameraEnabled)
+      await next.setScreenShareEnabled(screenShareEnabled)
     }
     this.game.events.emit(MEDIA_CONTROLS_READY_EVENT, next)
     this.game.events.emit(LOCAL_PRESENCE_EVENT, this.presence)
@@ -419,10 +436,15 @@ export class OfficeScene extends Phaser.Scene {
   /**
    * Single source of truth for local busy toggles (keyboard + HUD): updates local state, sends
    * presence to Colyseus, persists the per-tab choice, applies media busy suppression, then
-   * notifies the page.
+   * notifies the page. Refuses to enter busy while screen sharing (#105) — busy would otherwise
+   * leave the screen-share track published behind the AV isolation it promises.
    */
   async setLocalPresence(presence: AvatarPresence): Promise<void> {
     if (presence === this.presence) {
+      return
+    }
+    if (isBusyBlockedByScreenShare(this.mediaControls?.screenShareEnabled ?? false, presence)) {
+      toastState.show('Stop sharing your screen to go Busy')
       return
     }
     this.presence = presence
@@ -451,7 +473,12 @@ export class OfficeScene extends Phaser.Scene {
   private handlePrivateRoomConnect(room: Room): void {
     this.proximityAudioController.disconnect()
     this.connectedPrivateRoom = room
-    void this.applyMediaControls(room, this.mediaControls?.microphoneEnabled ?? true, this.mediaControls?.cameraEnabled ?? false)
+    void this.applyMediaControls(
+      room,
+      this.mediaControls?.microphoneEnabled ?? true,
+      this.mediaControls?.cameraEnabled ?? false,
+      this.mediaControls?.screenShareEnabled ?? false,
+    )
   }
 
   /**
@@ -462,12 +489,21 @@ export class OfficeScene extends Phaser.Scene {
   private handlePrivateRoomDisconnect(): void {
     const micEnabled = this.mediaControls?.microphoneEnabled ?? true
     const cameraEnabled = this.mediaControls?.cameraEnabled ?? false
+    const screenShareEnabled = this.mediaControls?.screenShareEnabled ?? false
     this.connectedPrivateRoom = null
-    this.connectProximityAudio(micEnabled, cameraEnabled)
+    this.connectProximityAudio(micEnabled, cameraEnabled, screenShareEnabled)
   }
 
   update(_time: number, delta: number): void {
-    const manualIntent = this.presence === 'busy'
+    const screenShareOverlayOpen = screenShareOverlayState.expanded
+    if (screenShareOverlayOpen && !this.wasScreenShareOverlayExpanded) {
+      // Same care as setLocalPresence's busy transition: cancel whatever's already pressed so
+      // the avatar doesn't keep sliding for a frame before the block below takes effect.
+      this.movementController.clear()
+    }
+    this.wasScreenShareOverlayExpanded = screenShareOverlayOpen
+
+    const manualIntent = (this.presence === 'busy' || screenShareOverlayOpen)
       ? { direction: null, sprint: false }
       : this.movementController.getIntent()
 
@@ -576,22 +612,27 @@ export class OfficeScene extends Phaser.Scene {
 
   /**
    * Refreshes `videoOverlayState` (T015/T016) with a fixed-position strip: the local
-   * participant ("You") plus the `MAX_REMOTE_VIDEO_TILES` closest nearby ("close enough to
-   * hear", `ProximityAudioController.update()`'s return value — same condition per spec.md's
-   * US2 acceptance scenarios) remote participants, closest-first. Busy identities never
-   * appear: a busy local hides the strip entirely, and a busy remote is omitted before tiles
-   * (so a camera-off placeholder is not reused as a mute tile). Each remaining tile shows
-   * camera/mic state and video track (if publishing); a camera-off tile still renders (as a
-   * placeholder, per the component) rather than being omitted. Any remaining nearby
-   * participants beyond the cap collapse into a single "+N" overflow tile (still audible —
-   * this cap only affects the video strip, not `ProximityAudioController` volume). The strip
-   * itself (including "You") is hidden entirely while alone — it only appears once at least
-   * one other participant is nearby. `room` is whichever LiveKit room is currently active —
-   * `office`, or a private zone's isolated room while one is connected (see `update()`).
+   * participant's tile(s) ("You") first, then the `MAX_REMOTE_VIDEO_TILES` closest nearby
+   * ("close enough to hear", `ProximityAudioController.update()`'s return value — same
+   * condition per spec.md's US2 acceptance scenarios) remote tiles, screen-share tiles ahead of
+   * camera tiles within that cap (#98). Busy identities never appear: a busy local hides the
+   * strip entirely, and a busy remote is omitted before tiles (so a camera-off placeholder is
+   * not reused as a mute tile). Every visible participant always gets a `kind: 'camera'` tile —
+   * camera on or off, a camera-off tile still renders as a placeholder — plus a *second*,
+   * separate `kind: 'screen'` tile when that person is sharing their screen (screen share never
+   * replaces the camera tile, per #94's grill Q6). Any remaining nearby tiles beyond the cap
+   * collapse into a single "+N" overflow tile (still audible/visible in the full grid later —
+   * this cap only affects the strip). The strip itself (including "You") is hidden entirely
+   * while alone — it only appears once at least one other participant is nearby. `room` is
+   * whichever LiveKit room is currently active — `office`, or a private zone's isolated room
+   * while one is connected (see `update()`). Also refreshes `screenShareGridState` (#99) from
+   * the exact same candidate lists, for the full-screen grid overlay (#100) — every active
+   * screen share nearby, with no cap (unlike the strip above).
    */
   private updateVideoOverlay(nearbySessionIds: ReadonlySet<string>, room: Room): void {
-    if (this.presence === 'busy' || nearbySessionIds.size === 0) {
+    if (this.presence === 'busy') {
       videoOverlayState.set([])
+      screenShareGridState.set([])
       return
     }
 
@@ -599,48 +640,72 @@ export class OfficeScene extends Phaser.Scene {
       sessionId => this.remoteAvatars.get(sessionId)?.presence !== 'busy',
     )
 
-    if (visibleSessionIds.length === 0) {
-      videoOverlayState.set([])
-      return
-    }
-
     const { localParticipant } = room
 
-    const closestSessionIds = visibleSessionIds.sort((a, b) => this.distanceToLocal(a) - this.distanceToLocal(b))
+    const remotes: RemoteVideoOverlayCandidate[] = []
+    for (const sessionId of visibleSessionIds) {
+      const participant = room.remoteParticipants.get(sessionId)
+      if (!participant) {
+        continue
+      }
 
-    const entries: VideoOverlayEntry[] = [{
+      const name = participant.name || sessionId
+      const distance = this.distanceToLocal(sessionId)
+
+      remotes.push({
+        sessionId,
+        name,
+        kind: 'camera',
+        cameraEnabled: participant.isCameraEnabled,
+        micEnabled: participant.isMicrophoneEnabled,
+        speaking: participant.isSpeaking,
+        videoTrack: participant.getTrackPublication(Track.Source.Camera)?.track as RemoteVideoTrack | undefined,
+        distance,
+      })
+
+      const screenShareTrack = participant.getTrackPublication(Track.Source.ScreenShare)?.track as RemoteVideoTrack | undefined
+      if (screenShareTrack) {
+        remotes.push({
+          sessionId,
+          name,
+          kind: 'screen',
+          cameraEnabled: participant.isCameraEnabled,
+          micEnabled: participant.isMicrophoneEnabled,
+          speaking: participant.isSpeaking,
+          videoTrack: screenShareTrack,
+          distance,
+        })
+      }
+    }
+
+    const localName = localParticipant.name ?? 'You'
+    const local: VideoOverlayParticipant[] = [{
       sessionId: localParticipant.identity,
-      name: localParticipant.name ?? 'You',
-      isLocal: true,
+      name: localName,
+      kind: 'camera',
       cameraEnabled: localParticipant.isCameraEnabled,
       micEnabled: localParticipant.isMicrophoneEnabled,
       speaking: localParticipant.isSpeaking,
       videoTrack: localParticipant.getTrackPublication(Track.Source.Camera)?.track as LocalVideoTrack | undefined,
     }]
 
-    for (const sessionId of closestSessionIds.slice(0, MAX_REMOTE_VIDEO_TILES)) {
-      const participant = room.remoteParticipants.get(sessionId)
-      if (!participant) {
-        continue
-      }
-
-      entries.push({
-        sessionId,
-        name: participant.name || sessionId,
-        isLocal: false,
-        cameraEnabled: participant.isCameraEnabled,
-        micEnabled: participant.isMicrophoneEnabled,
-        speaking: participant.isSpeaking,
-        videoTrack: participant.getTrackPublication(Track.Source.Camera)?.track as RemoteVideoTrack | undefined,
+    const localScreenShareTrack = localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track as LocalVideoTrack | undefined
+    if (localScreenShareTrack) {
+      local.push({
+        sessionId: localParticipant.identity,
+        name: localName,
+        kind: 'screen',
+        cameraEnabled: localParticipant.isCameraEnabled,
+        micEnabled: localParticipant.isMicrophoneEnabled,
+        speaking: localParticipant.isSpeaking,
+        videoTrack: localScreenShareTrack,
       })
     }
 
-    const overflowCount = closestSessionIds.length - MAX_REMOTE_VIDEO_TILES
-    if (overflowCount > 0) {
-      entries.push({ overflowCount })
-    }
-
-    videoOverlayState.set(entries)
+    videoOverlayState.set(buildVideoOverlayTiles(local, remotes, MAX_REMOTE_VIDEO_TILES))
+    // Full-screen grid overlay (#100): every active share nearby, uncapped — built from the
+    // exact same candidate lists as the strip above, just filtered down to the screen ones.
+    screenShareGridState.set(buildScreenShareGridTiles(local, remotes))
   }
 
   /** Euclidean distance in map pixels between the local avatar and a remote avatar. */

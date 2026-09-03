@@ -5,9 +5,11 @@
   import type { AvatarPresence } from '@kangeikai/shared'
   import AvatarVideoOverlay from '$lib/av/avatar-video-overlay.svelte'
   import BusyOverlay from '$lib/av/busy-overlay.svelte'
+  import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
+  import ScreenShareOverlay from '$lib/av/screen-share-overlay.svelte'
   import EntryForm from '$lib/entry/entry-form.svelte'
   import { GuestProfileStore } from '$lib/entry/guest-profile-store'
-  import { LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT } from '$lib/game/scenes/office-scene'
+  import { LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT, SCREEN_SHARE_ENDED_EVENT } from '$lib/game/scenes/office-scene'
   import MembersSidebar from '$lib/people/members-sidebar.svelte'
   import { rosterState } from '$lib/people/roster-state.svelte'
   import Toast from '$lib/ui/toast.svelte'
@@ -28,8 +30,10 @@
   let mediaControls: MediaControls | undefined = $state()
   let micEnabled = $state(false)
   let cameraEnabled = $state(false)
+  let shareEnabled = $state(false)
   let micUnavailable = $state(false)
   let cameraUnavailable = $state(false)
+  let shareUnavailable = $state(false)
   let localPresence: AvatarPresence = $state('available')
   let membersOpen = $state(false)
   let unwireRoster: (() => void) | undefined
@@ -72,8 +76,16 @@
       mediaControls = controls
       micEnabled = controls.microphoneEnabled
       cameraEnabled = controls.cameraEnabled
+      shareEnabled = controls.screenShareEnabled
       micUnavailable = controls.microphoneUnavailable
       cameraUnavailable = controls.cameraUnavailable
+      shareUnavailable = controls.screenShareUnavailable
+    })
+
+    // Fires both for our own "Share screen" toggle and for the browser's native "Stop
+    // sharing" control — either way the track is gone, so the button always reflects it.
+    game.events.on(SCREEN_SHARE_ENDED_EVENT, () => {
+      shareEnabled = false
     })
 
     game.events.on(LOCAL_PRESENCE_EVENT, (presence: AvatarPresence) => {
@@ -122,6 +134,21 @@
     cameraUnavailable = mediaControls.cameraUnavailable
   }
 
+  async function toggleScreenShare(): Promise<void> {
+    if (localPresence === 'busy' || !mediaControls) {
+      return
+    }
+    await mediaControls.setScreenShareEnabled(!shareEnabled)
+    shareEnabled = mediaControls.screenShareEnabled
+    shareUnavailable = mediaControls.screenShareUnavailable
+    // Starting a share jumps straight into the full-screen view (#94's grill: "quando
+    // compartilhar irá abrir um overlay sobre a tela"); stopping never auto-closes it — the
+    // grid's own empty-check (screen-share-overlay.svelte) handles that once it actually empties.
+    if (shareEnabled) {
+      screenShareOverlayState.set(true)
+    }
+  }
+
   async function toggleBusy(): Promise<void> {
     const officeScene = game?.scene.getScene('office') as OfficeScene | undefined
     await officeScene?.toggleBusyPresence()
@@ -131,6 +158,7 @@
 <div class='game-container' bind:this={gameContainer}>
   {#if guestProfile && !connecting}
     <AvatarVideoOverlay />
+    <ScreenShareOverlay />
     <BusyOverlay active={localPresence === 'busy'} />
     <MembersSidebar open={membersOpen} />
     <Toast />
@@ -159,8 +187,18 @@
     </button>
     <button
       type='button'
+      aria-pressed={shareEnabled}
+      disabled={!mediaControls || shareUnavailable || localPresence === 'busy'}
+      title={localPresence === 'busy' ? 'Turn off Busy to use Share screen' : undefined}
+      onclick={toggleScreenShare}
+    >
+      {shareUnavailable ? '🖥️ Share unavailable' : shareEnabled ? '🖥️ Stop sharing' : '🖥️ Share screen'}
+    </button>
+    <button
+      type='button'
       aria-pressed={localPresence === 'busy'}
-      title={localPresence === 'busy' ? 'Turn off Busy' : 'Turn on Busy'}
+      disabled={shareEnabled && localPresence !== 'busy'}
+      title={shareEnabled && localPresence !== 'busy' ? 'Stop sharing your screen to use Busy' : localPresence === 'busy' ? 'Turn off Busy' : 'Turn on Busy'}
       onclick={toggleBusy}
     >
       ⛔ Busy

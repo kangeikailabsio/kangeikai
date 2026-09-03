@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.4.0...v0.5.0) (2026-09-03)
+
+
+### Features
+
+* **client:** compartilhar áudio da tela/janela/aba junto com a tela ([#113](https://github.com/kangeikailabsio/kangeikai/issues/113)) ([#114](https://github.com/kangeikailabsio/kangeikai/issues/114)) ([965f5b2](https://github.com/kangeikailabsio/kangeikai/commit/965f5b276941b659950f22d7ba55ee4c4fa68db1))
+* compartilhamento de tela por proximidade ([2515dc2](https://github.com/kangeikailabsio/kangeikai/commit/2515dc2f62de5ce782e58e060777301122ec8796))
+* pathfinding for click-to-move, with unreachable-target feedback ([#93](https://github.com/kangeikailabsio/kangeikai/issues/93)) ([db6fd15](https://github.com/kangeikailabsio/kangeikai/commit/db6fd158c738719ee7ee1e4a662c4bee802e2e55))
+* scroll-wheel zoom in/out on the map camera ([#90](https://github.com/kangeikailabsio/kangeikai/issues/90)) ([0381c54](https://github.com/kangeikailabsio/kangeikai/commit/0381c54ae7a4ad0dee751040d0e1a476513080de))
+* seletor de qualidade para compartilhamento de tela (até 2K) ([#112](https://github.com/kangeikailabsio/kangeikai/issues/112)) ([95a1fae](https://github.com/kangeikailabsio/kangeikai/commit/95a1fae5c33ff060838d5283ebd02bf3fc3b8606)), closes [#111](https://github.com/kangeikailabsio/kangeikai/issues/111)
+
 ## [0.4.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.3.0...v0.4.0) (2026-09-02)
 
 

@@ -1,5 +1,7 @@
 import type { LocalTrackPublication, Room } from 'livekit-client'
+import type { ScreenShareQualityTier } from './screen-share-quality'
 import { ParticipantEvent, Track } from 'livekit-client'
+import { DEFAULT_SCREEN_SHARE_QUALITY_TIER, resolveScreenShareQuality } from './screen-share-quality'
 
 interface EnabledSnapshot {
   microphoneEnabled: boolean
@@ -22,6 +24,7 @@ export class MediaControls {
   private screenShareUnavailableFlag = false
   private busySuppression = false
   private busySnapshot: EnabledSnapshot | null = null
+  private screenShareQualityTier: ScreenShareQualityTier = DEFAULT_SCREEN_SHARE_QUALITY_TIER
 
   /**
    * Fires `onScreenShareEnded` when the screen-share track is unpublished for any reason,
@@ -65,6 +68,15 @@ export class MediaControls {
     return this.screenShareUnavailableFlag
   }
 
+  /**
+   * The tier last passed to (or defaulted by) `setScreenShareEnabled` — carried forward across a
+   * room switch mid-share (`OfficeScene.applyMediaControls`) the same way `screenShareEnabled`
+   * itself is, so reconnecting keeps the quality the person picked rather than resetting it.
+   */
+  get screenShareQuality(): ScreenShareQualityTier {
+    return this.screenShareQualityTier
+  }
+
   async setMicrophoneEnabled(enabled: boolean): Promise<void> {
     try {
       await this.room.localParticipant.setMicrophoneEnabled(enabled)
@@ -90,10 +102,23 @@ export class MediaControls {
   /**
    * Also rejects if the person cancels the browser's screen/window/tab picker — caught the
    * same way as a denied mic/camera permission, never left to bubble up as an error.
+   *
+   * `quality` (issue #111) defaults to whatever was last applied (or `DEFAULT_SCREEN_SHARE_
+   * QUALITY_TIER` if never set) — callers that just carry forward an already-running share
+   * across a room switch don't need to pass it, while the popover-driven toggle in `+page.svelte`
+   * always passes the tier the person just picked. Only resolved into capture/publish options
+   * when actually turning sharing on; a disable call doesn't need them.
    */
-  async setScreenShareEnabled(enabled: boolean): Promise<void> {
+  async setScreenShareEnabled(enabled: boolean, quality: ScreenShareQualityTier = this.screenShareQualityTier): Promise<void> {
+    this.screenShareQualityTier = quality
     try {
-      await this.room.localParticipant.setScreenShareEnabled(enabled)
+      if (enabled) {
+        const { captureOptions, publishOptions } = resolveScreenShareQuality(quality)
+        await this.room.localParticipant.setScreenShareEnabled(true, captureOptions, publishOptions)
+      }
+      else {
+        await this.room.localParticipant.setScreenShareEnabled(false)
+      }
       this.screenShareUnavailableFlag = false
     }
     catch (error) {

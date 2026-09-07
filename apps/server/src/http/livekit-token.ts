@@ -1,5 +1,7 @@
 import type { Application, Request, Response } from 'express'
+import type { OfficeRoom } from '../rooms/office-room'
 import process from 'node:process'
+import { matchMaker } from 'colyseus'
 import express from 'express'
 import { AccessToken } from 'livekit-server-sdk'
 import * as v from 'valibot'
@@ -20,6 +22,33 @@ function zoneIdFromPrivateRoomName(room: string): number {
   return Number(room.slice('private-'.length))
 }
 
+/**
+ * Confirms `identity`'s last-synced position (as `OfficeRoom` has it) is actually inside
+ * `zoneId`, by asking the live `office` room directly (`matchMaker.remoteRoomCall`) rather than
+ * this HTTP layer tracking position itself — issue #60/TASK #122, the real fix: the shape and
+ * zone-existence checks alone (TASK #121) still let anyone request a token for a real zone they
+ * were never actually in.
+ *
+ * `remoteRoomCall` calls the method directly when the room is local to this process (true today
+ * — see `apps/server/src/index.ts`, Colyseus and Express share one process) and transparently
+ * falls back to inter-process messaging otherwise, so this stays correct even if that ever
+ * changes. Fails closed: not finding the room, a timeout, or any other error is treated as
+ * "not verified" — never "assume yes".
+ */
+async function isRequesterInPrivateZone(identity: string, zoneId: number): Promise<boolean> {
+  try {
+    const [officeRoom] = await matchMaker.query({ name: PROXIMITY_ROOM_NAME })
+    if (!officeRoom) {
+      return false
+    }
+    return await matchMaker.remoteRoomCall<OfficeRoom>(officeRoom.roomId, 'isPositionInZone', [identity, zoneId])
+  }
+  catch (error) {
+    console.warn('kangeikai: failed to verify private zone membership', error)
+    return false
+  }
+}
+
 /** Client→server request body (contracts/livekit-token-endpoint.md's LiveKitTokenRequest). */
 const liveKitTokenRequestSchema = v.object({
   identity: v.pipe(v.string(), v.nonEmpty()),
@@ -33,7 +62,7 @@ const liveKitTokenRequestSchema = v.object({
 })
 
 export function registerLiveKitTokenRoute(app: Application): void {
-  app.post('/livekit-token', express.json(), (req: Request, res: Response) => {
+  app.post('/livekit-token', express.json(), async (req: Request, res: Response) => {
     const result = v.safeParse(liveKitTokenRequestSchema, req.body)
     if (!result.success) {
       res.status(400).json({ error: 'Invalid request body' })
@@ -56,9 +85,18 @@ export function registerLiveKitTokenRoute(app: Application): void {
     // (and cheaper than) verifying the requester is actually inside it (issue #60/TASK #121) —
     // the shape check alone (PRIVATE_ROOM_NAME_PATTERN) would otherwise let any private-<n>
     // through as long as n is a number, regardless of whether that zone exists at all.
-    if (requestedRoom && !privateZones.some(zone => zone.id === zoneIdFromPrivateRoomName(requestedRoom))) {
-      res.status(403).json({ error: 'Unknown private zone' })
-      return
+    if (requestedRoom) {
+      const zoneId = zoneIdFromPrivateRoomName(requestedRoom)
+      if (!privateZones.some(zone => zone.id === zoneId)) {
+        res.status(403).json({ error: 'Unknown private zone' })
+        return
+      }
+      // The real fix (issue #60/TASK #122) — the zone existing isn't enough, the requester's
+      // own avatar has to actually be inside it.
+      if (!(await isRequesterInPrivateZone(identity, zoneId))) {
+        res.status(403).json({ error: 'Not inside that private zone' })
+        return
+      }
     }
 
     const url = process.env.LIVEKIT_URL

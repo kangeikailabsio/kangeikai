@@ -77,18 +77,6 @@ describe('post /livekit-token', () => {
     expect(response.status).toBe(500)
   })
 
-  it('mints a token scoped to a private zone room (200)', async () => {
-    const proof = computeSessionProof('session-a')
-    // id 2 ("desk-01") is a real zone on the current map (packages/shared/assets/maps/welcome/
-    // map.tmj's `spaces` layer) — TASK #121 rejects ids that don't exist there, so this can no
-    // longer be an arbitrary number.
-    const response = await postToken({ identity: 'session-a', name: 'Guest', proof, room: 'private-2' })
-    expect(response.status).toBe(200)
-
-    const body = await response.json() as { token: string, url: string }
-    expect(body.token).toEqual(expect.any(String))
-  })
-
   it('rejects a room name that is not the private-<id> format (400)', async () => {
     const proof = computeSessionProof('session-a')
     const response = await postToken({ identity: 'session-a', name: 'Guest', proof, room: 'office' })
@@ -98,6 +86,16 @@ describe('post /livekit-token', () => {
   it('rejects a private zone id that does not exist on the current map (403)', async () => {
     const proof = computeSessionProof('session-a')
     const response = await postToken({ identity: 'session-a', name: 'Guest', proof, room: 'private-999999' })
+    expect(response.status).toBe(403)
+  })
+
+  // A private-<realZoneId> success/position case needs a live `office` room for
+  // matchMaker.remoteRoomCall to reach (issue #60/TASK #122) — this bare-Express harness never
+  // boots a real Colyseus server, so that case is covered instead in office-room.spec.ts, which
+  // already has one running.
+  it('rejects a real private zone when the requester has no synced position at all (403)', async () => {
+    const proof = computeSessionProof('session-a')
+    const response = await postToken({ identity: 'session-a', name: 'Guest', proof, room: 'private-2' })
     expect(response.status).toBe(403)
   })
 })

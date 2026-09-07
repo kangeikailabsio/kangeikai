@@ -1,7 +1,9 @@
 import type { Client } from 'colyseus'
 import process from 'node:process'
+import { privateZoneAt } from '@kangeikai/shared'
 import { CloseCode, Room } from 'colyseus'
 import * as v from 'valibot'
+import { privateZones } from '../map-zones'
 import { computeSessionProof } from '../session-proof'
 import { officeJoinOptionsSchema, setPresencePayloadSchema, updateStatePayloadSchema } from './message-schemas'
 import { AvatarSchema } from './schema/avatar-schema'
@@ -96,6 +98,25 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
     catch (error) {
       console.warn('kangeikai: failed to send session proof (SESSION_SIGNING_SECRET missing?)', error)
     }
+  }
+
+  /**
+   * Whether `sessionId`'s last-synced position is inside the given private zone — called by
+   * `/livekit-token` via `matchMaker.remoteRoomCall` before minting a `private-<zoneId>` token
+   * (issue #60/TASK #122), so a token is only ever granted to someone whose avatar has actually
+   * walked there. A plain query, not a message: it never touches LiveKit credentials, and
+   * `remoteRoomCall` works whether the caller is in this same process (today) or not.
+   *
+   * `x`/`y` are themselves still client-reported (`updateState` has no server-side movement
+   * validation) — this only closes the "requested a token without ever syncing a matching
+   * position at all" gap, not the broader trust model.
+   */
+  isPositionInZone(sessionId: string, zoneId: number): boolean {
+    const avatar = this.state.players.get(sessionId)
+    if (!avatar) {
+      return false
+    }
+    return privateZoneAt(privateZones, avatar.x, avatar.y)?.id === zoneId
   }
 
   async onLeave(client: Client, code?: number): Promise<void> {

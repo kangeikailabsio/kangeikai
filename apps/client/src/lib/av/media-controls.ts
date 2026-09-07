@@ -9,19 +9,33 @@ interface EnabledSnapshot {
 }
 
 /**
+ * Whether this browser can capture the screen at all — a static capability, not something that
+ * changes per room or per attempt, so it's a module-level function rather than instance state
+ * (issue #115's grill). Takes `navigator` as a parameter (defaulting to the global) so tests can
+ * inject a fake one instead of stubbing the global.
+ */
+export function isScreenShareCaptureSupported(nav: Navigator = navigator): boolean {
+  return typeof nav.mediaDevices?.getDisplayMedia === 'function'
+}
+
+/**
  * Controls the local participant's own microphone/camera/screen-share publishing
  * (FR-004/FR-005, and screen share per issue #96).
  *
- * `setMicrophoneEnabled`/`setCameraEnabled`/`setScreenShareEnabled` never throw: a denied
- * permission, missing device, or cancelled screen-share picker (spec.md US3) is caught and
- * recorded as `*Unavailable` instead, so callers (the auto-enable attempt on connect, and the
- * UI's toggle buttons) can treat it as a normal state to disable/label around rather than an
- * error to handle.
+ * `setMicrophoneEnabled`/`setCameraEnabled` never throw: a denied permission or missing device
+ * is caught and recorded as `*Unavailable` instead, so callers (the auto-enable attempt on
+ * connect, and the UI's toggle buttons) can treat it as a normal state to disable/label around
+ * rather than an error to handle.
+ *
+ * `setScreenShareEnabled` never throws either, but a failed attempt (permission denied *or* the
+ * native picker cancelled — browsers don't reliably distinguish the two, e.g. Chrome throws the
+ * same `NotAllowedError` for both) is only logged, not recorded as unavailable: it must stay
+ * retriable (issue #115). `screenShareUnsupported` covers the one case that *is* reliably
+ * detectable — this browser has no `getDisplayMedia` at all — via `isScreenShareCaptureSupported`.
  */
 export class MediaControls {
   private micUnavailable = false
   private cameraUnavailableFlag = false
-  private screenShareUnavailableFlag = false
   private busySuppression = false
   private busySnapshot: EnabledSnapshot | null = null
   private screenShareQualityTier: ScreenShareQualityTier = DEFAULT_SCREEN_SHARE_QUALITY_TIER
@@ -65,8 +79,8 @@ export class MediaControls {
     return this.cameraUnavailableFlag
   }
 
-  get screenShareUnavailable(): boolean {
-    return this.screenShareUnavailableFlag
+  get screenShareUnsupported(): boolean {
+    return !isScreenShareCaptureSupported()
   }
 
   /**
@@ -109,8 +123,9 @@ export class MediaControls {
   }
 
   /**
-   * Also rejects if the person cancels the browser's screen/window/tab picker — caught the
-   * same way as a denied mic/camera permission, never left to bubble up as an error.
+   * Also rejects if the person cancels the browser's screen/window/tab picker — logged and
+   * swallowed the same way as a denied permission, never left to bubble up as an error, and
+   * never recorded as unavailable: both cases must stay retriable (issue #115).
    *
    * `quality` (issue #111) and `shareAudio` (issue #113) default to whatever was last applied
    * (or their defaults if never set) — callers that just carry forward an already-running share
@@ -129,11 +144,9 @@ export class MediaControls {
       else {
         await this.room.localParticipant.setScreenShareEnabled(false)
       }
-      this.screenShareUnavailableFlag = false
     }
     catch (error) {
-      this.screenShareUnavailableFlag = true
-      console.warn('kangeikai: screen share unavailable (permission denied or picker cancelled)', error)
+      console.warn('kangeikai: screen share attempt failed (permission denied or picker cancelled) — retriable', error)
     }
   }
 

@@ -37,7 +37,11 @@
   let shareEnabled = $state(false)
   let micUnavailable = $state(false)
   let cameraUnavailable = $state(false)
-  let shareUnavailable = $state(false)
+  let shareUnsupported = $state(false)
+  // True only from the moment the quality popover is confirmed until setScreenShareEnabled(true)
+  // resolves/rejects — guards against re-clicking "Share screen" while the native picker from a
+  // previous, still-pending attempt is open (issue #115's grill).
+  let shareCapturing = $state(false)
   // Pre-fills the quality popover with the last-saved choice (issue #111's grill, extended for
   // "share audio too" by #113).
   const savedScreenShareSettings = screenShareQualityStore.load()
@@ -89,7 +93,7 @@
       shareEnabled = controls.screenShareEnabled
       micUnavailable = controls.microphoneUnavailable
       cameraUnavailable = controls.cameraUnavailable
-      shareUnavailable = controls.screenShareUnavailable
+      shareUnsupported = controls.screenShareUnsupported
     })
 
     // Fires both for our own "Share screen" toggle and for the browser's native "Stop
@@ -157,7 +161,6 @@
     if (shareEnabled) {
       await mediaControls.setScreenShareEnabled(false)
       shareEnabled = mediaControls.screenShareEnabled
-      shareUnavailable = mediaControls.screenShareUnavailable
       return
     }
     screenSharePopoverOpen = true
@@ -171,9 +174,14 @@
     if (!mediaControls) {
       return
     }
-    await mediaControls.setScreenShareEnabled(true, tier, shareAudio)
+    shareCapturing = true
+    try {
+      await mediaControls.setScreenShareEnabled(true, tier, shareAudio)
+    }
+    finally {
+      shareCapturing = false
+    }
     shareEnabled = mediaControls.screenShareEnabled
-    shareUnavailable = mediaControls.screenShareUnavailable
     // Starting a share jumps straight into the full-screen view (#94's grill: "quando
     // compartilhar irá abrir um overlay sobre a tela"); stopping never auto-closes it — the
     // grid's own empty-check (screen-share-overlay.svelte) handles that once it actually empties.
@@ -225,11 +233,11 @@
     <button
       type='button'
       aria-pressed={shareEnabled}
-      disabled={!mediaControls || shareUnavailable || localPresence === 'busy'}
+      disabled={!mediaControls || shareUnsupported || shareCapturing || localPresence === 'busy'}
       title={localPresence === 'busy' ? 'Turn off Busy to use Share screen' : undefined}
       onclick={toggleScreenShare}
     >
-      {shareUnavailable ? '🖥️ Share unavailable' : shareEnabled ? '🖥️ Stop sharing' : '🖥️ Share screen'}
+      {shareUnsupported ? '🖥️ Share unavailable' : shareEnabled ? '🖥️ Stop sharing' : '🖥️ Share screen'}
     </button>
     <button
       type='button'

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/kangeikailabsio/kangeikai/compare/v0.6.0...v0.6.1) (2026-09-07)
+
+
+### Fixes
+
+* **client:** flush position before requesting a private-room token ([#135](https://github.com/kangeikailabsio/kangeikai/issues/135)) ([0a784fb](https://github.com/kangeikailabsio/kangeikai/commit/0a784fb7adb6c673e7b562ed41effa29270c0ca8))
+
 ## [0.6.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.5.0...v0.6.0) (2026-09-07)
 
 

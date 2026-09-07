@@ -1,4 +1,4 @@
-import type { LocalTrackPublication, Room } from 'livekit-client'
+import type { LocalTrack, LocalTrackPublication, Room } from 'livekit-client'
 import type { ScreenShareQualityTier } from './screen-share-quality'
 import { ParticipantEvent, Track } from 'livekit-client'
 import { DEFAULT_SCREEN_SHARE_QUALITY_TIER, resolveScreenShareQuality } from './screen-share-quality'
@@ -6,6 +6,18 @@ import { DEFAULT_SCREEN_SHARE_QUALITY_TIER, resolveScreenShareQuality } from './
 interface EnabledSnapshot {
   microphoneEnabled: boolean
   cameraEnabled: boolean
+}
+
+/**
+ * A screen-share (+ optional audio) track detached from one room, still capturing, ready to be
+ * republished on another room instead of triggering a fresh `getDisplayMedia()` prompt — how a
+ * share survives a private-area room switch (issue #116).
+ */
+export interface ScreenShareHandoff {
+  videoTrack: LocalTrack
+  audioTrack: LocalTrack | undefined
+  quality: ScreenShareQualityTier
+  shareAudio: boolean
 }
 
 /**
@@ -147,6 +159,45 @@ export class MediaControls {
     }
     catch (error) {
       console.warn('kangeikai: screen share attempt failed (permission denied or picker cancelled) — retriable', error)
+    }
+  }
+
+  /**
+   * Detaches the screen-share track (and its paired audio track, if "share audio too" was on)
+   * from this room *without stopping the capture* (`stopOnUnpublish: false`), so a caller can
+   * hand it to `adoptScreenShareTrack` on a different room's `MediaControls` instead of losing
+   * it — the private-area room switch continuity fix (issue #116). Must be called before this
+   * room disconnects, or the track gets force-stopped along with everything else.
+   *
+   * Returns `undefined` if nothing is currently sharing.
+   */
+  async detachScreenShareTrack(): Promise<ScreenShareHandoff | undefined> {
+    const videoTrack = this.room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track
+    if (!videoTrack) {
+      return undefined
+    }
+    const audioTrack = this.room.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio)?.track
+    await this.room.localParticipant.unpublishTrack(videoTrack, false)
+    if (audioTrack) {
+      await this.room.localParticipant.unpublishTrack(audioTrack, false)
+    }
+    return { videoTrack, audioTrack, quality: this.screenShareQualityTier, shareAudio: this.screenShareAudioPreference }
+  }
+
+  /**
+   * Republishes a track handed off by `detachScreenShareTrack` onto this room instead of
+   * capturing a fresh one — the still-live `MediaStreamTrack` just gets a new RTP sender, no
+   * `getDisplayMedia()` prompt (issue #116). Throws if the republish itself fails (e.g. the new
+   * room rejects it, or the track ended mid-transition) — callers decide how to surface that,
+   * since it's a genuine failure, unlike a normal `setScreenShareEnabled` rejection.
+   */
+  async adoptScreenShareTrack(handoff: ScreenShareHandoff): Promise<void> {
+    this.screenShareQualityTier = handoff.quality
+    this.screenShareAudioPreference = handoff.shareAudio
+    const { publishOptions } = resolveScreenShareQuality(handoff.quality, handoff.shareAudio)
+    await this.room.localParticipant.publishTrack(handoff.videoTrack, publishOptions)
+    if (handoff.audioTrack) {
+      await this.room.localParticipant.publishTrack(handoff.audioTrack)
     }
   }
 

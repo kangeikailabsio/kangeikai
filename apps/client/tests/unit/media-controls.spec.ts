@@ -11,6 +11,10 @@ interface FakeLocalParticipant {
   setMicrophoneEnabled: ReturnType<typeof vi.fn>
   setCameraEnabled: ReturnType<typeof vi.fn>
   setScreenShareEnabled: ReturnType<typeof vi.fn>
+  getTrackPublication: ReturnType<typeof vi.fn>
+  unpublishTrack: ReturnType<typeof vi.fn>
+  publishTrack: ReturnType<typeof vi.fn>
+  publications: Map<Track.Source, { track: unknown }>
   on: ReturnType<typeof vi.fn>
   emit: (event: string, ...args: unknown[]) => void
 }
@@ -18,10 +22,13 @@ interface FakeLocalParticipant {
 /**
  * `MediaControls` only ever touches a handful of members on `room.localParticipant` — a fake
  * implementing just those (plus a minimal on/emit pair to drive `LocalTrackUnpublished`) is
- * enough to exercise it without a real LiveKit connection.
+ * enough to exercise it without a real LiveKit connection. `publications` backs
+ * `getTrackPublication` — tests seed it directly to simulate an already-sharing participant
+ * (issue #116's detach/adopt handoff).
  */
 function createFakeLocalParticipant(): FakeLocalParticipant {
   const listeners = new Map<string, Array<(...args: unknown[]) => void>>()
+  const publications = new Map<Track.Source, { track: unknown }>()
 
   return {
     isMicrophoneEnabled: false,
@@ -30,6 +37,10 @@ function createFakeLocalParticipant(): FakeLocalParticipant {
     setMicrophoneEnabled: vi.fn(async () => undefined),
     setCameraEnabled: vi.fn(async () => undefined),
     setScreenShareEnabled: vi.fn(async () => undefined),
+    getTrackPublication: vi.fn((source: Track.Source) => publications.get(source)),
+    unpublishTrack: vi.fn(async () => undefined),
+    publishTrack: vi.fn(async () => undefined),
+    publications,
     on: vi.fn((event: string, callback: (...args: unknown[]) => void) => {
       const callbacks = listeners.get(event) ?? []
       callbacks.push(callback)
@@ -203,6 +214,80 @@ describe('mediaControls screen share', () => {
     new MediaControls(createFakeRoom(participant))
 
     expect(() => participant.emit(ParticipantEvent.LocalTrackUnpublished, { source: Track.Source.ScreenShare })).not.toThrow()
+  })
+})
+
+describe('mediaControls screen share handoff (issue #116)', () => {
+  it('detachScreenShareTrack returns undefined when nothing is being shared', async () => {
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant))
+
+    await expect(controls.detachScreenShareTrack()).resolves.toBeUndefined()
+    expect(participant.unpublishTrack).not.toHaveBeenCalled()
+  })
+
+  it('detachScreenShareTrack unpublishes (without stopping) and returns the video track plus the current quality/audio preference', async () => {
+    const participant = createFakeLocalParticipant()
+    const videoTrack = { kind: 'video' }
+    participant.publications.set(Track.Source.ScreenShare, { track: videoTrack })
+    const controls = new MediaControls(createFakeRoom(participant))
+    await controls.setScreenShareEnabled(true, '2k', false)
+
+    const handoff = await controls.detachScreenShareTrack()
+
+    expect(participant.unpublishTrack).toHaveBeenCalledWith(videoTrack, false)
+    expect(handoff).toEqual({ videoTrack, audioTrack: undefined, quality: '2k', shareAudio: false })
+  })
+
+  it('detachScreenShareTrack also detaches the paired audio track when "share audio too" was on', async () => {
+    const participant = createFakeLocalParticipant()
+    const videoTrack = { kind: 'video' }
+    const audioTrack = { kind: 'audio' }
+    participant.publications.set(Track.Source.ScreenShare, { track: videoTrack })
+    participant.publications.set(Track.Source.ScreenShareAudio, { track: audioTrack })
+    const controls = new MediaControls(createFakeRoom(participant))
+    await controls.setScreenShareEnabled(true, '1080p', true)
+
+    const handoff = await controls.detachScreenShareTrack()
+
+    expect(participant.unpublishTrack).toHaveBeenCalledWith(videoTrack, false)
+    expect(participant.unpublishTrack).toHaveBeenCalledWith(audioTrack, false)
+    expect(handoff).toEqual({ videoTrack, audioTrack, quality: '1080p', shareAudio: true })
+  })
+
+  it('adoptScreenShareTrack republishes the handed-off video track at its captured quality\'s encoding, without capturing a fresh one', async () => {
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant))
+    const videoTrack = { kind: 'video' }
+
+    await controls.adoptScreenShareTrack({ videoTrack: videoTrack as never, audioTrack: undefined, quality: '2k', shareAudio: false })
+
+    const { publishOptions } = resolveScreenShareQuality('2k', false)
+    expect(participant.publishTrack).toHaveBeenCalledWith(videoTrack, publishOptions)
+    expect(participant.setScreenShareEnabled).not.toHaveBeenCalled()
+    expect(controls.screenShareQuality).toBe('2k')
+  })
+
+  it('adoptScreenShareTrack also republishes the paired audio track when present in the handoff', async () => {
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant))
+    const videoTrack = { kind: 'video' }
+    const audioTrack = { kind: 'audio' }
+
+    await controls.adoptScreenShareTrack({ videoTrack: videoTrack as never, audioTrack: audioTrack as never, quality: '1080p', shareAudio: true })
+
+    expect(participant.publishTrack).toHaveBeenCalledWith(audioTrack)
+    expect(controls.screenShareAudio).toBe(true)
+  })
+
+  it('adoptScreenShareTrack propagates a republish failure instead of swallowing it (unlike setScreenShareEnabled)', async () => {
+    const participant = createFakeLocalParticipant()
+    participant.publishTrack.mockRejectedValueOnce(new Error('private room rejected the track'))
+    const controls = new MediaControls(createFakeRoom(participant))
+
+    await expect(controls.adoptScreenShareTrack({ videoTrack: {} as never, audioTrack: undefined, quality: '1080p', shareAudio: false }))
+      .rejects
+      .toThrow('private room rejected the track')
   })
 })
 

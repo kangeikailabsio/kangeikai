@@ -1,3 +1,4 @@
+import type { ScreenShareHandoff } from '$lib/av/media-controls'
 import type { AvatarPosition, ProximityAudioControllerOptions } from '$lib/av/proximity-audio-controller'
 import type { ScreenShareQualityTier } from '$lib/av/screen-share-quality'
 import type { RemoteVideoOverlayCandidate, VideoOverlayParticipant } from '$lib/av/video-overlay-tiles'
@@ -413,24 +414,46 @@ export class OfficeScene extends Phaser.Scene {
    * just logged and left retriable — issue #115). Screen share is never (re)started while busy
    * — the HUD button is disabled for that case, and a room switch mid-busy shouldn't start one
    * either.
+   *
+   * `screenShareHandoff` (issue #116) takes over from `screenShareEnabled`/`screenShareQuality`/
+   * `screenShareAudio` for the screen-share portion when present: it republishes an already-live
+   * track (`MediaControls.adoptScreenShareTrack`) instead of calling `setScreenShareEnabled`,
+   * which would trigger a fresh `getDisplayMedia()` capture. A failed republish is swallowed the
+   * same way the rest of this method swallows media failures — mic/camera and the ready events
+   * below must still go through — and reported back via the return value instead of a throw, so
+   * the caller (`handlePrivateRoomConnect`) can decide whether to surface it (a toast, since it's
+   * a genuine failure unlike a normal "share attempt failed, stay retriable" swallow).
    */
-  private async applyMediaControls(room: Room, micEnabled: boolean, cameraEnabled: boolean, screenShareEnabled: boolean, screenShareQuality?: ScreenShareQualityTier, screenShareAudio = false): Promise<void> {
+  private async applyMediaControls(room: Room, micEnabled: boolean, cameraEnabled: boolean, screenShareEnabled: boolean, screenShareQuality?: ScreenShareQualityTier, screenShareAudio = false, screenShareHandoff?: ScreenShareHandoff): Promise<{ screenShareHandoffFailed: boolean }> {
     const previous = this.mediaControls
     const next = new MediaControls(room, () => this.game.events.emit(SCREEN_SHARE_ENDED_EVENT))
     next.adoptBusyState(previous)
     this.mediaControls = next
+    let screenShareHandoffFailed = false
     if (this.presence === 'busy') {
       await next.beginBusy({ microphoneEnabled: micEnabled, cameraEnabled })
     }
     else {
       await next.setMicrophoneEnabled(micEnabled)
       await next.setCameraEnabled(cameraEnabled)
-      await (screenShareQuality
-        ? next.setScreenShareEnabled(screenShareEnabled, screenShareQuality, screenShareAudio)
-        : next.setScreenShareEnabled(screenShareEnabled))
+      if (screenShareHandoff) {
+        try {
+          await next.adoptScreenShareTrack(screenShareHandoff)
+        }
+        catch (error) {
+          screenShareHandoffFailed = true
+          console.warn('kangeikai: failed to continue screen share across a room switch', error)
+        }
+      }
+      else {
+        await (screenShareQuality
+          ? next.setScreenShareEnabled(screenShareEnabled, screenShareQuality, screenShareAudio)
+          : next.setScreenShareEnabled(screenShareEnabled))
+      }
     }
     this.game.events.emit(MEDIA_CONTROLS_READY_EVENT, next)
     this.game.events.emit(LOCAL_PRESENCE_EVENT, this.presence)
+    return { screenShareHandoffFailed }
   }
 
   async toggleBusyPresence(): Promise<void> {
@@ -473,33 +496,62 @@ export class OfficeScene extends Phaser.Scene {
    * `PrivateRoomController` calls this once a zone's 2nd person arrives: leaves `office`'s
    * audio for the duration (a real, isolated call — not just muting) and points media controls/
    * video overlay at the private room instead.
+   *
+   * This is always an `office → private` transition (`PrivateRoomController.update()` never
+   * connects private-to-private directly — it always tears the current one down first), so an
+   * active screen share is handed off rather than dropped: detached from `office` before
+   * disconnecting from it (issue #116), then republished on the private room once
+   * `applyMediaControls` gets there — no interruption, no new `getDisplayMedia()` prompt. If the
+   * handoff itself fails (rare — the private room rejects the republish, or the track ended
+   * mid-transition), that's a genuine error, surfaced via toast, unlike a normal share-attempt
+   * failure which stays silent and retriable.
    */
   private handlePrivateRoomConnect(room: Room): void {
+    void this.connectPrivateRoomWithScreenShareHandoff(room)
+  }
+
+  private async connectPrivateRoomWithScreenShareHandoff(room: Room): Promise<void> {
+    const previous = this.mediaControls
+    let screenShareHandoff: ScreenShareHandoff | undefined
+    let screenShareHandoffFailed = false
+    try {
+      screenShareHandoff = await previous?.detachScreenShareTrack()
+    }
+    catch (error) {
+      screenShareHandoffFailed = true
+      console.warn('kangeikai: failed to detach screen share ahead of a private-room switch', error)
+    }
     this.proximityAudioController.disconnect()
     this.connectedPrivateRoom = room
-    void this.applyMediaControls(
+    const result = await this.applyMediaControls(
       room,
-      this.mediaControls?.microphoneEnabled ?? true,
-      this.mediaControls?.cameraEnabled ?? false,
-      this.mediaControls?.screenShareEnabled ?? false,
-      this.mediaControls?.screenShareQuality,
-      this.mediaControls?.screenShareAudio ?? false,
+      previous?.microphoneEnabled ?? true,
+      previous?.cameraEnabled ?? false,
+      false,
+      undefined,
+      false,
+      screenShareHandoff,
     )
+    if (screenShareHandoffFailed || result.screenShareHandoffFailed) {
+      toastState.show('Couldn\'t continue screen share — try sharing again')
+    }
   }
 
   /**
    * `PrivateRoomController` calls this once the private call ends (occupancy drops under 2, or
    * the local avatar left the zone): reconnects `office` audio, carrying forward the mic/camera
    * state the person had during the private call.
+   *
+   * This is always a `private → office` transition, and screen share is never carried forward
+   * into it (issue #116) — it stops silently, matching Gather.town's own behavior for this
+   * direction; the HUD button and full-screen overlay resolve on their own once
+   * `screenShareEnabled` goes back to `false`, the same way they do for a manual "Stop sharing".
    */
   private handlePrivateRoomDisconnect(): void {
     const micEnabled = this.mediaControls?.microphoneEnabled ?? true
     const cameraEnabled = this.mediaControls?.cameraEnabled ?? false
-    const screenShareEnabled = this.mediaControls?.screenShareEnabled ?? false
-    const screenShareQuality = this.mediaControls?.screenShareQuality
-    const screenShareAudio = this.mediaControls?.screenShareAudio ?? false
     this.connectedPrivateRoom = null
-    this.connectProximityAudio(micEnabled, cameraEnabled, screenShareEnabled, screenShareQuality, screenShareAudio)
+    this.connectProximityAudio(micEnabled, cameraEnabled, false)
   }
 
   update(_time: number, delta: number): void {

@@ -32,6 +32,7 @@ import { queueActiveMapLoad } from '$lib/game/map/active-map'
 import { buildPathfindingGrid, findPath } from '$lib/game/map/pathfinding'
 import { resolveRespawnPoint } from '$lib/game/map/respawn-point'
 import { RoomConnection } from '$lib/network/room-connection'
+import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
 import { toastState } from '$lib/ui/toast-state.svelte'
 import { resolvePrivateZones } from '@kangeikai/shared'
 import { Track } from 'livekit-client'
@@ -901,10 +902,26 @@ export class OfficeScene extends Phaser.Scene {
    * (walled off), shows the same "not accessible" feedback instead. No presence check here:
    * `BusyOverlay`'s full-screen, pointer-events:auto div already intercepts the click before it
    * reaches this canvas.
+   *
+   * A single (non-double) click reuses `hoveredTarget` — already tracked continuously by
+   * `makeAvatarHoverable`'s `pointerover`/`pointerout` — rather than a separate per-sprite click
+   * listener: the pointer is necessarily over the avatar at click time, so this is equivalent
+   * and avoids the two-listeners-for-one-click ordering questions a sprite-level handler would
+   * raise. Opens the avatar profile panel (issue #127) when the click landed on an avatar,
+   * closes it otherwise (single click elsewhere on the map = "click outside" the panel). A
+   * double-click still walks there regardless — including on an avatar, deliberately not an
+   * exception (#127's grill): the first click of that pair still opens/updates the panel (this
+   * runs before the `isDoubleClick` check returns early below), the second one just also walks.
    */
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
     const isDoubleClick = this.doubleClickDetector.registerClick({ x: pointer.x, y: pointer.y }, this.time.now)
     if (!isDoubleClick) {
+      if (this.hoveredTarget) {
+        avatarProfileState.open(this.hoveredTarget)
+      }
+      else {
+        avatarProfileState.close()
+      }
       return
     }
 

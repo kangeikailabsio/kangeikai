@@ -12,6 +12,7 @@
   import { ScreenShareQualityStore } from '$lib/av/screen-share-quality-store'
   import EntryForm from '$lib/entry/entry-form.svelte'
   import { GuestProfileStore } from '$lib/entry/guest-profile-store'
+  import FpsDisplay from '$lib/game/fps-display.svelte'
   import { LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT, SCREEN_SHARE_ENDED_EVENT } from '$lib/game/scenes/office-scene'
   import AvatarProfilePanel from '$lib/people/avatar-profile-panel.svelte'
   import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
@@ -22,7 +23,10 @@
   import { onDestroy } from 'svelte'
 
   let gameContainer: HTMLDivElement
-  let game: Phaser.Game | undefined
+  // $state so FpsDisplay (issue #130), passed this by reference, re-renders correctly if it
+  // ever changes while mounted — not just relying on the {#if guestProfile && !connecting} block
+  // remounting at exactly the right time.
+  let game: Phaser.Game | undefined = $state()
 
   const guestProfileStore = new GuestProfileStore()
   const screenShareQualityStore = new ScreenShareQualityStore()
@@ -212,6 +216,7 @@
     <BusyOverlay active={localPresence === 'busy'} />
     <MembersSidebar open={membersOpen} />
     <AvatarProfilePanel />
+    <FpsDisplay {game} />
     <Toast />
   {/if}
 </div>

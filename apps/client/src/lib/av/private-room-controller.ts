@@ -61,6 +61,7 @@ export class PrivateRoomController {
     localPosition: AvatarPosition,
     remotePositions: ReadonlyMap<string, AvatarPosition>,
     handlers: PrivateRoomTransitionHandlers,
+    flushLocalPosition: () => void,
   ): Promise<void> {
     const { zoneId, occupantSessionIds } = resolvePrivateZoneOccupancy(this.zones, localPosition, remotePositions)
 
@@ -74,7 +75,7 @@ export class PrivateRoomController {
     const shouldBeConnected = zoneId !== null && occupantSessionIds.length >= 1
 
     if (shouldBeConnected && this.connectedZoneIdInternal === null && !this.connecting) {
-      await this.establish(options, zoneId!, handlers.onConnect)
+      await this.establish(options, zoneId!, handlers.onConnect, flushLocalPosition)
       return
     }
 
@@ -88,8 +89,19 @@ export class PrivateRoomController {
     this.teardown()
   }
 
-  private async establish(options: ProximityAudioControllerOptions, zoneId: number, onConnect: PrivateRoomTransitionHandlers['onConnect']): Promise<void> {
+  /**
+   * `flushLocalPosition` MUST run before `fetchLiveKitToken` — the server's private-zone check
+   * (`isRequesterInPrivateZone`) reads the last position it received over the socket, and the
+   * position that just made `shouldBeConnected` true this frame may still be sitting in
+   * `RoomConnection`'s send throttle (up to `SEND_INTERVAL_MS`) when this fires. Racing the
+   * unthrottled HTTP token request ahead of that throttled position update reads a stale,
+   * "not yet in the zone" position server-side and gets rejected with 403 (issue #134) —
+   * reliably enough in production, where real network latency/jitter removes the near-zero-
+   * latency ordering that made this race benign in local dev.
+   */
+  private async establish(options: ProximityAudioControllerOptions, zoneId: number, onConnect: PrivateRoomTransitionHandlers['onConnect'], flushLocalPosition: () => void): Promise<void> {
     this.connecting = true
+    flushLocalPosition()
     try {
       const room = new LiveKitRoom()
       attachRemoteAudioElements(room)

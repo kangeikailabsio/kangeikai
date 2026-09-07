@@ -624,7 +624,7 @@ export class OfficeScene extends Phaser.Scene {
       void this.privateRoomController.update(options, localPosition, remotePositions, {
         onConnect: room => this.handlePrivateRoomConnect(room),
         onDisconnect: () => this.handlePrivateRoomDisconnect(),
-      })
+      }, () => this.roomConnection.flushPendingState())
     }
 
     if (this.connectedPrivateRoom) {

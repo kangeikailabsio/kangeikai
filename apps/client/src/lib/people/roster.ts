@@ -1,10 +1,12 @@
-import type { AvatarPresence } from '@kangeikai/shared'
+import type { AvatarPresence, AvatarSpriteType } from '@kangeikai/shared'
 
 export interface RosterPerson {
   sessionId: string
   name: string
   presence: AvatarPresence
   isLocal: boolean
+  /** Drives the avatar icon in the profile panel opened by clicking this person (issue #127). */
+  spriteType: AvatarSpriteType
 }
 
 /**

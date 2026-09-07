@@ -13,6 +13,8 @@
   import EntryForm from '$lib/entry/entry-form.svelte'
   import { GuestProfileStore } from '$lib/entry/guest-profile-store'
   import { LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT, SCREEN_SHARE_ENDED_EVENT } from '$lib/game/scenes/office-scene'
+  import AvatarProfilePanel from '$lib/people/avatar-profile-panel.svelte'
+  import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
   import MembersSidebar from '$lib/people/members-sidebar.svelte'
   import { rosterState } from '$lib/people/roster-state.svelte'
   import Toast from '$lib/ui/toast.svelte'
@@ -80,6 +82,8 @@
 
     rosterState.reset()
     rosterState.setLocalName(profile.displayName)
+    rosterState.setLocalSpriteType(profile.avatarType)
+    avatarProfileState.close()
     game.events.on(ROOM_CONNECTION_READY_EVENT, (roomConnection: RoomConnection) => {
       unwireRoster = rosterState.connect(roomConnection)
     })
@@ -122,6 +126,7 @@
       unwireRoster?.()
       rosterState.reset()
       membersOpen = false
+      avatarProfileState.close()
     })
   }
 
@@ -206,6 +211,7 @@
     <ScreenShareOverlay />
     <BusyOverlay active={localPresence === 'busy'} />
     <MembersSidebar open={membersOpen} />
+    <AvatarProfilePanel />
     <Toast />
   {/if}
 </div>

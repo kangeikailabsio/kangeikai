@@ -8,6 +8,7 @@ function person(overrides: Partial<RosterPerson>): RosterPerson {
     name: 'Name',
     presence: 'available',
     isLocal: false,
+    spriteType: 'man',
     ...overrides,
   }
 }

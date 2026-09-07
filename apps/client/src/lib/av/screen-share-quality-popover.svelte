@@ -1,6 +1,7 @@
 <script lang='ts'>
   import type { ScreenShareQualityTier } from '$lib/av/screen-share-quality'
   import { SCREEN_SHARE_QUALITY_LABELS, SCREEN_SHARE_QUALITY_TIERS } from '$lib/av/screen-share-quality'
+  import { untrack } from 'svelte'
 
   interface Props {
     /** Pre-selected tier — the last saved choice (issue #111's grill: always pre-filled, never blank). */
@@ -13,8 +14,12 @@
 
   const { selected, audioSelected, onConfirm, onCancel }: Props = $props()
 
-  let choice: ScreenShareQualityTier = $state(selected)
-  let shareAudio: boolean = $state(audioSelected)
+  // Deliberately a one-time seed, not a mirror: the popover is recreated fresh each time it
+  // opens, and its own radio/checkbox choices are meant to become independent local state from
+  // there — not track further changes to `selected`/`audioSelected` while it's open. `untrack`
+  // says so explicitly instead of leaving it to look like a forgotten `$derived`.
+  let choice: ScreenShareQualityTier = $state(untrack(() => selected))
+  let shareAudio: boolean = $state(untrack(() => audioSelected))
 
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {

@@ -3,6 +3,7 @@ import type { Room } from '@colyseus/sdk'
 import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
 import { PUBLIC_COLYSEUS_URL } from '$env/static/public'
 import { Client, getStateCallbacks } from '@colyseus/sdk'
+import { PendingUpdateStateSender } from './pending-update-state-sender'
 
 /**
  * Mirrors contracts/office-room-protocol.md's OfficeJoinOptions — keep in sync with
@@ -35,8 +36,6 @@ type RemoteAvatarRemoveListener = (sessionId: string) => void
 
 /** Baked in at build time (adapter-static/SPA — no server to read this at runtime) — see .env.example. */
 const DEFAULT_SERVER_URL = PUBLIC_COLYSEUS_URL
-/** Client→server position updates: on-change, capped ~20/sec (research.md). */
-const SEND_INTERVAL_MS = 1000 / 20
 /** How long to wait for the server's "sessionProof" message before giving up (see connect()). */
 const SESSION_PROOF_TIMEOUT_MS = 5000
 
@@ -53,10 +52,6 @@ interface OfficeRoomStateShape {
 interface OfficeRoomLike {
   state: OfficeRoomStateShape
   onJoin: (client: unknown, options?: OfficeJoinOptions) => unknown
-}
-
-function statesEqual(a: UpdateStatePayload, b: UpdateStatePayload | undefined): boolean {
-  return b !== undefined && a.x === b.x && a.y === b.y && a.direction === b.direction && a.motionState === b.motionState
 }
 
 function toAvatarSnapshot(avatar: AvatarState): AvatarState {
@@ -92,10 +87,7 @@ export class RoomConnection {
   private readonly remoteChangeListeners = new Set<RemoteAvatarListener>()
   private readonly remoteRemoveListeners = new Set<RemoteAvatarRemoveListener>()
 
-  private lastSentState: UpdateStatePayload | undefined
-  private lastSentAt = 0
-  private pendingPayload: UpdateStatePayload | undefined
-  private pendingSend: ReturnType<typeof setTimeout> | undefined
+  private readonly stateSender = new PendingUpdateStateSender(payload => this.room?.send('updateState', payload))
   private proof: string | undefined
 
   constructor(serverUrl: string = DEFAULT_SERVER_URL) {
@@ -186,12 +178,7 @@ export class RoomConnection {
   }
 
   disconnect(): void {
-    if (this.pendingSend !== undefined) {
-      clearTimeout(this.pendingSend)
-      this.pendingSend = undefined
-    }
-    this.pendingPayload = undefined
-    this.lastSentState = undefined
+    this.stateSender.reset()
     void this.room?.leave()
     this.room = undefined
   }
@@ -202,36 +189,25 @@ export class RoomConnection {
    * before movement stops is never dropped.
    */
   sendState(payload: UpdateStatePayload): void {
-    if (!this.room || statesEqual(payload, this.lastSentState)) {
+    if (!this.room) {
       return
     }
+    this.stateSender.submit(payload)
+  }
 
-    const elapsed = Date.now() - this.lastSentAt
-    if (elapsed >= SEND_INTERVAL_MS) {
-      this.flushSend(payload)
-      return
-    }
-
-    this.pendingPayload = payload
-    if (this.pendingSend === undefined) {
-      this.pendingSend = setTimeout(() => {
-        this.pendingSend = undefined
-        if (this.pendingPayload) {
-          this.flushSend(this.pendingPayload)
-        }
-      }, SEND_INTERVAL_MS - elapsed)
-    }
+  /**
+   * Sends a still-pending (throttled) position update immediately instead of waiting for the
+   * trailing timer — MUST be called before requesting a private-room LiveKit token (issue #134):
+   * the server's private-zone check reads the last position it received via `updateState`, so an
+   * HTTP token request racing ahead of a throttled position send can be checked against a stale,
+   * "not yet in the zone" position and get rejected.
+   */
+  flushPendingState(): void {
+    this.stateSender.flushPending()
   }
 
   sendPresence(presence: AvatarPresence): void {
     this.room?.send('setPresence', { presence })
-  }
-
-  private flushSend(payload: UpdateStatePayload): void {
-    this.room?.send('updateState', payload)
-    this.lastSentState = payload
-    this.lastSentAt = Date.now()
-    this.pendingPayload = undefined
   }
 
   private bindRemoteAvatarEvents(room: Room<OfficeRoomLike, OfficeRoomStateShape>): void {

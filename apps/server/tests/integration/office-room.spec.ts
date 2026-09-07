@@ -1,10 +1,14 @@
 import type { Room as SDKRoom } from '@colyseus/sdk'
 import type { ColyseusTestServer } from '@colyseus/testing'
+import type { Server as HttpServer } from 'node:http'
 import { boot } from '@colyseus/testing'
 import { WebSocketTransport } from '@colyseus/ws-transport'
 import { Server } from 'colyseus'
+import express from 'express'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { registerLiveKitTokenRoute } from '../../src/http/livekit-token'
 import { OfficeRoom } from '../../src/rooms/office-room'
+import { AvatarSchema } from '../../src/rooms/schema/avatar-schema'
 import { computeSessionProof } from '../../src/session-proof'
 
 let colyseus: ColyseusTestServer
@@ -239,6 +243,128 @@ describe('officeRoom', () => {
     })
 
     expect(proof).toBe(computeSessionProof(client.sessionId))
+  })
+
+  describe('isPositionInZone (issue #60/TASK #122)', () => {
+    // Zone id 2 ("desk-01") on the current map (packages/shared/assets/maps/welcome/map.tmj):
+    // x 322.333-416, y 337-447.75. Uses `colyseus.createRoom` only, not `connectTo` — this
+    // doesn't need a real client connection, just a live room instance whose state this test
+    // populates directly, matching how `/livekit-token` queries it via `matchMaker.remoteRoomCall`
+    // without one either.
+    const REAL_ZONE_ID = 2
+    const INSIDE_REAL_ZONE = { x: 350, y: 370 }
+    const OUTSIDE_EVERY_ZONE = { x: 0, y: 0 }
+
+    it('is true for a session whose synced position is inside the requested zone', async () => {
+      const room = await colyseus.createRoom<OfficeRoom>('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+      const avatar = new AvatarSchema()
+      avatar.x = INSIDE_REAL_ZONE.x
+      avatar.y = INSIDE_REAL_ZONE.y
+      room.state.players.set('session-a', avatar)
+
+      expect(room.isPositionInZone('session-a', REAL_ZONE_ID)).toBe(true)
+    })
+
+    it('is false for a session positioned outside every zone', async () => {
+      const room = await colyseus.createRoom<OfficeRoom>('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+      const avatar = new AvatarSchema()
+      avatar.x = OUTSIDE_EVERY_ZONE.x
+      avatar.y = OUTSIDE_EVERY_ZONE.y
+      room.state.players.set('session-a', avatar)
+
+      expect(room.isPositionInZone('session-a', REAL_ZONE_ID)).toBe(false)
+    })
+
+    it('is false for a session inside a different zone than the one requested', async () => {
+      const room = await colyseus.createRoom<OfficeRoom>('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+      const avatar = new AvatarSchema()
+      avatar.x = INSIDE_REAL_ZONE.x
+      avatar.y = INSIDE_REAL_ZONE.y
+      room.state.players.set('session-a', avatar)
+
+      expect(room.isPositionInZone('session-a', REAL_ZONE_ID + 1000)).toBe(false)
+    })
+
+    it('is false for an unknown sessionId', async () => {
+      const room = await colyseus.createRoom<OfficeRoom>('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+
+      expect(room.isPositionInZone('no-such-session', REAL_ZONE_ID)).toBe(false)
+    })
+  })
+
+  /**
+   * `/livekit-token`'s position check (issue #60/TASK #122) reaches this file's already-booted
+   * `office` room via `matchMaker.remoteRoomCall` — exercised here, not in
+   * `livekit-token.spec.ts`, because that file's harness never boots a real Colyseus server
+   * (`@colyseus/testing`'s `boot()` binds a fixed port; running two in the same `vitest run`
+   * collides). The HTTP route itself is still the real, unmodified one — just a bare Express app
+   * registered locally, reusing this file's live `office` room to back the position check.
+   */
+  describe('post /livekit-token position check (issue #60/TASK #122)', () => {
+    let server: HttpServer
+    let baseUrl: string
+
+    beforeAll(async () => {
+      const app = express()
+      registerLiveKitTokenRoute(app)
+      await new Promise<void>((resolve) => {
+        server = app.listen(0, () => resolve())
+      })
+      const address = server.address()
+      const port = typeof address === 'object' && address ? address.port : 0
+      baseUrl = `http://localhost:${port}`
+    })
+
+    beforeEach(() => {
+      process.env.LIVEKIT_URL = 'ws://localhost:7880'
+      process.env.LIVEKIT_API_KEY = 'test-key'
+      process.env.LIVEKIT_API_SECRET = 'test-secret-key-that-is-long-enough'
+    })
+
+    afterEach(() => {
+      delete process.env.LIVEKIT_URL
+      delete process.env.LIVEKIT_API_KEY
+      delete process.env.LIVEKIT_API_SECRET
+    })
+
+    afterAll(async () => {
+      await new Promise<void>(resolve => server.close(() => resolve()))
+    })
+
+    function postToken(body: unknown): Promise<Response> {
+      return fetch(`${baseUrl}/livekit-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    }
+
+    async function syncPosition(sessionId: string, x: number, y: number): Promise<void> {
+      const room = await colyseus.createRoom<OfficeRoom>('office', { displayName: 'Guest', spriteType: 'man', accessCode: '' })
+      const avatar = new AvatarSchema()
+      avatar.x = x
+      avatar.y = y
+      room.state.players.set(sessionId, avatar)
+    }
+
+    it('mints a token scoped to a private zone room the requester is actually inside (200)', async () => {
+      const proof = computeSessionProof('session-a')
+      // id 2 ("desk-01") on the current map (packages/shared/assets/maps/welcome/map.tmj's
+      // `spaces` layer): x 322.333-416, y 337-447.75.
+      await syncPosition('session-a', 350, 370)
+      const response = await postToken({ identity: 'session-a', name: 'Guest', proof, room: 'private-2' })
+      expect(response.status).toBe(200)
+
+      const body = await response.json() as { token: string, url: string }
+      expect(body.token).toEqual(expect.any(String))
+    })
+
+    it('rejects a real private zone when the requester\'s synced position is outside it (403)', async () => {
+      const proof = computeSessionProof('session-a')
+      await syncPosition('session-a', 0, 0) // outside every zone on the current map
+      const response = await postToken({ identity: 'session-a', name: 'Guest', proof, room: 'private-2' })
+      expect(response.status).toBe(403)
+    })
   })
 
   describe('access code gate (onAuth)', () => {

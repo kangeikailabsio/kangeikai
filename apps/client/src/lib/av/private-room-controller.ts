@@ -1,4 +1,4 @@
-import type { PrivateZone } from '$lib/game/map/private-zones'
+import type { PrivateZone } from '@kangeikai/shared'
 import type { Room } from 'livekit-client'
 import type { AvatarPosition, ProximityAudioControllerOptions } from './proximity-audio-controller'
 import { PUBLIC_LIVEKIT_TOKEN_ENDPOINT } from '$env/static/public'

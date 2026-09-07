@@ -1,5 +1,5 @@
-import type { TiledSpaceObject } from '$lib/game/map/private-zones'
-import { privateZoneAt, resolvePrivateZones } from '$lib/game/map/private-zones'
+import type { TiledSpaceObject } from '@kangeikai/shared'
+import { privateZoneAt, resolvePrivateZones } from '@kangeikai/shared'
 import { describe, expect, it } from 'vitest'
 
 describe('resolvePrivateZones', () => {

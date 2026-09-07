@@ -1,5 +1,5 @@
 import type { AvatarPosition } from '$lib/av/proximity-audio-controller'
-import type { PrivateZone } from '$lib/game/map/private-zones'
+import type { PrivateZone } from '@kangeikai/shared'
 import { resolvePrivateZoneOccupancy } from '$lib/av/private-room-occupancy'
 import { describe, expect, it } from 'vitest'
 

@@ -1,6 +1,6 @@
-import type { PrivateZone } from '$lib/game/map/private-zones'
+import type { PrivateZone } from '@kangeikai/shared'
 import type { AvatarPosition } from './proximity-audio-controller'
-import { privateZoneAt } from '$lib/game/map/private-zones'
+import { privateZoneAt } from '@kangeikai/shared'
 
 export interface PrivateZoneOccupancy {
   /** The private zone the local avatar is currently in, or `null` if it's in none. */

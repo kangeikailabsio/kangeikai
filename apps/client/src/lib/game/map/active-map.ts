@@ -3,9 +3,10 @@ import type { TiledTilesetRef } from './tileset-image-ref'
 import { resolveTilesetImageRefs } from './tileset-image-ref'
 
 /**
- * Folder name (under `$lib/assets/maps/`) of the map currently wired into the scene. Swapping
- * the active map — e.g. `welcome` → a future `beach` — is this one line; nothing else in
- * preload needs to change, since every asset below is resolved dynamically by folder/basename.
+ * Folder name (under `packages/shared/assets/maps/`) of the map currently wired into the scene.
+ * Swapping the active map — e.g. `welcome` → a future `beach` — is this one line; nothing else
+ * in preload needs to change, since every asset below is resolved dynamically by folder/
+ * basename.
  */
 export const ACTIVE_MAP_NAME = 'welcome'
 
@@ -18,12 +19,16 @@ export interface ActiveMapHandle {
   key: string
 }
 
+// Lives in packages/shared, not apps/client, so the server can read the same map.tmj to derive
+// authoritative private-zone geometry (issue #60) — one physical file, no drift risk between
+// what the client renders and what the server authorizes against.
+//
 // `eager: true` resolves these at build time into plain string maps (module path -> content/
 // URL) — no async loading step needed before `preload()` can queue files. The glob covers every
 // map folder, not just the active one, so nothing here needs to change when a new map is added.
-const mapJsonSources = import.meta.glob('../../assets/maps/*/map.tmj', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
-const mapJsonUrls = import.meta.glob('../../assets/maps/*/map.tmj', { query: '?url', import: 'default', eager: true }) as Record<string, string>
-const tilesetImageUrls = import.meta.glob('../../assets/maps/*/*.png', { query: '?url', import: 'default', eager: true }) as Record<string, string>
+const mapJsonSources = import.meta.glob('../../../../../../packages/shared/assets/maps/*/map.tmj', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
+const mapJsonUrls = import.meta.glob('../../../../../../packages/shared/assets/maps/*/map.tmj', { query: '?url', import: 'default', eager: true }) as Record<string, string>
+const tilesetImageUrls = import.meta.glob('../../../../../../packages/shared/assets/maps/*/*.png', { query: '?url', import: 'default', eager: true }) as Record<string, string>
 
 function findByMapFolder<T>(modules: Record<string, T>, mapName: string, suffix = ''): T {
   const entry = Object.entries(modules).find(([path]) => path.includes(`/maps/${mapName}/`) && path.endsWith(suffix))

@@ -2,6 +2,7 @@
   import type { AvatarSpriteType } from '@kangeikai/shared'
   import avatarManIdleUrl from '$lib/assets/sprites/avatar-man-idle.png?url'
   import avatarWomanIdleUrl from '$lib/assets/sprites/avatar-woman-idle.png?url'
+  import { fpsDisplayState } from '$lib/game/fps-display-state.svelte'
   import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
   import { rosterState } from '$lib/people/roster-state.svelte'
 
@@ -35,19 +36,31 @@
 {#if person}
   <div class='avatar-profile-panel' role='dialog' aria-label='Avatar profile'>
     <button type='button' class='close' onclick={() => avatarProfileState.close()} aria-label='Close'>×</button>
-    <div
-      class='icon'
-      style:background-image='url({AVATAR_IDLE_URL[person.spriteType]})'
-      style:background-position='-{ICON_FRAME_INDEX * FRAME_WIDTH}px 0'
-    ></div>
-    <div class='info'>
-      <span class='name'>{person.name}</span>
-      <span class='presence'>
-        <span class='status-dot' class:busy={person.presence === 'busy'}></span>
-        {person.presence === 'busy' ? 'Busy' : 'Available'}
-      </span>
+    <div class='header'>
+      <div
+        class='icon'
+        style:background-image='url({AVATAR_IDLE_URL[person.spriteType]})'
+        style:background-position='-{ICON_FRAME_INDEX * FRAME_WIDTH}px 0'
+      ></div>
+      <div class='info'>
+        <span class='name'>{person.name}</span>
+        <span class='presence'>
+          <span class='status-dot' class:busy={person.presence === 'busy'}></span>
+          {person.presence === 'busy' ? 'Busy' : 'Available'}
+        </span>
+      </div>
     </div>
-    <!-- Future clickable options land here (issue #127) — kept as a separate area from the header above. -->
+    <!-- Options land here (issue #127) — kept as a separate area from the header above. Only the
+         local avatar's panel gets client-only preferences like "Show FPS" (issue #130); they're
+         about the viewer, not the person being viewed, so they don't belong on a remote panel. -->
+    {#if person.isLocal}
+      <div class='options'>
+        <label class='option'>
+          <input type='checkbox' checked={fpsDisplayState.enabled} onchange={event => fpsDisplayState.set(event.currentTarget.checked)} />
+          Show FPS
+        </label>
+      </div>
+    {/if}
   </div>
 {/if}
 
@@ -58,12 +71,32 @@
     left: 16px;
     z-index: 30;
     display: flex;
-    align-items: center;
-    gap: 10px;
+    flex-direction: column;
+    gap: 8px;
     padding: 10px 36px 10px 10px;
     border-radius: 10px;
     background: rgb(17 24 39 / 96%);
     color: #fff;
+  }
+
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .options {
+    padding-top: 8px;
+    border-top: 1px solid rgb(255 255 255 / 12%);
+  }
+
+  .option {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: rgb(255 255 255 / 85%);
+    font-size: 13px;
+    cursor: pointer;
   }
 
   .close {

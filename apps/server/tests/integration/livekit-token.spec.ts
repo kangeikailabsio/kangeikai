@@ -79,7 +79,10 @@ describe('post /livekit-token', () => {
 
   it('mints a token scoped to a private zone room (200)', async () => {
     const proof = computeSessionProof('session-a')
-    const response = await postToken({ identity: 'session-a', name: 'Guest', proof, room: 'private-42' })
+    // id 2 ("desk-01") is a real zone on the current map (packages/shared/assets/maps/welcome/
+    // map.tmj's `spaces` layer) — TASK #121 rejects ids that don't exist there, so this can no
+    // longer be an arbitrary number.
+    const response = await postToken({ identity: 'session-a', name: 'Guest', proof, room: 'private-2' })
     expect(response.status).toBe(200)
 
     const body = await response.json() as { token: string, url: string }
@@ -90,5 +93,11 @@ describe('post /livekit-token', () => {
     const proof = computeSessionProof('session-a')
     const response = await postToken({ identity: 'session-a', name: 'Guest', proof, room: 'office' })
     expect(response.status).toBe(400)
+  })
+
+  it('rejects a private zone id that does not exist on the current map (403)', async () => {
+    const proof = computeSessionProof('session-a')
+    const response = await postToken({ identity: 'session-a', name: 'Guest', proof, room: 'private-999999' })
+    expect(response.status).toBe(403)
   })
 })

@@ -3,6 +3,7 @@ import process from 'node:process'
 import express from 'express'
 import { AccessToken } from 'livekit-server-sdk'
 import * as v from 'valibot'
+import { privateZones } from '../map-zones'
 import { verifySessionProof } from '../session-proof'
 
 /** The single, fixed, well-known LiveKit room every participant joins by default (contract). */
@@ -10,6 +11,14 @@ const PROXIMITY_ROOM_NAME = 'office'
 
 /** Matches `private-<zoneId>` room names minted for a `spaces` layer object's Tiled `id` — the only alternative to the default `office` room this endpoint will grant (see `PrivateRoomController`'s `roomNameForZone`). */
 const PRIVATE_ROOM_NAME_PATTERN = /^private-\d+$/
+
+/**
+ * `room` is already shape-validated by `liveKitTokenRequestSchema` against
+ * `PRIVATE_ROOM_NAME_PATTERN`, so the numeric suffix always parses cleanly here.
+ */
+function zoneIdFromPrivateRoomName(room: string): number {
+  return Number(room.slice('private-'.length))
+}
 
 /** Client→server request body (contracts/livekit-token-endpoint.md's LiveKitTokenRequest). */
 const liveKitTokenRequestSchema = v.object({
@@ -40,6 +49,15 @@ export function registerLiveKitTokenRoute(app: Application): void {
 
     if (!verifySessionProof(identity, proof)) {
       res.status(403).json({ error: 'Invalid session proof' })
+      return
+    }
+
+    // Rejects a private-zone id that doesn't exist on the currently-active map, independent of
+    // (and cheaper than) verifying the requester is actually inside it (issue #60/TASK #121) —
+    // the shape check alone (PRIVATE_ROOM_NAME_PATTERN) would otherwise let any private-<n>
+    // through as long as n is a number, regardless of whether that zone exists at all.
+    if (requestedRoom && !privateZones.some(zone => zone.id === zoneIdFromPrivateRoomName(requestedRoom))) {
+      res.status(403).json({ error: 'Unknown private zone' })
       return
     }
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.5.0...v0.6.0) (2026-09-07)
+
+
+### Features
+
+* **client:** add fps toggle to the avatar profile panel ([#131](https://github.com/kangeikailabsio/kangeikai/issues/131)) ([3afd355](https://github.com/kangeikailabsio/kangeikai/commit/3afd355054d2c0b4f87ebf4212086306eaea81ac)), closes [#130](https://github.com/kangeikailabsio/kangeikai/issues/130)
+* **client:** avatar profile panel on click ([#128](https://github.com/kangeikailabsio/kangeikai/issues/128)) ([d4157b5](https://github.com/kangeikailabsio/kangeikai/commit/d4157b558cef75919b2302ed026792c971f204e5)), closes [#127](https://github.com/kangeikailabsio/kangeikai/issues/127)
+
 ## [0.5.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.4.0...v0.5.0) (2026-09-07)
 
 

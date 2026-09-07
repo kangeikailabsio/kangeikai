@@ -1,8 +1,8 @@
 import type { Room } from 'livekit-client'
-import { MediaControls } from '$lib/av/media-controls'
+import { isScreenShareCaptureSupported, MediaControls } from '$lib/av/media-controls'
 import { resolveScreenShareQuality } from '$lib/av/screen-share-quality'
 import { ParticipantEvent, Track } from 'livekit-client'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 interface FakeLocalParticipant {
   isMicrophoneEnabled: boolean
@@ -56,7 +56,7 @@ describe('mediaControls screen share', () => {
     expect(controls.screenShareEnabled).toBe(true)
   })
 
-  it('publishes the screen share track at the default (1080p) quality and clears screenShareUnavailable on success', async () => {
+  it('publishes the screen share track at the default (1080p) quality', async () => {
     const participant = createFakeLocalParticipant()
     const controls = new MediaControls(createFakeRoom(participant))
 
@@ -64,7 +64,6 @@ describe('mediaControls screen share', () => {
 
     const { captureOptions, publishOptions } = resolveScreenShareQuality('1080p')
     expect(participant.setScreenShareEnabled).toHaveBeenCalledWith(true, captureOptions, publishOptions)
-    expect(controls.screenShareUnavailable).toBe(false)
   })
 
   it('stops sharing without passing capture/publish options', async () => {
@@ -149,25 +148,31 @@ describe('mediaControls screen share', () => {
     expect(controls.screenShareQuality).toBe('1080p')
   })
 
-  it('swallows a rejected publish (denied permission or cancelled picker) into screenShareUnavailable, never throwing', async () => {
+  it('swallows a rejected publish (denied permission or cancelled picker) instead of throwing (issue #115)', async () => {
     const participant = createFakeLocalParticipant()
     participant.setScreenShareEnabled.mockRejectedValueOnce(new Error('Permission denied'))
     const controls = new MediaControls(createFakeRoom(participant))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
 
     await expect(controls.setScreenShareEnabled(true)).resolves.toBeUndefined()
-    expect(controls.screenShareUnavailable).toBe(true)
+    expect(warn).toHaveBeenCalledOnce()
+
+    warn.mockRestore()
   })
 
-  it('recovers screenShareUnavailable after a later successful call', async () => {
+  it('stays retriable after a rejected attempt — a later call goes through normally (issue #115)', async () => {
     const participant = createFakeLocalParticipant()
     participant.setScreenShareEnabled.mockRejectedValueOnce(new Error('Permission denied'))
     const controls = new MediaControls(createFakeRoom(participant))
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
 
     await controls.setScreenShareEnabled(true)
-    expect(controls.screenShareUnavailable).toBe(true)
-
     await controls.setScreenShareEnabled(true)
-    expect(controls.screenShareUnavailable).toBe(false)
+
+    const { captureOptions, publishOptions } = resolveScreenShareQuality('1080p')
+    expect(participant.setScreenShareEnabled).toHaveBeenLastCalledWith(true, captureOptions, publishOptions)
+
+    vi.restoreAllMocks()
   })
 
   it('fires onScreenShareEnded when the screen-share track is unpublished (native "Stop sharing")', () => {
@@ -198,5 +203,61 @@ describe('mediaControls screen share', () => {
     new MediaControls(createFakeRoom(participant))
 
     expect(() => participant.emit(ParticipantEvent.LocalTrackUnpublished, { source: Track.Source.ScreenShare })).not.toThrow()
+  })
+})
+
+describe('isScreenShareCaptureSupported', () => {
+  it('is true when getDisplayMedia is a function on navigator.mediaDevices', () => {
+    const nav = { mediaDevices: { getDisplayMedia: () => Promise.resolve() } } as unknown as Navigator
+
+    expect(isScreenShareCaptureSupported(nav)).toBe(true)
+  })
+
+  it('is false when navigator.mediaDevices is missing entirely', () => {
+    const nav = {} as unknown as Navigator
+
+    expect(isScreenShareCaptureSupported(nav)).toBe(false)
+  })
+
+  it('is false when mediaDevices exists but has no getDisplayMedia', () => {
+    const nav = { mediaDevices: {} } as unknown as Navigator
+
+    expect(isScreenShareCaptureSupported(nav)).toBe(false)
+  })
+})
+
+describe('mediaControls screenShareUnsupported', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('reflects the current browser\'s getDisplayMedia support', () => {
+    vi.stubGlobal('navigator', { mediaDevices: { getDisplayMedia: () => Promise.resolve() } })
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant))
+
+    expect(controls.screenShareUnsupported).toBe(false)
+  })
+
+  it('is true when the browser has no getDisplayMedia at all', () => {
+    vi.stubGlobal('navigator', {})
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant))
+
+    expect(controls.screenShareUnsupported).toBe(true)
+  })
+
+  it('never becomes true just because a capture attempt failed (issue #115)', async () => {
+    vi.stubGlobal('navigator', { mediaDevices: { getDisplayMedia: () => Promise.resolve() } })
+    const participant = createFakeLocalParticipant()
+    participant.setScreenShareEnabled.mockRejectedValueOnce(new Error('Permission denied'))
+    const controls = new MediaControls(createFakeRoom(participant))
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    await controls.setScreenShareEnabled(true)
+
+    expect(controls.screenShareUnsupported).toBe(false)
+
+    vi.restoreAllMocks()
   })
 })

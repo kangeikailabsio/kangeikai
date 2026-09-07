@@ -409,9 +409,10 @@ export class OfficeScene extends Phaser.Scene {
    * (Re-)creates `MediaControls` for whichever LiveKit room is now active — `office` or a
    * private zone's isolated room — and applies the given mic/camera/screen-share state to it.
    * A denied permission or missing device (US3) never throws here — `MediaControls` records it
-   * as `microphoneUnavailable`/`cameraUnavailable`/`screenShareUnavailable` instead. Screen
-   * share is never (re)started while busy — the HUD button is disabled for that case, and a
-   * room switch mid-busy shouldn't start one either.
+   * as `microphoneUnavailable`/`cameraUnavailable` instead (a failed screen-share attempt is
+   * just logged and left retriable — issue #115). Screen share is never (re)started while busy
+   * — the HUD button is disabled for that case, and a room switch mid-busy shouldn't start one
+   * either.
    */
   private async applyMediaControls(room: Room, micEnabled: boolean, cameraEnabled: boolean, screenShareEnabled: boolean, screenShareQuality?: ScreenShareQualityTier, screenShareAudio = false): Promise<void> {
     const previous = this.mediaControls

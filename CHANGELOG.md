@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/kangeikailabsio/kangeikai/compare/v0.6.1...v0.6.2) (2026-09-08)
+
+
+### Fixes
+
+* **client:** release the private room's mic before reconnecting office audio ([#138](https://github.com/kangeikailabsio/kangeikai/issues/138)) ([9e8422a](https://github.com/kangeikailabsio/kangeikai/commit/9e8422a7e2dc5c7901888ba81df5412ae959fdf4)), closes [#137](https://github.com/kangeikailabsio/kangeikai/issues/137)
+
 ## [0.6.1](https://github.com/kangeikailabsio/kangeikai/compare/v0.6.0...v0.6.1) (2026-09-07)
 
 

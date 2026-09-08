@@ -69,7 +69,7 @@ export class PrivateRoomController {
     // old room now; if the new zone also warrants a connection, the check below picks it up
     // next frame once connectedZoneIdInternal is back to null.
     if (this.connectedZoneIdInternal !== null && zoneId !== this.connectedZoneIdInternal) {
-      this.teardown(handlers.onDisconnect)
+      await this.teardown(handlers.onDisconnect)
     }
 
     const shouldBeConnected = zoneId !== null && occupantSessionIds.length >= 1
@@ -80,13 +80,13 @@ export class PrivateRoomController {
     }
 
     if (!shouldBeConnected && this.connectedZoneIdInternal !== null) {
-      this.teardown(handlers.onDisconnect)
+      await this.teardown(handlers.onDisconnect)
     }
   }
 
   /** Tears down the private room connection unconditionally — call on scene shutdown. */
   disconnect(): void {
-    this.teardown()
+    void this.teardown()
   }
 
   /**
@@ -119,11 +119,21 @@ export class PrivateRoomController {
     }
   }
 
-  private teardown(onDisconnect?: PrivateRoomTransitionHandlers['onDisconnect']): void {
+  /**
+   * Awaits `room.disconnect()` — which stops its local tracks (`stopTracks` defaults to `true`
+   * in livekit-client's `Room.disconnect`) — *before* calling `onDisconnect`, instead of firing
+   * both concurrently. `onDisconnect` (`OfficeScene.handlePrivateRoomDisconnect`) reconnects
+   * `office` audio, which captures a *new* microphone via `getUserMedia()`; racing that against
+   * this room's own microphone still being released could have the new capture fail with a
+   * "device busy" error, leaving the mic reported as unavailable for the rest of the session
+   * (issue #137) — intermittent, since it depends on how fast the browser/OS releases the
+   * device relative to the new capture attempt.
+   */
+  private async teardown(onDisconnect?: PrivateRoomTransitionHandlers['onDisconnect']): Promise<void> {
     const room = this.room
     this.room = null
     this.connectedZoneIdInternal = null
+    await room?.disconnect()
     onDisconnect?.()
-    void room?.disconnect()
   }
 }

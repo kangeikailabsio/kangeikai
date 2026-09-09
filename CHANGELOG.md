@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.3](https://github.com/kangeikailabsio/kangeikai/compare/v0.6.2...v0.6.3) (2026-09-09)
+
+
+### Fixes
+
+* **client:** fail closed on newly subscribed proximity audio tracks ([#149](https://github.com/kangeikailabsio/kangeikai/issues/149)) ([f8b9dec](https://github.com/kangeikailabsio/kangeikai/commit/f8b9dec76f4289d2d249f8357bd1f22817cdf156)), closes [#144](https://github.com/kangeikailabsio/kangeikai/issues/144)
+* **client:** stop rendering remote avatars at the placeholder spawn point ([#147](https://github.com/kangeikailabsio/kangeikai/issues/147)) ([d73a25b](https://github.com/kangeikailabsio/kangeikai/commit/d73a25b2cf390c409eccd81cd61b4ddc84b28760)), closes [#143](https://github.com/kangeikailabsio/kangeikai/issues/143)
+* **client:** surface Colyseus connection loss to the user ([#150](https://github.com/kangeikailabsio/kangeikai/issues/150)) ([7e8dce8](https://github.com/kangeikailabsio/kangeikai/commit/7e8dce87188ddead0eabe0e4926c238b6bf91f09)), closes [#146](https://github.com/kangeikailabsio/kangeikai/issues/146)
+
 ## [0.6.2](https://github.com/kangeikailabsio/kangeikai/compare/v0.6.1...v0.6.2) (2026-09-08)
 
 

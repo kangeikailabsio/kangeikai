@@ -2,7 +2,7 @@
   import type { MediaControls } from '$lib/av/media-controls'
   import type { ScreenShareQualityTier } from '$lib/av/screen-share-quality'
   import type { GuestProfile } from '$lib/entry/guest-profile-schema'
-  import type { RoomConnection } from '$lib/network/room-connection'
+  import type { ConnectionState, RoomConnection } from '$lib/network/room-connection'
   import type { AvatarPresence } from '@kangeikai/shared'
   import AvatarVideoOverlay from '$lib/av/avatar-video-overlay.svelte'
   import BusyOverlay from '$lib/av/busy-overlay.svelte'
@@ -14,6 +14,7 @@
   import { GuestProfileStore } from '$lib/entry/guest-profile-store'
   import FpsDisplay from '$lib/game/fps-display.svelte'
   import { LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT, SCREEN_SHARE_ENDED_EVENT } from '$lib/game/scenes/office-scene'
+  import ConnectionStatusBanner from '$lib/network/connection-status-banner.svelte'
   import AvatarProfilePanel from '$lib/people/avatar-profile-panel.svelte'
   import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
   import MembersSidebar from '$lib/people/members-sidebar.svelte'
@@ -57,6 +58,12 @@
   let localPresence: AvatarPresence = $state('available')
   let membersOpen = $state(false)
   let unwireRoster: (() => void) | undefined
+  // Drives ConnectionStatusBanner — 'connecting' covers the SDK's own automatic reconnect
+  // retries (RoomConnection's `onDrop`), 'disconnected' means those retries gave up and the
+  // server has genuinely removed the session (issue #146: previously silent, so a dropped
+  // person kept looking present to themselves with no indication anything was wrong).
+  let connectionState: ConnectionState = $state('connecting')
+  let unwireConnectionStatus: (() => void) | undefined
 
   /** Mounts the game only once entry is confirmed (FR-009) — see `EntryForm` below. */
   function handleEntryConfirm(profile: GuestProfile, accessCode: string): void {
@@ -90,6 +97,9 @@
     avatarProfileState.close()
     game.events.on(ROOM_CONNECTION_READY_EVENT, (roomConnection: RoomConnection) => {
       unwireRoster = rosterState.connect(roomConnection)
+      unwireConnectionStatus = roomConnection.onConnectionStateChange((state) => {
+        connectionState = state
+      })
     })
 
     // OfficeScene creates MediaControls only once its own LiveKit room connection resolves
@@ -128,6 +138,7 @@
       connecting = false
       joinError = 'Could not join — check the access code and try again.'
       unwireRoster?.()
+      unwireConnectionStatus?.()
       rosterState.reset()
       membersOpen = false
       avatarProfileState.close()
@@ -137,6 +148,7 @@
   onDestroy(() => {
     game?.destroy(true)
     unwireRoster?.()
+    unwireConnectionStatus?.()
   })
 
   async function toggleMicrophone(): Promise<void> {
@@ -218,6 +230,7 @@
     <AvatarProfilePanel />
     <FpsDisplay {game} />
     <Toast />
+    <ConnectionStatusBanner state={connectionState} />
   {/if}
 </div>
 

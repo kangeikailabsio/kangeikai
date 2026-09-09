@@ -346,7 +346,10 @@ export class OfficeScene extends Phaser.Scene {
     this.scale.on(Phaser.Scale.Events.RESIZE, this.handleResize, this)
     this.game.events.on(Phaser.Core.Events.BLUR, this.handleBlur, this)
 
-    this.roomConnection.onRemoteAvatarAdd((sessionId, state) => this.spawnRemoteAvatar(sessionId, state))
+    // No onRemoteAvatarAdd wiring here: `state.x/y` at add-time is still the server's spawn
+    // placeholder (issue #143), not the joining player's real (client-resolved) respawn point.
+    // updateRemoteAvatar's fallback below spawns the avatar on the first real position update
+    // instead, so it never renders at the placeholder.
     this.roomConnection.onRemoteAvatarChange((sessionId, state) => this.updateRemoteAvatar(sessionId, state))
     this.roomConnection.onRemoteAvatarRemove(sessionId => this.removeRemoteAvatar(sessionId))
     this.game.events.emit(ROOM_CONNECTION_READY_EVENT, this.roomConnection)

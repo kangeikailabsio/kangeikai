@@ -5,7 +5,7 @@ import type { RemoteVideoOverlayCandidate, VideoOverlayParticipant } from '$lib/
 import type { HoverTarget } from '$lib/game/entities/avatar-hover'
 import type { CollisionRect } from '$lib/game/map/collision'
 import type { PathfindingGrid } from '$lib/game/map/pathfinding'
-import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, TiledSpaceObject } from '@kangeikai/shared'
+import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, PrivateZone, TiledSpaceObject } from '@kangeikai/shared'
 import type { LocalVideoTrack, RemoteVideoTrack, Room } from 'livekit-client'
 import avatarManIdleUrl from '$lib/assets/sprites/avatar-man-idle.png?url'
 import avatarManWalkUrl from '$lib/assets/sprites/avatar-man-walk.png?url'
@@ -34,7 +34,7 @@ import { resolveRespawnPoint } from '$lib/game/map/respawn-point'
 import { RoomConnection } from '$lib/network/room-connection'
 import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
 import { toastState } from '$lib/ui/toast-state.svelte'
-import { resolvePrivateZones } from '@kangeikai/shared'
+import { privateZoneAt, resolvePrivateZones } from '@kangeikai/shared'
 import { Track } from 'livekit-client'
 import Phaser from 'phaser'
 
@@ -123,6 +123,19 @@ const HOVER_RING_FILL_ALPHA = 0.15
  * Radius of both the hover ring and its hit area — what you see is exactly what triggers it.
  */
 const AVATAR_HOVER_RADIUS_PX = 36
+
+/**
+ * "Spotlight" dimming (issue #151, Gather-style): while the local avatar is inside a private
+ * zone, everything outside it — terrain and other avatars alike — dims under a semi-transparent
+ * overlay, drawn as four rectangles framing the zone's own (always axis-aligned, per
+ * `privateZoneAt`) bounds rather than any Phaser mask — `GeometryMask` is Canvas-renderer only,
+ * and this game runs WebGL, but a rectangle-minus-rectangle "picture frame" needs no masking API
+ * at all.
+ */
+const PRIVATE_ZONE_SPOTLIGHT_ALPHA = 0.5
+const PRIVATE_ZONE_SPOTLIGHT_FADE_MS = 250
+/** Above `AvatarNameLabel`'s `LABEL_DEPTH` (10_000) — dims labels and sprites alike, not just tiles. */
+const PRIVATE_ZONE_SPOTLIGHT_DEPTH = 20_000
 /**
  * Shifts the ring/hit area down from the raw frame middle, toward the feet — a middle ground
  * between the frame's geometric center and `feetHitbox`'s bottom edge in avatar.ts
@@ -238,6 +251,12 @@ export class OfficeScene extends Phaser.Scene {
   private wasScreenShareOverlayExpanded = false
   /** Set only while connected to a private zone's isolated room — `null` means ambient `office` audio is active. */
   private connectedPrivateRoom: Room | null = null
+  /** The `spaces` layer's `private: true` objects, read once in `create()` (issue #151's spotlight needs the same zones `PrivateRoomController` already gets). */
+  private privateZones: readonly PrivateZone[] = []
+  private privateZoneSpotlight!: Phaser.GameObjects.Graphics
+  /** The zone the local avatar was in as of the last frame, or `null` — only redraws/re-fades the spotlight on a change, not every frame. */
+  private currentSpotlightZoneId: number | null = null
+  private spotlightTween: Phaser.Tweens.Tween | undefined
 
   constructor() {
     super('office')
@@ -284,7 +303,12 @@ export class OfficeScene extends Phaser.Scene {
     // The "spaces" object layer's `private: true` objects — each one an isolated conversation
     // room, not an ambient-volume zone (spec 004's private-room refactor).
     const spaceObjects = (map.getObjectLayer('spaces')?.objects ?? []) as TiledSpaceObject[]
-    this.privateRoomController.setZones(resolvePrivateZones(spaceObjects))
+    this.privateZones = resolvePrivateZones(spaceObjects)
+    this.privateRoomController.setZones(this.privateZones)
+
+    this.privateZoneSpotlight = this.add.graphics()
+    this.privateZoneSpotlight.setDepth(PRIVATE_ZONE_SPOTLIGHT_DEPTH)
+    this.privateZoneSpotlight.setAlpha(0)
 
     for (const spriteType of AVATAR_SPRITE_TYPES) {
       for (const motionState of Object.keys(MOTION_STATE_ANIMATIONS) as AvatarMotionState[]) {
@@ -606,6 +630,8 @@ export class OfficeScene extends Phaser.Scene {
       this.avatarView.anims.play(animation.key)
     }
 
+    this.updatePrivateZoneSpotlight()
+
     const camera = this.cameras.main
     const centerX = clampedCameraCenter(this.avatar.x, camera.width / camera.zoom, this.mapWidthPx)
     const centerY = clampedCameraCenter(this.avatar.y, camera.height / camera.zoom, this.mapHeightPx)
@@ -654,6 +680,47 @@ export class OfficeScene extends Phaser.Scene {
    * `avatar.x/y` instead of snapping to it, smoothing the ~50ms-stepped updates into
    * continuous motion (T026).
    */
+  /**
+   * Fades the private-zone spotlight in/out as the local avatar crosses a zone boundary
+   * (issue #151) — only redraws/re-tweens on an actual zone change, not every frame, since
+   * `privateZoneAt` runs here unconditionally on every `update()` tick.
+   */
+  private updatePrivateZoneSpotlight(): void {
+    const zone = privateZoneAt(this.privateZones, this.avatar.x, this.avatar.y)
+    const zoneId = zone?.id ?? null
+    if (zoneId === this.currentSpotlightZoneId) {
+      return
+    }
+    this.currentSpotlightZoneId = zoneId
+
+    if (zone) {
+      this.drawPrivateZoneSpotlightFrame(zone)
+    }
+
+    this.spotlightTween?.stop()
+    this.spotlightTween = this.tweens.add({
+      targets: this.privateZoneSpotlight,
+      alpha: zone ? PRIVATE_ZONE_SPOTLIGHT_ALPHA : 0,
+      duration: PRIVATE_ZONE_SPOTLIGHT_FADE_MS,
+    })
+  }
+
+  /**
+   * Draws the dimmed area as four rectangles framing `zone`'s bounds (always axis-aligned, per
+   * `PrivateZone`) instead of masking — a rectangle-minus-rectangle "picture frame" needs no
+   * masking API at all. The shape itself is opaque black; `updatePrivateZoneSpotlight`'s tween
+   * on the Graphics object's own alpha is what fades it in/out and caps its final darkness.
+   */
+  private drawPrivateZoneSpotlightFrame(zone: PrivateZone): void {
+    const graphics = this.privateZoneSpotlight
+    graphics.clear()
+    graphics.fillStyle(0x000000, 1)
+    graphics.fillRect(0, 0, this.mapWidthPx, zone.y) // above the zone
+    graphics.fillRect(0, zone.y + zone.height, this.mapWidthPx, this.mapHeightPx - (zone.y + zone.height)) // below
+    graphics.fillRect(0, zone.y, zone.x, zone.height) // left of the zone, same row
+    graphics.fillRect(zone.x + zone.width, zone.y, this.mapWidthPx - (zone.x + zone.width), zone.height) // right
+  }
+
   private updateRemoteAvatarViews(deltaSeconds: number): void {
     const factor = 1 - Math.exp(-deltaSeconds / REMOTE_AVATAR_SMOOTHING_TAU_SECONDS)
 

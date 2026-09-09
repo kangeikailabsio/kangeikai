@@ -42,7 +42,10 @@ export class ProximityAudioController {
 
   constructor(tokenEndpoint: string = DEFAULT_TOKEN_ENDPOINT) {
     this.tokenEndpoint = tokenEndpoint
-    attachRemoteAudioElements(this.room)
+    // Fail closed (issue #144): a freshly (re)connected participant starts silent instead of at
+    // the browser default full volume, until this class's own per-frame `update()` below sets
+    // the real distance/busy-based volume.
+    attachRemoteAudioElements(this.room, 0)
   }
 
   /** The underlying LiveKit room, for `MediaControls`/video-overlay callers (US2). */

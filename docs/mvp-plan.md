@@ -28,16 +28,9 @@ Caso de uso primário: **virtual office** (presença assíncrona de time/comunid
 **Fora do MVP (backlog v2+):**
 - Contas de usuário / autenticação.
 - Persistência em banco de dados (Postgres).
-- Zonas privadas / salas com áudio isolado (routing de mídia separado) dentro do mapa.
 - Empacotamento genérico para self-host de terceiros (Docker Compose documentado, guia de instalação).
 - Chat de texto.
 - Customização avançada de avatar.
-- Colisão do avatar com obstáculos do mapa (bloquear movimento em paredes/móveis) — o MVP libera
-  o avatar andar livremente por cima de tudo; entra numa wave seguinte, junto com a layer de
-  colisão correspondente no `welcome.tmj` (ainda não existe).
-- Zoom manual controlado pelo usuário (scroll/botões +/-, como no Gather). O MVP usa zoom fixo
-  em 1x (câmera segue o avatar, sem opção de aproximar/afastar); controle manual de zoom fica
-  pra uma wave seguinte.
 - Retomar a mesma posição/sessão ao dar refresh na página. Hoje cada refresh cria uma sessão
   nova no Colyseus e o avatar volta pro spawn point. Não exigiria persistência real (spec 002
   já implementa reconexão via `allowReconnection`/`reconnectionToken`) — bastaria o client

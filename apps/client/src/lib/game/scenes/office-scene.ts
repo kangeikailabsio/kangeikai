@@ -1166,19 +1166,35 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   /**
-   * Shared by click-to-move (`handlePointerDown`) and the "Go to" profile-panel button (issue
-   * #159) — pathfinds from the current position to `(x, y)` and starts the walk, or shows the
-   * same "unreachable" feedback either way if there's no route.
+   * Shared by click-to-move (`handlePointerDown`), the "Go to" profile-panel button (#159), and
+   * "Follow" (#160) — pathfinds from the current position to `(x, y)` and starts the walk, or
+   * shows the same "unreachable" feedback either way if there's no route.
+   *
+   * `showGroundMarker` is `false` only for "Follow"'s own repeated recalculations — a pink dot
+   * re-appearing on the ground every time the route retargets (several times a second while the
+   * followed avatar moves) read as visual clutter rather than useful feedback, unlike a single
+   * deliberate "Go to"/click-to-move target. The "unreachable" toast still fires either way
+   * (still useful information), just without the red ground flash.
    */
-  private walkTo(x: number, y: number): void {
+  private walkTo(x: number, y: number, showGroundMarker = true): void {
     const path = findPath(this.pathfindingGrid, this.colliders, feetHitbox, { x: this.avatar.x, y: this.avatar.y }, { x, y })
     if (!path) {
-      this.showUnreachableTargetFeedback({ x, y })
+      if (showGroundMarker) {
+        this.showUnreachableTargetFeedback({ x, y })
+      }
+      else {
+        toastState.show(PATH_UNREACHABLE_MESSAGE)
+      }
       return
     }
 
     this.autoWalkController.setPath(path)
-    this.showWalkTargetMarker({ x, y })
+    if (showGroundMarker) {
+      this.showWalkTargetMarker({ x, y })
+    }
+    else {
+      this.clearWalkTargetMarker()
+    }
   }
 
   /**
@@ -1282,7 +1298,7 @@ export class OfficeScene extends Phaser.Scene {
       this.clearWalkTargetMarker()
       return
     }
-    this.walkTo(point.x, point.y)
+    this.walkTo(point.x, point.y, false)
   }
 
   private showWalkTargetMarker(point: { x: number, y: number }): void {

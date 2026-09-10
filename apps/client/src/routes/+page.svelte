@@ -18,6 +18,8 @@
   import ConnectionStatusBanner from '$lib/network/connection-status-banner.svelte'
   import AvatarProfilePanel from '$lib/people/avatar-profile-panel.svelte'
   import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
+  import FollowIndicator from '$lib/people/follow-indicator.svelte'
+  import { followState } from '$lib/people/follow-state.svelte'
   import MembersSidebar from '$lib/people/members-sidebar.svelte'
   import { rosterState } from '$lib/people/roster-state.svelte'
   import Toast from '$lib/ui/toast.svelte'
@@ -101,6 +103,7 @@
     rosterState.setLocalName(profile.displayName)
     rosterState.setLocalSpriteType(profile.avatarType)
     avatarProfileState.close()
+    followState.stop()
     game.events.on(ROOM_CONNECTION_READY_EVENT, (roomConnection: RoomConnection) => {
       unwireRoster = rosterState.connect(roomConnection)
       unwireConnectionStatus = roomConnection.onConnectionStateChange((state) => {
@@ -152,6 +155,7 @@
       rosterState.reset()
       membersOpen = false
       avatarProfileState.close()
+      followState.stop()
     })
   }
 
@@ -234,6 +238,20 @@
     const officeScene = game?.scene.getScene('office') as OfficeScene | undefined
     officeScene?.walkToAvatar(sessionId)
   }
+
+  function toggleFollowAvatar(sessionId: string): void {
+    const officeScene = game?.scene.getScene('office') as OfficeScene | undefined
+    officeScene?.toggleFollowAvatar(sessionId)
+  }
+
+  /** The indicator's own stop button (issue #160) — one of the three ways to stop, independent of the profile panel. */
+  function stopFollowing(): void {
+    if (!followState.sessionId) {
+      return
+    }
+    const officeScene = game?.scene.getScene('office') as OfficeScene | undefined
+    officeScene?.toggleFollowAvatar(followState.sessionId)
+  }
 </script>
 
 <div class='game-container' bind:this={gameContainer}>
@@ -242,7 +260,8 @@
     <ScreenShareOverlay />
     <BusyOverlay active={localPresence === 'busy'} />
     <MembersSidebar open={membersOpen} />
-    <AvatarProfilePanel onGoTo={goToAvatar} />
+    <AvatarProfilePanel onGoTo={goToAvatar} onToggleFollow={toggleFollowAvatar} />
+    <FollowIndicator onStop={stopFollowing} />
     <FpsDisplay {game} />
     <ConnectionQualityIndicator quality={connectionQuality} />
     <Toast />

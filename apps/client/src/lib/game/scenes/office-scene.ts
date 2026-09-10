@@ -28,6 +28,7 @@ import { resolveHoverTargetPosition } from '$lib/game/entities/avatar-hover'
 import { AvatarNameLabel } from '$lib/game/entities/avatar-name-label'
 import { AutoWalkController } from '$lib/game/input/auto-walk-controller'
 import { DoubleClickDetector } from '$lib/game/input/double-click-detector'
+import { FollowController } from '$lib/game/input/follow-controller'
 import { MovementController } from '$lib/game/input/movement-controller'
 import { queueActiveMapLoad } from '$lib/game/map/active-map'
 import { resolveApproachPoint } from '$lib/game/map/approach-point'
@@ -35,6 +36,7 @@ import { buildPathfindingGrid, findPath } from '$lib/game/map/pathfinding'
 import { resolveRespawnPoint } from '$lib/game/map/respawn-point'
 import { RoomConnection } from '$lib/network/room-connection'
 import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
+import { followState } from '$lib/people/follow-state.svelte'
 import { toastState } from '$lib/ui/toast-state.svelte'
 import { privateZoneAt, resolvePrivateZones } from '@kangeikai/shared'
 import { Track } from 'livekit-client'
@@ -114,6 +116,21 @@ const INVALID_TARGET_MARKER_DURATION_MS = 300
 const GO_TO_STOP_DISTANCE_PX = 32
 /** Shown for both an off-map click and an on-map click with no open route to it (#92) — from the user's point of view the result is the same. */
 const PATH_UNREACHABLE_MESSAGE = 'Não é possível chegar até aí'
+
+/**
+ * "Follow" (issue #160) keeps this much distance from the followed avatar — a "companion" gap
+ * rather than "Go to"'s one-time snapshot distance. Comfortably above `ARRIVAL_TOLERANCE_PX` so
+ * the route settles instead of endlessly recalculating right at the stop line (see the issue's
+ * risk note).
+ */
+const FOLLOW_STANDOFF_DISTANCE_PX = 40
+/**
+ * How far the followed avatar has to move (since the last recalculated route) before "Follow"
+ * recomputes its path — recalculating on every frame the target so much as twitches would thrash
+ * `findPath`/`setPath` for no visible benefit; this threshold keeps recalculation proportional to
+ * actual movement instead.
+ */
+const FOLLOW_RETARGET_THRESHOLD_PX = 24
 
 /**
  * Pathfinding grid cell size (#92) — half a tile (tiles are 32px), giving routes room to fit
@@ -229,6 +246,7 @@ export interface OfficeSceneData {
 export class OfficeScene extends Phaser.Scene {
   private readonly movementController = new MovementController()
   private readonly autoWalkController = new AutoWalkController()
+  private readonly followController = new FollowController()
   private readonly doubleClickDetector = new DoubleClickDetector()
   private walkTargetMarker: Phaser.GameObjects.Arc | undefined
   private hoveredTarget: HoverTarget | undefined
@@ -648,9 +666,10 @@ export class OfficeScene extends Phaser.Scene {
 
     let intent = manualIntent
     if (manualIntent.direction) {
-      // A manual key always wins over an in-progress auto-walk.
+      // A manual key always wins over an in-progress auto-walk, "Follow" included (#160 DoD).
       this.autoWalkController.cancel()
       this.clearWalkTargetMarker()
+      this.stopFollow()
     }
     else if (this.autoWalkController.active) {
       intent = this.autoWalkController.getIntent(this.avatar.x, this.avatar.y)
@@ -673,6 +692,8 @@ export class OfficeScene extends Phaser.Scene {
       this.clearWalkTargetMarker()
       toastState.show(PATH_UNREACHABLE_MESSAGE)
     }
+
+    this.updateFollow()
 
     this.avatarView.setPosition(this.avatar.x, this.avatar.y)
     this.avatarNameLabel.setPosition(this.avatar.x, this.avatar.y)
@@ -1028,6 +1049,9 @@ export class OfficeScene extends Phaser.Scene {
     if (this.hoveredTarget === sessionId) {
       this.hoveredTarget = undefined
     }
+    if (this.followController.targetSessionId === sessionId) {
+      this.stopFollow()
+    }
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
@@ -1160,7 +1184,7 @@ export class OfficeScene extends Phaser.Scene {
   /**
    * "Go to" (issue #159) — walks to wherever `sessionId`'s avatar currently is, as a one-time
    * snapshot: if they move after this is called, the walk does not retarget (that's "Follow",
-   * a separate, not-yet-built feature). A no-op if the session isn't a known remote avatar
+   * `toggleFollowAvatar` below, #160). A no-op if the session isn't a known remote avatar
    * (already left, or a stale panel reference).
    *
    * Stops `GO_TO_STOP_DISTANCE_PX` short of their exact position — along the straight line from
@@ -1175,6 +1199,87 @@ export class OfficeScene extends Phaser.Scene {
 
     const point = resolveApproachPoint({ x: this.avatar.x, y: this.avatar.y }, { x: target.avatar.x, y: target.avatar.y }, GO_TO_STOP_DISTANCE_PX)
     if (!point) {
+      return
+    }
+    this.walkTo(point.x, point.y)
+  }
+
+  /**
+   * "Follow"/"Stop following" (issue #160) — starting a follow on someone new replaces whatever
+   * was previously followed (only one active at a time, per the issue's grill), including calling
+   * this again on the exact same sessionId, which toggles it off (mirrors the panel button's
+   * "Follow" → "Stop following" label flip).
+   */
+  toggleFollowAvatar(sessionId: string): void {
+    if (this.followController.targetSessionId === sessionId) {
+      this.stopFollow()
+      return
+    }
+    this.startFollow(sessionId)
+  }
+
+  private startFollow(sessionId: string): void {
+    this.followController.start(sessionId)
+    followState.start(sessionId)
+    // Route toward the target's current position immediately, rather than waiting for it to
+    // move past FOLLOW_RETARGET_THRESHOLD_PX first.
+    this.recalculateFollowRoute()
+  }
+
+  private stopFollow(): void {
+    if (!this.followController.active) {
+      return
+    }
+    this.followController.stop()
+    followState.stop()
+    this.autoWalkController.cancel()
+    this.clearWalkTargetMarker()
+  }
+
+  /**
+   * Called every frame: re-walks toward the followed avatar's current position once it's moved
+   * past `FOLLOW_RETARGET_THRESHOLD_PX` since the last recalculation (not every frame — see the
+   * constant's comment) and auto-cancels if the target has left the room (#160 DoD).
+   */
+  private updateFollow(): void {
+    if (!this.followController.active) {
+      return
+    }
+    const sessionId = this.followController.targetSessionId
+    const target = sessionId ? this.remoteAvatars.get(sessionId) : undefined
+    if (!target) {
+      this.stopFollow()
+      return
+    }
+
+    const targetPosition = { x: target.avatar.x, y: target.avatar.y }
+    if (this.followController.shouldRecalculate(targetPosition, FOLLOW_RETARGET_THRESHOLD_PX)) {
+      this.recalculateFollowRoute()
+    }
+  }
+
+  /**
+   * Aims at a point `FOLLOW_STANDOFF_DISTANCE_PX` from the followed avatar's current position
+   * (not the exact tile, so the two avatars never stack) and records that position as the new
+   * recalculation baseline, regardless of whether a route was actually walked — an already-close-
+   * enough target (`resolveApproachPoint` returning `null`) still counts as "recalculated", or
+   * the very next frame would immediately trigger another recalculation for the same position.
+   */
+  private recalculateFollowRoute(): void {
+    const sessionId = this.followController.targetSessionId
+    const target = sessionId ? this.remoteAvatars.get(sessionId) : undefined
+    if (!target) {
+      return
+    }
+
+    const targetPosition = { x: target.avatar.x, y: target.avatar.y }
+    this.followController.recalculated(targetPosition)
+
+    const point = resolveApproachPoint({ x: this.avatar.x, y: this.avatar.y }, targetPosition, FOLLOW_STANDOFF_DISTANCE_PX)
+    if (!point) {
+      // Already close enough — don't keep chasing the exact tile.
+      this.autoWalkController.cancel()
+      this.clearWalkTargetMarker()
       return
     }
     this.walkTo(point.x, point.y)

@@ -5,14 +5,17 @@
   import { connectionQualityDisplayState } from '$lib/av/connection-quality-display-state.svelte'
   import { fpsDisplayState } from '$lib/game/fps-display-state.svelte'
   import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
+  import { followState } from '$lib/people/follow-state.svelte'
   import { rosterState } from '$lib/people/roster-state.svelte'
 
   interface Props {
     /** "Go to" (issue #159) — walks the local avatar to wherever this sessionId's avatar currently is. */
     onGoTo: (sessionId: string) => void
+    /** "Follow"/"Stop following" (issue #160) — toggles continuously following this sessionId's avatar. */
+    onToggleFollow: (sessionId: string) => void
   }
 
-  const { onGoTo }: Props = $props()
+  const { onGoTo, onToggleFollow }: Props = $props()
 
   const AVATAR_IDLE_URL: Record<AvatarSpriteType, string> = {
     man: avatarManIdleUrl,
@@ -81,6 +84,9 @@
         <button type='button' class='action' onclick={() => onGoTo(person.sessionId)}>
           Go to
         </button>
+        <button type='button' class='action' onclick={() => onToggleFollow(person.sessionId)}>
+          {followState.sessionId === person.sessionId ? 'Stop following' : 'Follow'}
+        </button>
       </div>
     {/if}
   </div>
@@ -108,6 +114,9 @@
   }
 
   .options {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     padding-top: 8px;
     border-top: 1px solid rgb(255 255 255 / 12%);
   }

@@ -1,11 +1,17 @@
-import type { VideoOverlayEntry, VideoOverlayTile } from '$lib/av/video-overlay-state.svelte'
+import type { VideoOverlayEntry, VideoOverlayPendingTile, VideoOverlayTile } from '$lib/av/video-overlay-state.svelte'
 
-/** A tile's data before the local/remote split and the priority/distance sort are applied. */
-export type VideoOverlayParticipant = Omit<VideoOverlayTile, 'isLocal'>
+/**
+ * A tile's data before the local/remote split and the priority/distance sort are applied —
+ * either a real tile-in-waiting, or one still connecting (issue #141's pending placeholder).
+ */
+export type VideoOverlayParticipant = Omit<VideoOverlayTile, 'isLocal'> | Omit<VideoOverlayPendingTile, 'isLocal'>
 
 /** A remote tile candidate, carrying its distance to the local avatar for the closest-first sort. */
-export interface RemoteVideoOverlayCandidate extends VideoOverlayParticipant {
-  distance: number
+export type RemoteVideoOverlayCandidate = VideoOverlayParticipant & { distance: number }
+
+/** A pending candidate has no `kind` of its own — sorts alongside camera tiles, never ahead of a real screen share. */
+function tileKind(tile: VideoOverlayParticipant): 'camera' | 'screen' {
+  return 'kind' in tile ? tile.kind : 'camera'
 }
 
 /**
@@ -29,15 +35,17 @@ export function buildVideoOverlayTiles(
   remotes: readonly RemoteVideoOverlayCandidate[],
   maxRemoteTiles: number,
 ): VideoOverlayEntry[] {
-  const localScreenTiles = local.filter(tile => tile.kind === 'screen')
+  const localScreenTiles = local.filter(tile => tileKind(tile) === 'screen')
 
   if (remotes.length === 0) {
     return localScreenTiles.map(tile => ({ ...tile, isLocal: true }))
   }
 
   const closest = [...remotes].sort((a, b) => {
-    if (a.kind !== b.kind) {
-      return a.kind === 'screen' ? -1 : 1
+    const kindA = tileKind(a)
+    const kindB = tileKind(b)
+    if (kindA !== kindB) {
+      return kindA === 'screen' ? -1 : 1
     }
     return a.distance - b.distance
   })

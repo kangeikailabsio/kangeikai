@@ -13,6 +13,7 @@ import avatarWomanIdleUrl from '$lib/assets/sprites/avatar-woman-idle.png?url'
 import avatarWomanWalkUrl from '$lib/assets/sprites/avatar-woman-walk.png?url'
 import { MediaControls } from '$lib/av/media-controls'
 import { PrivateRoomController } from '$lib/av/private-room-controller'
+import { resolvePrivateZoneOccupancy } from '$lib/av/private-room-occupancy'
 import { ProximityAudioController } from '$lib/av/proximity-audio-controller'
 import { isBusyBlockedByScreenShare } from '$lib/av/screen-share-busy-guard'
 import { buildScreenShareGridTiles } from '$lib/av/screen-share-grid'
@@ -183,6 +184,8 @@ interface RemoteAvatarEntry {
   view: Phaser.GameObjects.Sprite
   nameLabel: AvatarNameLabel
   presence: AvatarPresence
+  /** Otherwise only readable through `nameLabel` (no getter) — issue #141's pending video-overlay placeholders need it directly. */
+  displayName: string
   /** Currently rendered position — eased toward `avatar.x/y` each frame, see `updateRemoteAvatarViews`. */
   renderX: number
   renderY: number
@@ -257,6 +260,13 @@ export class OfficeScene extends Phaser.Scene {
   /** The zone the local avatar was in as of the last frame, or `null` — only redraws/re-fades the spotlight on a change, not every frame. */
   private currentSpotlightZoneId: number | null = null
   private spotlightTween: Phaser.Tweens.Tween | undefined
+  /**
+   * True only between `connectedPrivateRoom` being set and `applyMediaControls` resolving for
+   * that room (issue #141) — the window where the local person's own mic/camera capture is
+   * still in flight, so `updateVideoOverlay` should show a pending placeholder for the local
+   * tile instead of a real (but misleadingly camera/mic-off-looking) one.
+   */
+  private localMediaConnecting = false
 
   constructor() {
     super('office')
@@ -550,17 +560,23 @@ export class OfficeScene extends Phaser.Scene {
     }
     this.proximityAudioController.disconnect()
     this.connectedPrivateRoom = room
-    const result = await this.applyMediaControls(
-      room,
-      previous?.microphoneEnabled ?? true,
-      previous?.cameraEnabled ?? false,
-      false,
-      undefined,
-      false,
-      screenShareHandoff,
-    )
-    if (screenShareHandoffFailed || result.screenShareHandoffFailed) {
-      toastState.show('Couldn\'t continue screen share — try sharing again')
+    this.localMediaConnecting = true
+    try {
+      const result = await this.applyMediaControls(
+        room,
+        previous?.microphoneEnabled ?? true,
+        previous?.cameraEnabled ?? false,
+        false,
+        undefined,
+        false,
+        screenShareHandoff,
+      )
+      if (screenShareHandoffFailed || result.screenShareHandoffFailed) {
+        toastState.show('Couldn\'t continue screen share — try sharing again')
+      }
+    }
+    finally {
+      this.localMediaConnecting = false
     }
   }
 
@@ -663,7 +679,16 @@ export class OfficeScene extends Phaser.Scene {
         videoOverlayState.set([])
       }
       else {
-        this.updateVideoOverlay(new Set(this.connectedPrivateRoom.remoteParticipants.keys()), this.connectedPrivateRoom)
+        // `occupantSessionIds` (Colyseus position, always accurate) is who's expected in this
+        // zone's call; `remoteParticipants` (LiveKit) is who's actually connected so far — the
+        // gap between the two is exactly who gets a pending placeholder (issue #141). Recomputed
+        // independently here rather than threading it out of `privateRoomController.update()`
+        // above: that call is fire-and-forget (its own connect is async), but this needs the
+        // same-frame, synchronous answer `updateVideoOverlay` runs on right below.
+        const { occupantSessionIds } = resolvePrivateZoneOccupancy(this.privateZones, localPosition, remotePositions)
+        const pendingSessionIds = new Set(occupantSessionIds)
+        const expectedSessionIds = new Set([...pendingSessionIds, ...this.connectedPrivateRoom.remoteParticipants.keys()])
+        this.updateVideoOverlay(expectedSessionIds, this.connectedPrivateRoom, pendingSessionIds)
       }
     }
     else {
@@ -758,8 +783,14 @@ export class OfficeScene extends Phaser.Scene {
    * while one is connected (see `update()`). Also refreshes `screenShareGridState` (#99) from
    * the exact same candidate lists, for the full-screen grid overlay (#100) — every active
    * screen share nearby, with no cap (unlike the strip above).
+   *
+   * `pendingSessionIds` (issue #141) — only ever non-empty for the private-room call above —
+   * marks which of `nearbySessionIds` are expected occupants without a `RemoteParticipant` yet:
+   * those get a pending placeholder tile instead of being silently skipped. Omitted (empty) for
+   * the general office/proximity call, which keeps its original behavior unchanged: a nearby
+   * session without a `RemoteParticipant` yet is just skipped, same as before this issue.
    */
-  private updateVideoOverlay(nearbySessionIds: ReadonlySet<string>, room: Room): void {
+  private updateVideoOverlay(nearbySessionIds: ReadonlySet<string>, room: Room, pendingSessionIds: ReadonlySet<string> = new Set()): void {
     if (this.presence === 'busy') {
       videoOverlayState.set([])
       screenShareGridState.set([])
@@ -776,6 +807,14 @@ export class OfficeScene extends Phaser.Scene {
     for (const sessionId of visibleSessionIds) {
       const participant = room.remoteParticipants.get(sessionId)
       if (!participant) {
+        if (pendingSessionIds.has(sessionId)) {
+          remotes.push({
+            sessionId,
+            name: this.remoteAvatars.get(sessionId)?.displayName ?? sessionId,
+            pending: true,
+            distance: this.distanceToLocal(sessionId),
+          })
+        }
         continue
       }
 
@@ -809,17 +848,26 @@ export class OfficeScene extends Phaser.Scene {
     }
 
     const localName = localParticipant.name ?? 'You'
-    const local: VideoOverlayParticipant[] = [{
-      sessionId: localParticipant.identity,
-      name: localName,
-      kind: 'camera',
-      cameraEnabled: localParticipant.isCameraEnabled,
-      micEnabled: localParticipant.isMicrophoneEnabled,
-      speaking: localParticipant.isSpeaking,
-      videoTrack: localParticipant.getTrackPublication(Track.Source.Camera)?.track as LocalVideoTrack | undefined,
-    }]
+    // While the local person's own getUserMedia/media-controls setup is still in flight (issue
+    // #141, only true during the private-room connect window), `localParticipant` exists but has
+    // no published tracks yet — a real tile here would misleadingly look like a deliberate
+    // camera/mic-off choice rather than "still connecting". Screen share can't be relevant yet
+    // either (it can't start until this same setup finishes), so this is the tile's only slot.
+    const local: VideoOverlayParticipant[] = this.localMediaConnecting
+      ? [{ sessionId: localParticipant.identity, name: localName, pending: true }]
+      : [{
+          sessionId: localParticipant.identity,
+          name: localName,
+          kind: 'camera',
+          cameraEnabled: localParticipant.isCameraEnabled,
+          micEnabled: localParticipant.isMicrophoneEnabled,
+          speaking: localParticipant.isSpeaking,
+          videoTrack: localParticipant.getTrackPublication(Track.Source.Camera)?.track as LocalVideoTrack | undefined,
+        }]
 
-    const localScreenShareTrack = localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track as LocalVideoTrack | undefined
+    const localScreenShareTrack = this.localMediaConnecting
+      ? undefined
+      : localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track as LocalVideoTrack | undefined
     if (localScreenShareTrack) {
       local.push({
         sessionId: localParticipant.identity,
@@ -858,7 +906,7 @@ export class OfficeScene extends Phaser.Scene {
     const nameLabel = new AvatarNameLabel(this, avatar.x, avatar.y, state.displayName)
     nameLabel.setPresence(state.presence)
 
-    this.remoteAvatars.set(sessionId, { avatar, view, nameLabel, presence: state.presence, renderX: avatar.x, renderY: avatar.y })
+    this.remoteAvatars.set(sessionId, { avatar, view, nameLabel, presence: state.presence, displayName: state.displayName, renderX: avatar.x, renderY: avatar.y })
   }
 
   private updateRemoteAvatar(sessionId: string, state: AvatarState): void {

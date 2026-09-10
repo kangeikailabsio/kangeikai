@@ -26,6 +26,11 @@ function remote(sessionId: string, distance: number, kind: 'camera' | 'screen' =
   }
 }
 
+/** A remote occupant whose `RemoteParticipant` hasn't propagated yet (issue #141). */
+function pendingRemote(sessionId: string, distance: number): RemoteVideoOverlayCandidate {
+  return { sessionId, name: sessionId, pending: true, distance }
+}
+
 function tileKey(entry: ReturnType<typeof buildVideoOverlayTiles>[number]): string | undefined {
   if (isOverflowTile(entry)) {
     return undefined
@@ -130,5 +135,48 @@ describe('buildVideoOverlayTiles', () => {
     const entries = buildVideoOverlayTiles([localCameraTile], [remote('a', 10)], 4)
 
     expect(entries[1]).not.toHaveProperty('distance')
+  })
+})
+
+describe('buildVideoOverlayTiles with a connecting (pending) tile', () => {
+  it('marks a pending remote tile as pending, not as any camera/screen kind', () => {
+    const entries = buildVideoOverlayTiles([localCameraTile], [pendingRemote('a', 10)], 4)
+
+    expect(isPendingTile(entries[1])).toBe(true)
+    expect(entries[1]).toMatchObject({ sessionId: 'a', name: 'a', isLocal: false })
+  })
+
+  it('sorts a pending tile by distance alongside real camera tiles (no kind of its own)', () => {
+    const entries = buildVideoOverlayTiles([localCameraTile], [
+      remote('far', 300),
+      pendingRemote('near-pending', 10),
+      remote('mid', 100),
+    ], 4)
+
+    expect(entries.slice(1).map(tileKey)).toEqual(['near-pending:pending', 'mid:camera', 'far:camera'])
+  })
+
+  it('never lets a pending tile outrank a real screen-share tile', () => {
+    const entries = buildVideoOverlayTiles([localCameraTile], [
+      pendingRemote('pending', 1),
+      remote('screen-a', 999, 'screen'),
+    ], 4)
+
+    expect(entries.slice(1).map(tileKey)).toEqual(['screen-a:screen', 'pending:pending'])
+  })
+
+  it('counts a pending tile against the cap, same as any other remote candidate', () => {
+    const remotes = [remote('a', 1), remote('b', 2), remote('c', 3), pendingRemote('pending', 4)]
+    const entries = buildVideoOverlayTiles([localCameraTile], remotes, 3)
+
+    expect(entries.some(isPendingTile)).toBe(false)
+    expect(entries.at(-1)).toEqual({ overflowCount: 1 })
+  })
+
+  it('renders the local tile as pending while the local person\'s own media is still connecting', () => {
+    const localPendingTile: VideoOverlayParticipant = { sessionId: 'local', name: 'You', pending: true }
+    const entries = buildVideoOverlayTiles([localPendingTile], [remote('a', 10)], 4)
+
+    expect(entries[0]).toEqual({ sessionId: 'local', name: 'You', pending: true, isLocal: true })
   })
 })

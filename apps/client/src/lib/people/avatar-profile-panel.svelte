@@ -2,6 +2,7 @@
   import type { AvatarSpriteType } from '@kangeikai/shared'
   import avatarManIdleUrl from '$lib/assets/sprites/avatar-man-idle.png?url'
   import avatarWomanIdleUrl from '$lib/assets/sprites/avatar-woman-idle.png?url'
+  import { connectionQualityDisplayState } from '$lib/av/connection-quality-display-state.svelte'
   import { fpsDisplayState } from '$lib/game/fps-display-state.svelte'
   import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
   import { rosterState } from '$lib/people/roster-state.svelte'
@@ -58,6 +59,10 @@
         <label class='option'>
           <input type='checkbox' checked={fpsDisplayState.enabled} onchange={event => fpsDisplayState.set(event.currentTarget.checked)} />
           Show FPS
+        </label>
+        <label class='option'>
+          <input type='checkbox' checked={connectionQualityDisplayState.enabled} onchange={event => connectionQualityDisplayState.set(event.currentTarget.checked)} />
+          Show connection quality
         </label>
       </div>
     {/if}

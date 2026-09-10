@@ -1135,14 +1135,37 @@ export class OfficeScene extends Phaser.Scene {
       return
     }
 
-    const path = findPath(this.pathfindingGrid, this.colliders, feetHitbox, { x: this.avatar.x, y: this.avatar.y }, { x: worldPoint.x, y: worldPoint.y })
+    this.walkTo(worldPoint.x, worldPoint.y)
+  }
+
+  /**
+   * Shared by click-to-move (`handlePointerDown`) and the "Go to" profile-panel button (issue
+   * #159) — pathfinds from the current position to `(x, y)` and starts the walk, or shows the
+   * same "unreachable" feedback either way if there's no route.
+   */
+  private walkTo(x: number, y: number): void {
+    const path = findPath(this.pathfindingGrid, this.colliders, feetHitbox, { x: this.avatar.x, y: this.avatar.y }, { x, y })
     if (!path) {
-      this.showUnreachableTargetFeedback(worldPoint)
+      this.showUnreachableTargetFeedback({ x, y })
       return
     }
 
     this.autoWalkController.setPath(path)
-    this.showWalkTargetMarker(worldPoint)
+    this.showWalkTargetMarker({ x, y })
+  }
+
+  /**
+   * "Go to" (issue #159) — walks to wherever `sessionId`'s avatar currently is, as a one-time
+   * snapshot: if they move after this is called, the walk does not retarget (that's "Follow",
+   * a separate, not-yet-built feature). A no-op if the session isn't a known remote avatar
+   * (already left, or a stale panel reference).
+   */
+  walkToAvatar(sessionId: string): void {
+    const target = this.remoteAvatars.get(sessionId)
+    if (!target) {
+      return
+    }
+    this.walkTo(target.avatar.x, target.avatar.y)
   }
 
   private showWalkTargetMarker(point: { x: number, y: number }): void {

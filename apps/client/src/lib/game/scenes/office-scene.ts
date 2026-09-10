@@ -30,6 +30,7 @@ import { AutoWalkController } from '$lib/game/input/auto-walk-controller'
 import { DoubleClickDetector } from '$lib/game/input/double-click-detector'
 import { MovementController } from '$lib/game/input/movement-controller'
 import { queueActiveMapLoad } from '$lib/game/map/active-map'
+import { resolveApproachPoint } from '$lib/game/map/approach-point'
 import { buildPathfindingGrid, findPath } from '$lib/game/map/pathfinding'
 import { resolveRespawnPoint } from '$lib/game/map/respawn-point'
 import { RoomConnection } from '$lib/network/room-connection'
@@ -1172,15 +1173,11 @@ export class OfficeScene extends Phaser.Scene {
       return
     }
 
-    const dx = target.avatar.x - this.avatar.x
-    const dy = target.avatar.y - this.avatar.y
-    const distance = Math.hypot(dx, dy)
-    if (distance <= GO_TO_STOP_DISTANCE_PX) {
+    const point = resolveApproachPoint({ x: this.avatar.x, y: this.avatar.y }, { x: target.avatar.x, y: target.avatar.y }, GO_TO_STOP_DISTANCE_PX)
+    if (!point) {
       return
     }
-
-    const ratio = (distance - GO_TO_STOP_DISTANCE_PX) / distance
-    this.walkTo(this.avatar.x + dx * ratio, this.avatar.y + dy * ratio)
+    this.walkTo(point.x, point.y)
   }
 
   private showWalkTargetMarker(point: { x: number, y: number }): void {

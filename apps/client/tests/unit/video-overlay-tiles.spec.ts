@@ -1,5 +1,5 @@
 import type { RemoteVideoOverlayCandidate, VideoOverlayParticipant } from '$lib/av/video-overlay-tiles'
-import { isOverflowTile } from '$lib/av/video-overlay-state.svelte'
+import { isOverflowTile, isPendingTile } from '$lib/av/video-overlay-state.svelte'
 import { buildVideoOverlayTiles } from '$lib/av/video-overlay-tiles'
 import { describe, expect, it } from 'vitest'
 
@@ -27,7 +27,10 @@ function remote(sessionId: string, distance: number, kind: 'camera' | 'screen' =
 }
 
 function tileKey(entry: ReturnType<typeof buildVideoOverlayTiles>[number]): string | undefined {
-  return isOverflowTile(entry) ? undefined : `${entry.sessionId}:${entry.kind}`
+  if (isOverflowTile(entry)) {
+    return undefined
+  }
+  return isPendingTile(entry) ? `${entry.sessionId}:pending` : `${entry.sessionId}:${entry.kind}`
 }
 
 describe('buildVideoOverlayTiles', () => {

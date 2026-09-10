@@ -183,6 +183,8 @@ interface RemoteAvatarEntry {
   view: Phaser.GameObjects.Sprite
   nameLabel: AvatarNameLabel
   presence: AvatarPresence
+  /** Otherwise only readable through `nameLabel` (no getter) — issue #141's pending video-overlay placeholders need it directly. */
+  displayName: string
   /** Currently rendered position — eased toward `avatar.x/y` each frame, see `updateRemoteAvatarViews`. */
   renderX: number
   renderY: number
@@ -257,6 +259,13 @@ export class OfficeScene extends Phaser.Scene {
   /** The zone the local avatar was in as of the last frame, or `null` — only redraws/re-fades the spotlight on a change, not every frame. */
   private currentSpotlightZoneId: number | null = null
   private spotlightTween: Phaser.Tweens.Tween | undefined
+  /**
+   * True only between `connectedPrivateRoom` being set and `applyMediaControls` resolving for
+   * that room (issue #141) — the window where the local person's own mic/camera capture is
+   * still in flight, so `updateVideoOverlay` should show a pending placeholder for the local
+   * tile instead of a real (but misleadingly camera/mic-off-looking) one.
+   */
+  private localMediaConnecting = false
 
   constructor() {
     super('office')
@@ -858,7 +867,7 @@ export class OfficeScene extends Phaser.Scene {
     const nameLabel = new AvatarNameLabel(this, avatar.x, avatar.y, state.displayName)
     nameLabel.setPresence(state.presence)
 
-    this.remoteAvatars.set(sessionId, { avatar, view, nameLabel, presence: state.presence, renderX: avatar.x, renderY: avatar.y })
+    this.remoteAvatars.set(sessionId, { avatar, view, nameLabel, presence: state.presence, displayName: state.displayName, renderX: avatar.x, renderY: avatar.y })
   }
 
   private updateRemoteAvatar(sessionId: string, state: AvatarState): void {

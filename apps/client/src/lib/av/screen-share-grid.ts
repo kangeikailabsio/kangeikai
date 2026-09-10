@@ -14,13 +14,13 @@ export function buildScreenShareGridTiles(
   const tiles: ScreenShareGridTile[] = []
 
   for (const tile of local) {
-    if (tile.kind === 'screen') {
+    if ('kind' in tile && tile.kind === 'screen') {
       tiles.push({ sessionId: tile.sessionId, name: tile.name, isLocal: true, videoTrack: tile.videoTrack })
     }
   }
 
   for (const tile of remotes) {
-    if (tile.kind === 'screen') {
+    if ('kind' in tile && tile.kind === 'screen') {
       tiles.push({ sessionId: tile.sessionId, name: tile.name, isLocal: false, videoTrack: tile.videoTrack })
     }
   }

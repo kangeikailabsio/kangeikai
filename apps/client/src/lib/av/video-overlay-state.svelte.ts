@@ -35,10 +35,28 @@ export interface VideoOverlayOverflowTile {
   overflowCount: number
 }
 
-export type VideoOverlayEntry = VideoOverlayTile | VideoOverlayOverflowTile
+/**
+ * A tile still connecting (issue #141) — the private room's LiveKit connection hasn't
+ * propagated a `RemoteParticipant` for this occupant yet, or (when `isLocal`) the local
+ * person's own `getUserMedia`/media-controls setup hasn't resolved yet. Renders in the tile's
+ * own eventual position — progressive reveal into a real `VideoOverlayTile` once ready, not a
+ * separate banner or list.
+ */
+export interface VideoOverlayPendingTile {
+  sessionId: string
+  name: string
+  isLocal: boolean
+  pending: true
+}
+
+export type VideoOverlayEntry = VideoOverlayTile | VideoOverlayPendingTile | VideoOverlayOverflowTile
 
 export function isOverflowTile(entry: VideoOverlayEntry): entry is VideoOverlayOverflowTile {
   return 'overflowCount' in entry
+}
+
+export function isPendingTile(entry: VideoOverlayEntry): entry is VideoOverlayPendingTile {
+  return 'pending' in entry
 }
 
 /**

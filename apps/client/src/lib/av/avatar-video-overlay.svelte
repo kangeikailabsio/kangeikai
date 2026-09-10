@@ -1,7 +1,7 @@
 <script lang='ts'>
   import { attachVideoTrack } from '$lib/av/attach-video-track'
   import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
-  import { isOverflowTile, videoOverlayState } from '$lib/av/video-overlay-state.svelte'
+  import { isOverflowTile, isPendingTile, videoOverlayState } from '$lib/av/video-overlay-state.svelte'
 
   function initial(name: string): string {
     return name.trim().charAt(0).toUpperCase() || '?'
@@ -9,10 +9,20 @@
 </script>
 
 <div class='strip'>
-  {#each videoOverlayState.tiles as tile (isOverflowTile(tile) ? 'overflow' : `${tile.sessionId}:${tile.kind}`)}
+  {#each videoOverlayState.tiles as tile (isOverflowTile(tile) ? 'overflow' : isPendingTile(tile) ? `${tile.sessionId}:pending` : `${tile.sessionId}:${tile.kind}`)}
     {#if isOverflowTile(tile)}
       <div class='tile overflow'>
         <span class='overflow-count'>+{tile.overflowCount}</span>
+      </div>
+    {:else if isPendingTile(tile)}
+      <!-- Still connecting (issue #141) — same spinner pattern as entry-form.svelte's submit button, sized for this dark tile instead. -->
+      <div class='tile'>
+        <div class='tile-content'>
+          <div class='placeholder'>
+            <span class='connecting-spinner'></span>
+          </div>
+        </div>
+        <span class='name-label'>{tile.isLocal ? 'You' : tile.name}</span>
       </div>
     {:else if tile.kind === 'screen'}
       <!-- Click to expand into the full-screen grid (#100) — the only interactive tile kind. -->
@@ -174,6 +184,22 @@
 
   .mic-dot.on {
     background: #22c55e;
+  }
+
+  /* Same spin technique as entry-form.svelte's submit-button spinner, sized/colored for this dark tile instead. */
+  .connecting-spinner {
+    width: 28px;
+    height: 28px;
+    border: 3px solid rgb(255 255 255 / 25%);
+    border-top-color: #e8a9c9;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .screen-badge {

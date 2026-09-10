@@ -38,6 +38,7 @@ import { resolveRespawnPoint } from '$lib/game/map/respawn-point'
 import { RoomConnection } from '$lib/network/room-connection'
 import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
 import { followState } from '$lib/people/follow-state.svelte'
+import { attentionModalState } from '$lib/ui/attention-modal-state.svelte'
 import { toastState } from '$lib/ui/toast-state.svelte'
 import { privateZoneAt, resolvePrivateZones } from '@kangeikai/shared'
 import { Track } from 'livekit-client'
@@ -85,12 +86,15 @@ export const ROOM_JOINED_EVENT = 'room-joined'
  */
 export const ROOM_CONNECTION_READY_EVENT = 'room-connection-ready'
 
-/**
- * Emitted on `game.events` when a "Say Hello" (issue #157) arrives for the local session — the
- * only `InteractionReceivedPayload.kind` this scene acts on today; an `'attention'` interaction
- * (a planned follow-up issue reusing the same message infrastructure) is received but ignored.
- */
+/** Emitted on `game.events` when a "Say Hello" (issue #157) arrives for the local session. */
 export const HELLO_RECEIVED_EVENT = 'hello-received'
+
+/**
+ * Emitted on `game.events` when a "chamar atenção" (issue #158) arrives for the local session —
+ * only once the camera shake below has finished (`SHAKE_COMPLETE`), never simultaneously with
+ * it (#158's grill: shake first, modal only after).
+ */
+export const ATTENTION_RECEIVED_EVENT = 'attention-received'
 
 /**
  * Cap on remote video tiles shown in the strip at once — beyond this, the closest
@@ -139,6 +143,15 @@ const FOLLOW_STANDOFF_DISTANCE_PX = 40
  * actual movement instead.
  */
 const FOLLOW_RETARGET_THRESHOLD_PX = 24
+
+/**
+ * "Chamar atenção" (issue #158) camera shake — moderate on purpose, well under Phaser's own
+ * default intensity (0.05): noticeable without making the screen hard to read for the ~1/3
+ * second it runs. The issue's own risk note flags this as needing visual calibration — adjust
+ * if it ends up feeling too strong/too subtle once seen live.
+ */
+const ATTENTION_SHAKE_DURATION_MS = 350
+const ATTENTION_SHAKE_INTENSITY = 0.015
 
 /**
  * Pathfinding grid cell size (#92) — half a tile (tiles are 32px), giving routes room to fit
@@ -288,6 +301,8 @@ export class OfficeScene extends Phaser.Scene {
   private mediaControls: MediaControls | undefined
   /** Tracks the screen-share overlay's previous open state, to edge-trigger `movementController.clear()` (#100) only on the transition into it, not every frame it stays open. */
   private wasScreenShareOverlayExpanded = false
+  /** Same edge-trigger care as `wasScreenShareOverlayExpanded`, for the "chamar atenção" (#158) blocking modal. */
+  private wasAttentionModalOpen = false
   /** Set only while connected to a private zone's isolated room — `null` means ambient `office` audio is active. */
   private connectedPrivateRoom: Room | null = null
   /** The `spaces` layer's `private: true` objects, read once in `create()` (issue #151's spotlight needs the same zones `PrivateRoomController` already gets). */
@@ -592,16 +607,27 @@ export class OfficeScene extends Phaser.Scene {
     toastState.show('Hello sent')
   }
 
+  /** "Chamar atenção" (issue #158) — same shape as `sendHello`, just a different `kind`. */
+  sendAttention(targetSessionId: string): void {
+    this.roomConnection.sendInteraction('attention', targetSessionId)
+    toastState.show('Attention sent')
+  }
+
   /**
-   * Only `'hello'` is acted on today — an `'attention'` interaction (a planned follow-up issue
-   * reusing this same message infrastructure) arrives here too but is silently ignored, since no
-   * UI for it exists yet.
+   * `'hello'` (#157) surfaces immediately. `'attention'` (#158) shakes the camera first and only
+   * emits once the shake finishes (`SHAKE_COMPLETE`, `once` not `on` — a single shake per
+   * interaction) — shake-then-modal, never simultaneous, per #158's grill.
    */
   private handleInteractionReceived(payload: InteractionReceivedPayload): void {
-    if (payload.kind !== 'hello') {
+    if (payload.kind === 'hello') {
+      this.game.events.emit(HELLO_RECEIVED_EVENT, payload)
       return
     }
-    this.game.events.emit(HELLO_RECEIVED_EVENT, payload)
+
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.SHAKE_COMPLETE, () => {
+      this.game.events.emit(ATTENTION_RECEIVED_EVENT, payload)
+    })
+    this.cameras.main.shake(ATTENTION_SHAKE_DURATION_MS, ATTENTION_SHAKE_INTENSITY)
   }
 
   /**
@@ -694,7 +720,13 @@ export class OfficeScene extends Phaser.Scene {
     }
     this.wasScreenShareOverlayExpanded = screenShareOverlayOpen
 
-    const manualIntent = (this.presence === 'busy' || screenShareOverlayOpen)
+    const attentionModalOpen = attentionModalState.open
+    if (attentionModalOpen && !this.wasAttentionModalOpen) {
+      this.movementController.clear()
+    }
+    this.wasAttentionModalOpen = attentionModalOpen
+
+    const manualIntent = (this.presence === 'busy' || screenShareOverlayOpen || attentionModalOpen)
       ? { direction: null, sprint: false }
       : this.movementController.getIntent()
 

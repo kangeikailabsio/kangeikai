@@ -14,7 +14,7 @@
   import EntryForm from '$lib/entry/entry-form.svelte'
   import { GuestProfileStore } from '$lib/entry/guest-profile-store'
   import FpsDisplay from '$lib/game/fps-display.svelte'
-  import { CONNECTION_QUALITY_CHANGED_EVENT, HELLO_RECEIVED_EVENT, LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT, SCREEN_SHARE_ENDED_EVENT } from '$lib/game/scenes/office-scene'
+  import { ATTENTION_RECEIVED_EVENT, CONNECTION_QUALITY_CHANGED_EVENT, HELLO_RECEIVED_EVENT, LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT, SCREEN_SHARE_ENDED_EVENT } from '$lib/game/scenes/office-scene'
   import ConnectionStatusBanner from '$lib/network/connection-status-banner.svelte'
   import AvatarProfilePanel from '$lib/people/avatar-profile-panel.svelte'
   import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
@@ -22,6 +22,8 @@
   import { followState } from '$lib/people/follow-state.svelte'
   import MembersSidebar from '$lib/people/members-sidebar.svelte'
   import { rosterState } from '$lib/people/roster-state.svelte'
+  import { attentionModalState } from '$lib/ui/attention-modal-state.svelte'
+  import AttentionModal from '$lib/ui/attention-modal.svelte'
   import { helloToastState } from '$lib/ui/hello-toast-state.svelte'
   import HelloToast from '$lib/ui/hello-toast.svelte'
   import { playNotificationSound } from '$lib/ui/notification-sound'
@@ -108,6 +110,7 @@
     avatarProfileState.close()
     followState.stop()
     helloToastState.dismiss()
+    attentionModalState.dismiss()
     game.events.on(ROOM_CONNECTION_READY_EVENT, (roomConnection: RoomConnection) => {
       unwireRoster = rosterState.connect(roomConnection)
       unwireConnectionStatus = roomConnection.onConnectionStateChange((state) => {
@@ -146,12 +149,17 @@
       connecting = false
     })
 
-    // "Say Hello" (issue #157) — the only InteractionReceivedPayload.kind office-scene.ts's
-    // handleInteractionReceived actually forwards here (an 'attention' interaction is received
-    // but not re-emitted, since no UI for it exists yet).
+    // "Say Hello" (issue #157).
     game.events.on(HELLO_RECEIVED_EVENT, (payload: InteractionReceivedPayload) => {
       helloToastState.show(payload.fromDisplayName)
       playNotificationSound('hello')
+    })
+
+    // "Chamar atenção" (issue #158) — office-scene.ts only emits this once its camera shake has
+    // already finished, so the modal never appears simultaneously with the shake.
+    game.events.on(ATTENTION_RECEIVED_EVENT, (payload: InteractionReceivedPayload) => {
+      attentionModalState.show(payload.fromDisplayName)
+      playNotificationSound('attention')
     })
 
     // Most likely a wrong/missing access code (OfficeRoom.onAuth) — there's no meaningful
@@ -169,6 +177,7 @@
       avatarProfileState.close()
       followState.stop()
       helloToastState.dismiss()
+      attentionModalState.dismiss()
     })
   }
 
@@ -270,6 +279,11 @@
     const officeScene = game?.scene.getScene('office') as OfficeScene | undefined
     officeScene?.sendHello(sessionId)
   }
+
+  function sendAttention(sessionId: string): void {
+    const officeScene = game?.scene.getScene('office') as OfficeScene | undefined
+    officeScene?.sendAttention(sessionId)
+  }
 </script>
 
 <div class='game-container' bind:this={gameContainer}>
@@ -278,12 +292,13 @@
     <ScreenShareOverlay />
     <BusyOverlay active={localPresence === 'busy'} />
     <MembersSidebar open={membersOpen} />
-    <AvatarProfilePanel onGoTo={goToAvatar} onToggleFollow={toggleFollowAvatar} onSayHello={sendHello} />
+    <AvatarProfilePanel onGoTo={goToAvatar} onToggleFollow={toggleFollowAvatar} onSayHello={sendHello} onGetAttention={sendAttention} />
     <FollowIndicator onStop={stopFollowing} />
     <FpsDisplay {game} />
     <ConnectionQualityIndicator quality={connectionQuality} />
     <Toast />
     <HelloToast />
+    <AttentionModal />
     <ConnectionStatusBanner state={connectionState} />
   {/if}
 </div>

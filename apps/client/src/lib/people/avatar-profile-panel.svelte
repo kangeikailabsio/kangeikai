@@ -15,9 +15,11 @@
     onToggleFollow: (sessionId: string) => void
     /** "Say Hello" (issue #157) — sends a lightweight point-to-point nudge to this sessionId. */
     onSayHello: (sessionId: string) => void
+    /** "Chamar atenção" (issue #158) — sends a camera-shake + blocking-modal nudge to this sessionId. */
+    onGetAttention: (sessionId: string) => void
   }
 
-  const { onGoTo, onToggleFollow, onSayHello }: Props = $props()
+  const { onGoTo, onToggleFollow, onSayHello, onGetAttention }: Props = $props()
 
   const AVATAR_IDLE_URL: Record<AvatarSpriteType, string> = {
     man: avatarManIdleUrl,
@@ -40,12 +42,16 @@
   /** Short cooldown on the "Say Hello" button after sending (#157's grill) — prevents spamming the recipient's toast/sound. */
   const HELLO_COOLDOWN_MS = 3000
   let helloCooldownActive = $state(false)
+  /** Same idea as HELLO_COOLDOWN_MS, for "Get Attention" (#158's grill) — its own independent cooldown, not shared with Say Hello's. */
+  const ATTENTION_COOLDOWN_MS = 3000
+  let attentionCooldownActive = $state(false)
 
-  // Resets the cooldown whenever the viewed person changes — a cooldown from having just said
-  // hello to someone else shouldn't carry over and block a fresh "Say Hello" to this person.
+  // Resets both cooldowns whenever the viewed person changes — a cooldown from having just
+  // nudged someone else shouldn't carry over and block a fresh action on this person.
   $effect(() => {
     void person?.sessionId
     helloCooldownActive = false
+    attentionCooldownActive = false
   })
 
   function sendHello(): void {
@@ -57,6 +63,17 @@
     setTimeout(() => {
       helloCooldownActive = false
     }, HELLO_COOLDOWN_MS)
+  }
+
+  function sendAttention(): void {
+    if (!person || attentionCooldownActive) {
+      return
+    }
+    onGetAttention(person.sessionId)
+    attentionCooldownActive = true
+    setTimeout(() => {
+      attentionCooldownActive = false
+    }, ATTENTION_COOLDOWN_MS)
   }
 
   function handleKeydown(event: KeyboardEvent): void {
@@ -116,6 +133,9 @@
         {#if person.presence !== 'busy'}
           <button type='button' class='action' disabled={helloCooldownActive} onclick={sendHello}>
             Say Hello
+          </button>
+          <button type='button' class='action' disabled={attentionCooldownActive} onclick={sendAttention}>
+            Get Attention
           </button>
         {/if}
       </div>

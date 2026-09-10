@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.7.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.6.3...v0.7.0) (2026-09-10)
+
+
+### Features
+
+* **client:** connection-quality indicator in the avatar profile panel ([#155](https://github.com/kangeikailabsio/kangeikai/issues/155)) ([2b14cef](https://github.com/kangeikailabsio/kangeikai/commit/2b14cefb15a6b4cd64c3a0593094618ccb0931f3)), closes [#132](https://github.com/kangeikailabsio/kangeikai/issues/132)
+* **client:** dim the map outside a private zone (spotlight effect) ([#152](https://github.com/kangeikailabsio/kangeikai/issues/152)) ([3769356](https://github.com/kangeikailabsio/kangeikai/commit/376935609603e73e6dfbebe47fb90e5413ce8da2)), closes [#151](https://github.com/kangeikailabsio/kangeikai/issues/151)
+* **client:** inline error tile when a private-room connection fails ([#156](https://github.com/kangeikailabsio/kangeikai/issues/156)) ([be6dfef](https://github.com/kangeikailabsio/kangeikai/commit/be6dfefa82373aecfb1398b8cf74f9d15e4ccba2)), closes [#142](https://github.com/kangeikailabsio/kangeikai/issues/142)
+* **client:** per-participant connecting placeholder for private rooms ([#154](https://github.com/kangeikailabsio/kangeikai/issues/154)) ([7772a6e](https://github.com/kangeikailabsio/kangeikai/commit/7772a6e0441a7b26250ba747394286b262e57d00))
+
 ## [0.6.3](https://github.com/kangeikailabsio/kangeikai/compare/v0.6.2...v0.6.3) (2026-09-09)
 
 

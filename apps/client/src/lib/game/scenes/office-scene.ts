@@ -131,17 +131,6 @@ const FOLLOW_STANDOFF_DISTANCE_PX = 40
  * actual movement instead.
  */
 const FOLLOW_RETARGET_THRESHOLD_PX = 24
-/**
- * "Follow" sprints to close the gap once the followed avatar has drifted this far away, instead
- * of always walking at normal speed — the auto-walk driving "Follow" otherwise never sprints
- * (`AutoWalkController.getIntent` always returns `sprint: false`), so a target that walks
- * continuously — sprinting themselves included — pulls steadily ahead with no way to catch up,
- * eventually drifting so far behind that proximity audio/video (`HEARING_RANGE_PX`, 80px) drops
- * (reported after #160 shipped: "o personagem fica muito atrás" / proximity chat flickering).
- * Set comfortably below that 80px so catching up kicks in before the connection actually drops,
- * not after.
- */
-const FOLLOW_CATCH_UP_DISTANCE_PX = 64
 
 /**
  * Pathfinding grid cell size (#92) — half a tile (tiles are 32px), giving routes room to fit
@@ -258,8 +247,6 @@ export class OfficeScene extends Phaser.Scene {
   private readonly movementController = new MovementController()
   private readonly autoWalkController = new AutoWalkController()
   private readonly followController = new FollowController()
-  /** Set by `updateFollow()` each frame — whether the followed avatar is currently more than `FOLLOW_CATCH_UP_DISTANCE_PX` away, so the auto-walk intent below should sprint. */
-  private followCatchingUp = false
   private readonly doubleClickDetector = new DoubleClickDetector()
   private walkTargetMarker: Phaser.GameObjects.Arc | undefined
   private hoveredTarget: HoverTarget | undefined
@@ -686,11 +673,6 @@ export class OfficeScene extends Phaser.Scene {
     }
     else if (this.autoWalkController.active) {
       intent = this.autoWalkController.getIntent(this.avatar.x, this.avatar.y)
-      if (this.followController.active && this.followCatchingUp) {
-        // Sprint to close the gap (see FOLLOW_CATCH_UP_DISTANCE_PX) — AutoWalkController itself
-        // never sprints, so this is the only way "Follow" ever moves faster than normal speed.
-        intent = { ...intent, sprint: true }
-      }
       if (!this.autoWalkController.active) {
         // Arrived this frame.
         this.clearWalkTargetMarker()
@@ -1250,7 +1232,6 @@ export class OfficeScene extends Phaser.Scene {
     }
     this.followController.stop()
     followState.stop()
-    this.followCatchingUp = false
     this.autoWalkController.cancel()
     this.clearWalkTargetMarker()
   }
@@ -1258,9 +1239,7 @@ export class OfficeScene extends Phaser.Scene {
   /**
    * Called every frame: re-walks toward the followed avatar's current position once it's moved
    * past `FOLLOW_RETARGET_THRESHOLD_PX` since the last recalculation (not every frame — see the
-   * constant's comment), auto-cancels if the target has left the room (#160 DoD), and updates
-   * `followCatchingUp` from the *live* distance every frame (independent of the recalculation
-   * threshold above — sprinting should react immediately, not wait for the next reroute).
+   * constant's comment) and auto-cancels if the target has left the room (#160 DoD).
    */
   private updateFollow(): void {
     if (!this.followController.active) {
@@ -1274,9 +1253,6 @@ export class OfficeScene extends Phaser.Scene {
     }
 
     const targetPosition = { x: target.avatar.x, y: target.avatar.y }
-    const distance = Math.hypot(targetPosition.x - this.avatar.x, targetPosition.y - this.avatar.y)
-    this.followCatchingUp = distance > FOLLOW_CATCH_UP_DISTANCE_PX
-
     if (this.followController.shouldRecalculate(targetPosition, FOLLOW_RETARGET_THRESHOLD_PX)) {
       this.recalculateFollowRoute()
     }

@@ -53,6 +53,13 @@ export const LOCAL_PRESENCE_EVENT = 'local-presence'
 export const SCREEN_SHARE_ENDED_EVENT = 'screen-share-ended'
 
 /**
+ * Emitted on `game.events` with the local participant's current `ConnectionQuality` (issue
+ * #132) whenever `MediaControls`'s own LiveKit listener fires — including once immediately on
+ * every `MediaControls` construction (room switch), not just on a genuine change.
+ */
+export const CONNECTION_QUALITY_CHANGED_EVENT = 'connection-quality-changed'
+
+/**
  * Emitted on `game.events` when the Colyseus room join is rejected (most commonly a wrong/
  * missing access code, `OfficeRoom.onAuth`) — `+page.svelte` tears down the game and returns
  * to `EntryForm` on this event, since there's no meaningful in-game state to show otherwise.
@@ -463,7 +470,11 @@ export class OfficeScene extends Phaser.Scene {
    */
   private async applyMediaControls(room: Room, micEnabled: boolean, cameraEnabled: boolean, screenShareEnabled: boolean, screenShareQuality?: ScreenShareQualityTier, screenShareAudio = false, screenShareHandoff?: ScreenShareHandoff): Promise<{ screenShareHandoffFailed: boolean }> {
     const previous = this.mediaControls
-    const next = new MediaControls(room, () => this.game.events.emit(SCREEN_SHARE_ENDED_EVENT))
+    const next = new MediaControls(
+      room,
+      () => this.game.events.emit(SCREEN_SHARE_ENDED_EVENT),
+      quality => this.game.events.emit(CONNECTION_QUALITY_CHANGED_EVENT, quality),
+    )
     next.adoptBusyState(previous)
     this.mediaControls = next
     let screenShareHandoffFailed = false

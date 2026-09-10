@@ -1,4 +1,4 @@
-import type { LocalTrack, LocalTrackPublication, Room } from 'livekit-client'
+import type { ConnectionQuality, LocalTrack, LocalTrackPublication, Room } from 'livekit-client'
 import type { ScreenShareQualityTier } from './screen-share-quality'
 import { ParticipantEvent, Track } from 'livekit-client'
 import { DEFAULT_SCREEN_SHARE_QUALITY_TIER, resolveScreenShareQuality } from './screen-share-quality'
@@ -67,8 +67,21 @@ export class MediaControls {
     }
   }
 
-  constructor(private readonly room: Room, private readonly onScreenShareEnded?: () => void) {
+  /**
+   * Issue #132 — LiveKit recalculates this continuously and fires the event whether or not it
+   * actually changed, unlike the FPS overlay (`fps-display.svelte`), which has no such event and
+   * has to poll `requestAnimationFrame` instead.
+   */
+  private readonly handleConnectionQualityChanged = (quality: ConnectionQuality): void => {
+    this.onConnectionQualityChanged?.(quality)
+  }
+
+  constructor(private readonly room: Room, private readonly onScreenShareEnded?: () => void, private readonly onConnectionQualityChanged?: (quality: ConnectionQuality) => void) {
     this.room.localParticipant.on(ParticipantEvent.LocalTrackUnpublished, this.handleLocalTrackUnpublished)
+    this.room.localParticipant.on(ParticipantEvent.ConnectionQualityChanged, this.handleConnectionQualityChanged)
+    // Reports the room's already-current reading immediately, rather than leaving the caller at
+    // `ConnectionQuality.Unknown` until the next actual change fires.
+    this.onConnectionQualityChanged?.(this.connectionQuality)
   }
 
   get microphoneEnabled(): boolean {
@@ -93,6 +106,15 @@ export class MediaControls {
 
   get screenShareUnsupported(): boolean {
     return !isScreenShareCaptureSupported()
+  }
+
+  /**
+   * `LocalParticipant extends Participant`, so this already reflects the local participant's
+   * own connection (issue #132) — whichever LiveKit room `this.room` is (`office`, or a private
+   * zone's isolated room), matching every other getter on this class.
+   */
+  get connectionQuality(): ConnectionQuality {
+    return this.room.localParticipant.connectionQuality
   }
 
   /**

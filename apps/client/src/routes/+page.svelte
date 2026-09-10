@@ -6,6 +6,7 @@
   import type { AvatarPresence } from '@kangeikai/shared'
   import AvatarVideoOverlay from '$lib/av/avatar-video-overlay.svelte'
   import BusyOverlay from '$lib/av/busy-overlay.svelte'
+  import ConnectionQualityIndicator from '$lib/av/connection-quality-indicator.svelte'
   import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
   import ScreenShareOverlay from '$lib/av/screen-share-overlay.svelte'
   import ScreenShareQualityPopover from '$lib/av/screen-share-quality-popover.svelte'
@@ -13,13 +14,14 @@
   import EntryForm from '$lib/entry/entry-form.svelte'
   import { GuestProfileStore } from '$lib/entry/guest-profile-store'
   import FpsDisplay from '$lib/game/fps-display.svelte'
-  import { LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT, SCREEN_SHARE_ENDED_EVENT } from '$lib/game/scenes/office-scene'
+  import { CONNECTION_QUALITY_CHANGED_EVENT, LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT, SCREEN_SHARE_ENDED_EVENT } from '$lib/game/scenes/office-scene'
   import ConnectionStatusBanner from '$lib/network/connection-status-banner.svelte'
   import AvatarProfilePanel from '$lib/people/avatar-profile-panel.svelte'
   import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
   import MembersSidebar from '$lib/people/members-sidebar.svelte'
   import { rosterState } from '$lib/people/roster-state.svelte'
   import Toast from '$lib/ui/toast.svelte'
+  import { ConnectionQuality } from 'livekit-client'
   import Phaser from 'phaser'
   import { onDestroy } from 'svelte'
 
@@ -64,6 +66,10 @@
   // person kept looking present to themselves with no indication anything was wrong).
   let connectionState: ConnectionState = $state('connecting')
   let unwireConnectionStatus: (() => void) | undefined
+  // Drives ConnectionQualityIndicator (issue #132) — updated by CONNECTION_QUALITY_CHANGED_EVENT,
+  // fired from whichever LiveKit room MediaControls currently points at (office, or a private
+  // room while one is connected), including once immediately on every room switch.
+  let connectionQuality: ConnectionQuality = $state(ConnectionQuality.Unknown)
 
   /** Mounts the game only once entry is confirmed (FR-009) — see `EntryForm` below. */
   function handleEntryConfirm(profile: GuestProfile, accessCode: string): void {
@@ -112,6 +118,10 @@
       micUnavailable = controls.microphoneUnavailable
       cameraUnavailable = controls.cameraUnavailable
       shareUnsupported = controls.screenShareUnsupported
+    })
+
+    game.events.on(CONNECTION_QUALITY_CHANGED_EVENT, (quality: ConnectionQuality) => {
+      connectionQuality = quality
     })
 
     // Fires both for our own "Share screen" toggle and for the browser's native "Stop
@@ -229,6 +239,7 @@
     <MembersSidebar open={membersOpen} />
     <AvatarProfilePanel />
     <FpsDisplay {game} />
+    <ConnectionQualityIndicator quality={connectionQuality} />
     <Toast />
     <ConnectionStatusBanner state={connectionState} />
   {/if}

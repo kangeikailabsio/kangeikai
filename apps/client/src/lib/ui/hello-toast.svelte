@@ -12,8 +12,10 @@
 <style>
   .hello-toast {
     position: fixed;
-    right: 16px;
-    bottom: 16px;
+    /* Stacked below FollowIndicator's top-left pill (top: 16px) rather than at the same offset,
+       so the two don't overlap on the rare occasion both are showing at once. */
+    top: 56px;
+    left: 16px;
     z-index: 40;
     display: flex;
     align-items: center;

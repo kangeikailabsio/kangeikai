@@ -39,6 +39,18 @@ export const setPresencePayloadSchema = v.object({
   presence: presenceSchema,
 })
 
+/**
+ * Client→server "interaction" message payload — a generic point-to-point nudge, not named
+ * specifically for "Say Hello" (issue #157): a second point-to-point interaction ("chamar
+ * atenção", a planned follow-up issue) reuses this exact same message/handler shape, just with
+ * `kind: 'attention'` instead. Only `'hello'` is actually acted on by either side today.
+ */
+export const interactionPayloadSchema = v.object({
+  kind: v.picklist(['hello', 'attention']),
+  targetSessionId: v.string(),
+})
+
 export type OfficeJoinOptions = v.InferOutput<typeof officeJoinOptionsSchema>
 export type UpdateStatePayload = v.InferOutput<typeof updateStatePayloadSchema>
 export type SetPresencePayload = v.InferOutput<typeof setPresencePayloadSchema>
+export type InteractionPayload = v.InferOutput<typeof interactionPayloadSchema>

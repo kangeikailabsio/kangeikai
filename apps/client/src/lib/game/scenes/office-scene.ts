@@ -5,6 +5,7 @@ import type { RemoteVideoOverlayCandidate, VideoOverlayParticipant } from '$lib/
 import type { HoverTarget } from '$lib/game/entities/avatar-hover'
 import type { CollisionRect } from '$lib/game/map/collision'
 import type { PathfindingGrid } from '$lib/game/map/pathfinding'
+import type { InteractionReceivedPayload } from '$lib/network/room-connection'
 import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, PrivateZone, TiledSpaceObject } from '@kangeikai/shared'
 import type { LocalVideoTrack, RemoteVideoTrack, Room } from 'livekit-client'
 import avatarManIdleUrl from '$lib/assets/sprites/avatar-man-idle.png?url'
@@ -83,6 +84,13 @@ export const ROOM_JOINED_EVENT = 'room-joined'
  * than going through this scene's per-frame loop.
  */
 export const ROOM_CONNECTION_READY_EVENT = 'room-connection-ready'
+
+/**
+ * Emitted on `game.events` when a "Say Hello" (issue #157) arrives for the local session — the
+ * only `InteractionReceivedPayload.kind` this scene acts on today; an `'attention'` interaction
+ * (a planned follow-up issue reusing the same message infrastructure) is received but ignored.
+ */
+export const HELLO_RECEIVED_EVENT = 'hello-received'
 
 /**
  * Cap on remote video tiles shown in the strip at once — beyond this, the closest
@@ -423,6 +431,7 @@ export class OfficeScene extends Phaser.Scene {
     // instead, so it never renders at the placeholder.
     this.roomConnection.onRemoteAvatarChange((sessionId, state) => this.updateRemoteAvatar(sessionId, state))
     this.roomConnection.onRemoteAvatarRemove(sessionId => this.removeRemoteAvatar(sessionId))
+    this.roomConnection.onInteractionReceived(payload => this.handleInteractionReceived(payload))
     this.game.events.emit(ROOM_CONNECTION_READY_EVENT, this.roomConnection)
     this.presence = this.busyPresenceStore.load()
     this.avatarNameLabel.setPresence(this.presence)
@@ -568,6 +577,31 @@ export class OfficeScene extends Phaser.Scene {
       await this.mediaControls?.endBusy()
     }
     this.game.events.emit(LOCAL_PRESENCE_EVENT, presence)
+  }
+
+  /**
+   * "Say Hello" (issue #157) — sends a lightweight point-to-point nudge to `targetSessionId`.
+   * No local busy/existence check here: `avatar-profile-panel.svelte` already hides the button
+   * while the viewed person is busy, and the server is the actual source of truth either way
+   * (revalidates both sides' presence before relaying, per the issue's grill). Shows the
+   * sender's own transient confirmation toast immediately — optimistic, since there's no
+   * ack/nack from the server either way for this fire-and-forget message.
+   */
+  sendHello(targetSessionId: string): void {
+    this.roomConnection.sendInteraction('hello', targetSessionId)
+    toastState.show('Hello sent')
+  }
+
+  /**
+   * Only `'hello'` is acted on today — an `'attention'` interaction (a planned follow-up issue
+   * reusing this same message infrastructure) arrives here too but is silently ignored, since no
+   * UI for it exists yet.
+   */
+  private handleInteractionReceived(payload: InteractionReceivedPayload): void {
+    if (payload.kind !== 'hello') {
+      return
+    }
+    this.game.events.emit(HELLO_RECEIVED_EVENT, payload)
   }
 
   /**

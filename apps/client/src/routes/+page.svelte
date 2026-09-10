@@ -2,7 +2,7 @@
   import type { MediaControls } from '$lib/av/media-controls'
   import type { ScreenShareQualityTier } from '$lib/av/screen-share-quality'
   import type { GuestProfile } from '$lib/entry/guest-profile-schema'
-  import type { ConnectionState, RoomConnection } from '$lib/network/room-connection'
+  import type { ConnectionState, InteractionReceivedPayload, RoomConnection } from '$lib/network/room-connection'
   import type { AvatarPresence } from '@kangeikai/shared'
   import AvatarVideoOverlay from '$lib/av/avatar-video-overlay.svelte'
   import BusyOverlay from '$lib/av/busy-overlay.svelte'
@@ -14,7 +14,7 @@
   import EntryForm from '$lib/entry/entry-form.svelte'
   import { GuestProfileStore } from '$lib/entry/guest-profile-store'
   import FpsDisplay from '$lib/game/fps-display.svelte'
-  import { CONNECTION_QUALITY_CHANGED_EVENT, LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT, SCREEN_SHARE_ENDED_EVENT } from '$lib/game/scenes/office-scene'
+  import { CONNECTION_QUALITY_CHANGED_EVENT, HELLO_RECEIVED_EVENT, LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT, SCREEN_SHARE_ENDED_EVENT } from '$lib/game/scenes/office-scene'
   import ConnectionStatusBanner from '$lib/network/connection-status-banner.svelte'
   import AvatarProfilePanel from '$lib/people/avatar-profile-panel.svelte'
   import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
@@ -22,6 +22,9 @@
   import { followState } from '$lib/people/follow-state.svelte'
   import MembersSidebar from '$lib/people/members-sidebar.svelte'
   import { rosterState } from '$lib/people/roster-state.svelte'
+  import { helloToastState } from '$lib/ui/hello-toast-state.svelte'
+  import HelloToast from '$lib/ui/hello-toast.svelte'
+  import { playNotificationSound } from '$lib/ui/notification-sound'
   import Toast from '$lib/ui/toast.svelte'
   import { ConnectionQuality } from 'livekit-client'
   import Phaser from 'phaser'
@@ -104,6 +107,7 @@
     rosterState.setLocalSpriteType(profile.avatarType)
     avatarProfileState.close()
     followState.stop()
+    helloToastState.dismiss()
     game.events.on(ROOM_CONNECTION_READY_EVENT, (roomConnection: RoomConnection) => {
       unwireRoster = rosterState.connect(roomConnection)
       unwireConnectionStatus = roomConnection.onConnectionStateChange((state) => {
@@ -142,6 +146,14 @@
       connecting = false
     })
 
+    // "Say Hello" (issue #157) — the only InteractionReceivedPayload.kind office-scene.ts's
+    // handleInteractionReceived actually forwards here (an 'attention' interaction is received
+    // but not re-emitted, since no UI for it exists yet).
+    game.events.on(HELLO_RECEIVED_EVENT, (payload: InteractionReceivedPayload) => {
+      helloToastState.show(payload.fromDisplayName)
+      playNotificationSound('hello')
+    })
+
     // Most likely a wrong/missing access code (OfficeRoom.onAuth) — there's no meaningful
     // in-game state to show, so tear down and let the person try again from the entry form.
     game.events.on(ROOM_JOIN_FAILED_EVENT, () => {
@@ -156,6 +168,7 @@
       membersOpen = false
       avatarProfileState.close()
       followState.stop()
+      helloToastState.dismiss()
     })
   }
 
@@ -252,6 +265,11 @@
     const officeScene = game?.scene.getScene('office') as OfficeScene | undefined
     officeScene?.toggleFollowAvatar(followState.sessionId)
   }
+
+  function sendHello(sessionId: string): void {
+    const officeScene = game?.scene.getScene('office') as OfficeScene | undefined
+    officeScene?.sendHello(sessionId)
+  }
 </script>
 
 <div class='game-container' bind:this={gameContainer}>
@@ -260,11 +278,12 @@
     <ScreenShareOverlay />
     <BusyOverlay active={localPresence === 'busy'} />
     <MembersSidebar open={membersOpen} />
-    <AvatarProfilePanel onGoTo={goToAvatar} onToggleFollow={toggleFollowAvatar} />
+    <AvatarProfilePanel onGoTo={goToAvatar} onToggleFollow={toggleFollowAvatar} onSayHello={sendHello} />
     <FollowIndicator onStop={stopFollowing} />
     <FpsDisplay {game} />
     <ConnectionQualityIndicator quality={connectionQuality} />
     <Toast />
+    <HelloToast />
     <ConnectionStatusBanner state={connectionState} />
   {/if}
 </div>

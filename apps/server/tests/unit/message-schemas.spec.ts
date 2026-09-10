@@ -2,6 +2,7 @@ import { MAX_NAME_LENGTH } from '@kangeikai/shared'
 import * as v from 'valibot'
 import { describe, expect, it } from 'vitest'
 import {
+  interactionPayloadSchema,
   officeJoinOptionsSchema,
   setPresencePayloadSchema,
   updateStatePayloadSchema,
@@ -73,6 +74,32 @@ describe('setPresencePayloadSchema', () => {
 
   it('rejects an invalid presence', () => {
     const result = v.safeParse(setPresencePayloadSchema, { presence: 'away' })
+
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('interactionPayloadSchema', () => {
+  it('accepts the hello kind', () => {
+    const result = v.parse(interactionPayloadSchema, { kind: 'hello', targetSessionId: 'abc' })
+
+    expect(result).toEqual({ kind: 'hello', targetSessionId: 'abc' })
+  })
+
+  it('accepts the attention kind, even though only hello is used by this issue', () => {
+    const result = v.parse(interactionPayloadSchema, { kind: 'attention', targetSessionId: 'abc' })
+
+    expect(result.kind).toBe('attention')
+  })
+
+  it('rejects an unknown kind', () => {
+    const result = v.safeParse(interactionPayloadSchema, { kind: 'wave', targetSessionId: 'abc' })
+
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects a missing targetSessionId', () => {
+    const result = v.safeParse(interactionPayloadSchema, { kind: 'hello' })
 
     expect(result.success).toBe(false)
   })

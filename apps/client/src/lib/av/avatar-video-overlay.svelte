@@ -1,7 +1,7 @@
 <script lang='ts'>
   import { attachVideoTrack } from '$lib/av/attach-video-track'
   import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
-  import { isOverflowTile, isPendingTile, videoOverlayState } from '$lib/av/video-overlay-state.svelte'
+  import { isErrorTile, isOverflowTile, isPendingTile, videoOverlayState } from '$lib/av/video-overlay-state.svelte'
 
   function initial(name: string): string {
     return name.trim().charAt(0).toUpperCase() || '?'
@@ -9,7 +9,7 @@
 </script>
 
 <div class='strip'>
-  {#each videoOverlayState.tiles as tile (isOverflowTile(tile) ? 'overflow' : isPendingTile(tile) ? `${tile.sessionId}:pending` : `${tile.sessionId}:${tile.kind}`)}
+  {#each videoOverlayState.tiles as tile (isOverflowTile(tile) ? 'overflow' : isPendingTile(tile) ? `${tile.sessionId}:pending` : isErrorTile(tile) ? `${tile.sessionId}:error` : `${tile.sessionId}:${tile.kind}`)}
     {#if isOverflowTile(tile)}
       <div class='tile overflow'>
         <span class='overflow-count'>+{tile.overflowCount}</span>
@@ -23,6 +23,16 @@
           </div>
         </div>
         <span class='name-label'>{tile.isLocal ? 'You' : tile.name}</span>
+      </div>
+    {:else if isErrorTile(tile)}
+      <!-- Own private-room connection attempt failed (issue #142) — always the local tile, per VideoOverlayErrorTile's isLocal:true literal. -->
+      <div class='tile'>
+        <div class='tile-content'>
+          <div class='placeholder'>
+            <span class='error-icon'>⚠️</span>
+          </div>
+        </div>
+        <span class='name-label'>Couldn't connect</span>
       </div>
     {:else if tile.kind === 'screen'}
       <!-- Click to expand into the full-screen grid (#100) — the only interactive tile kind. -->
@@ -200,6 +210,10 @@
     to {
       transform: rotate(360deg);
     }
+  }
+
+  .error-icon {
+    font-size: 28px;
   }
 
   .screen-badge {

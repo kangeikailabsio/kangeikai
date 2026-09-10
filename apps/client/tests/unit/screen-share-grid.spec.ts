@@ -1,8 +1,8 @@
-import type { VideoOverlayParticipant } from '$lib/av/video-overlay-tiles'
+import type { RemoteVideoOverlayParticipant } from '$lib/av/video-overlay-tiles'
 import { buildScreenShareGridTiles } from '$lib/av/screen-share-grid'
 import { describe, expect, it } from 'vitest'
 
-function tile(sessionId: string, kind: 'camera' | 'screen'): VideoOverlayParticipant {
+function tile(sessionId: string, kind: 'camera' | 'screen'): RemoteVideoOverlayParticipant {
   return {
     sessionId,
     name: sessionId,

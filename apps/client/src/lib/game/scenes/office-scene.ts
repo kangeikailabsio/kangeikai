@@ -274,6 +274,15 @@ export class OfficeScene extends Phaser.Scene {
    * tile instead of a real (but misleadingly camera/mic-off-looking) one.
    */
   private localMediaConnecting = false
+  /**
+   * The zone id a private-room connection attempt most recently failed for (issue #142), or
+   * `null`. Only ever acted on while `resolvePrivateZoneOccupancy` still reports this exact zone
+   * as current — stepping out clears it on its own next frame, mirroring
+   * `PrivateRoomController`'s own `failedZoneId` reset. `connectedPrivateRoom` truthy always
+   * takes priority over this in `update()`, so a later successful retry needs no explicit
+   * handling here beyond `handlePrivateRoomConnect` clearing it for hygiene.
+   */
+  private localPrivateRoomConnectErrorZoneId: number | null = null
 
   constructor() {
     super('office')
@@ -555,7 +564,20 @@ export class OfficeScene extends Phaser.Scene {
    * failure which stays silent and retriable.
    */
   private handlePrivateRoomConnect(room: Room): void {
+    // A retry (after a previous attempt in this same zone failed) succeeded — hygiene only,
+    // `connectedPrivateRoom` truthy already takes priority over the error state in `update()`.
+    this.localPrivateRoomConnectErrorZoneId = null
     void this.connectPrivateRoomWithScreenShareHandoff(room)
+  }
+
+  /**
+   * `PrivateRoomController` calls this when `fetchLiveKitToken`/`room.connect` itself fails
+   * (issue #142) — instead of the attempt silently aborting with only a `console.warn`, the
+   * local person's own tile in the (would-be) private-room video strip shows an error instead of
+   * being stuck on the #141 pending placeholder forever.
+   */
+  private handlePrivateRoomConnectError(zoneId: number): void {
+    this.localPrivateRoomConnectErrorZoneId = zoneId
   }
 
   private async connectPrivateRoomWithScreenShareHandoff(room: Room): Promise<void> {
@@ -680,6 +702,7 @@ export class OfficeScene extends Phaser.Scene {
       void this.privateRoomController.update(options, localPosition, remotePositions, {
         onConnect: room => this.handlePrivateRoomConnect(room),
         onDisconnect: () => this.handlePrivateRoomDisconnect(),
+        onError: zoneId => this.handlePrivateRoomConnectError(zoneId),
       }, () => this.roomConnection.flushPendingState())
     }
 
@@ -703,8 +726,26 @@ export class OfficeScene extends Phaser.Scene {
       }
     }
     else {
+      // Still called every frame regardless of the error branch below — proximity audio (office
+      // is still the active room whenever a private-room attempt fails, per `PrivateRoomController`
+      // only ever disconnecting it on a genuine `onConnect`) must keep having its volumes updated.
       const nearbySessionIds = this.proximityAudioController.update(localPosition, remotePositions)
-      this.updateVideoOverlay(nearbySessionIds, this.proximityAudioController.liveKitRoom)
+
+      if (this.localPrivateRoomConnectErrorZoneId !== null) {
+        const { zoneId, occupantSessionIds } = resolvePrivateZoneOccupancy(this.privateZones, localPosition, remotePositions)
+        if (zoneId === this.localPrivateRoomConnectErrorZoneId) {
+          this.updateVideoOverlayForLocalConnectError(occupantSessionIds)
+        }
+        else {
+          // No longer standing in the zone that failed (issue #142) — stop showing its error
+          // tile; PrivateRoomController's own retry-blocking already resets the same way.
+          this.localPrivateRoomConnectErrorZoneId = null
+          this.updateVideoOverlay(nearbySessionIds, this.proximityAudioController.liveKitRoom)
+        }
+      }
+      else {
+        this.updateVideoOverlay(nearbySessionIds, this.proximityAudioController.liveKitRoom)
+      }
     }
 
     this.updateRemoteAvatarViews(delta / 1000)
@@ -895,6 +936,40 @@ export class OfficeScene extends Phaser.Scene {
     // Full-screen grid overlay (#100): every active share nearby, uncapped — built from the
     // exact same candidate lists as the strip above, just filtered down to the screen ones.
     screenShareGridState.set(buildScreenShareGridTiles(local, remotes))
+  }
+
+  /**
+   * The local person's own private-room connection attempt failed (issue #142) — no `Room` to
+   * read `localParticipant`/`remoteParticipants` from at all, unlike `updateVideoOverlay`, so
+   * this builds tiles straight from Colyseus data instead: the local tile shows the error,
+   * `occupantSessionIds` (who the zone expects, same source `updateVideoOverlay`'s pending tiles
+   * use) all render pending — with no `Room` of our own, whether they've actually connected on
+   * their end is unknowable from here either way, so pending is the only honest answer.
+   */
+  private updateVideoOverlayForLocalConnectError(occupantSessionIds: readonly string[]): void {
+    if (this.presence === 'busy') {
+      videoOverlayState.set([])
+      screenShareGridState.set([])
+      return
+    }
+
+    const local: VideoOverlayParticipant[] = [{
+      sessionId: this.roomConnection.sessionId ?? 'local',
+      name: this.displayName,
+      error: true,
+    }]
+
+    const remotes: RemoteVideoOverlayCandidate[] = occupantSessionIds
+      .filter(sessionId => this.remoteAvatars.get(sessionId)?.presence !== 'busy')
+      .map(sessionId => ({
+        sessionId,
+        name: this.remoteAvatars.get(sessionId)?.displayName ?? sessionId,
+        pending: true,
+        distance: this.distanceToLocal(sessionId),
+      }))
+
+    videoOverlayState.set(buildVideoOverlayTiles(local, remotes, MAX_REMOTE_VIDEO_TILES))
+    screenShareGridState.set([])
   }
 
   /** Euclidean distance in map pixels between the local avatar and a remote avatar. */

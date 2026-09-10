@@ -1,5 +1,5 @@
 import type { ScreenShareGridTile } from '$lib/av/screen-share-grid-state.svelte'
-import type { VideoOverlayParticipant } from '$lib/av/video-overlay-tiles'
+import type { RemoteVideoOverlayParticipant, VideoOverlayParticipant } from '$lib/av/video-overlay-tiles'
 
 /**
  * Builds the full-screen grid's tile list: every `kind: 'screen'` candidate from `local`
@@ -9,7 +9,7 @@ import type { VideoOverlayParticipant } from '$lib/av/video-overlay-tiles'
  */
 export function buildScreenShareGridTiles(
   local: readonly VideoOverlayParticipant[],
-  remotes: readonly VideoOverlayParticipant[],
+  remotes: readonly RemoteVideoOverlayParticipant[],
 ): ScreenShareGridTile[] {
   const tiles: ScreenShareGridTile[] = []
 

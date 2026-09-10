@@ -7,6 +7,13 @@
   import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
   import { rosterState } from '$lib/people/roster-state.svelte'
 
+  interface Props {
+    /** "Go to" (issue #159) — walks the local avatar to wherever this sessionId's avatar currently is. */
+    onGoTo: (sessionId: string) => void
+  }
+
+  const { onGoTo }: Props = $props()
+
   const AVATAR_IDLE_URL: Record<AvatarSpriteType, string> = {
     man: avatarManIdleUrl,
     woman: avatarWomanIdleUrl,
@@ -66,6 +73,16 @@
         </label>
       </div>
     {/if}
+    <!-- Actions on someone else's avatar (issue #159) — never on your own panel; walking "to"
+         yourself is meaningless. Works regardless of their busy state (#159's grill): it's your
+         own movement, not an interruption directed at them. -->
+    {#if !person.isLocal}
+      <div class='options'>
+        <button type='button' class='action' onclick={() => onGoTo(person.sessionId)}>
+          Go to
+        </button>
+      </div>
+    {/if}
   </div>
 {/if}
 
@@ -102,6 +119,21 @@
     color: rgb(255 255 255 / 85%);
     font-size: 13px;
     cursor: pointer;
+  }
+
+  .action {
+    width: 100%;
+    padding: 6px 10px;
+    border: none;
+    border-radius: 6px;
+    background: rgb(255 255 255 / 10%);
+    color: #fff;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .action:hover {
+    background: rgb(255 255 255 / 18%);
   }
 
   .close {

@@ -109,6 +109,8 @@ const WALK_TARGET_MARKER_COLOR = 0xE8A9C9
 const INVALID_TARGET_MARKER_COLOR = 0xEF4444
 const TARGET_MARKER_RADIUS_PX = 6
 const INVALID_TARGET_MARKER_DURATION_MS = 300
+/** "Go to" (issue #159) stops one tile short of the target's exact position, not on top of them — tiles are 32px. */
+const GO_TO_STOP_DISTANCE_PX = 32
 /** Shown for both an off-map click and an on-map click with no open route to it (#92) — from the user's point of view the result is the same. */
 const PATH_UNREACHABLE_MESSAGE = 'Não é possível chegar até aí'
 
@@ -1135,14 +1137,50 @@ export class OfficeScene extends Phaser.Scene {
       return
     }
 
-    const path = findPath(this.pathfindingGrid, this.colliders, feetHitbox, { x: this.avatar.x, y: this.avatar.y }, { x: worldPoint.x, y: worldPoint.y })
+    this.walkTo(worldPoint.x, worldPoint.y)
+  }
+
+  /**
+   * Shared by click-to-move (`handlePointerDown`) and the "Go to" profile-panel button (issue
+   * #159) — pathfinds from the current position to `(x, y)` and starts the walk, or shows the
+   * same "unreachable" feedback either way if there's no route.
+   */
+  private walkTo(x: number, y: number): void {
+    const path = findPath(this.pathfindingGrid, this.colliders, feetHitbox, { x: this.avatar.x, y: this.avatar.y }, { x, y })
     if (!path) {
-      this.showUnreachableTargetFeedback(worldPoint)
+      this.showUnreachableTargetFeedback({ x, y })
       return
     }
 
     this.autoWalkController.setPath(path)
-    this.showWalkTargetMarker(worldPoint)
+    this.showWalkTargetMarker({ x, y })
+  }
+
+  /**
+   * "Go to" (issue #159) — walks to wherever `sessionId`'s avatar currently is, as a one-time
+   * snapshot: if they move after this is called, the walk does not retarget (that's "Follow",
+   * a separate, not-yet-built feature). A no-op if the session isn't a known remote avatar
+   * (already left, or a stale panel reference).
+   *
+   * Stops `GO_TO_STOP_DISTANCE_PX` short of their exact position — along the straight line from
+   * the local avatar's current spot, not their exact tile — so the two avatars don't end up
+   * stacked on top of each other. Already within that distance: a no-op, nothing to walk toward.
+   */
+  walkToAvatar(sessionId: string): void {
+    const target = this.remoteAvatars.get(sessionId)
+    if (!target) {
+      return
+    }
+
+    const dx = target.avatar.x - this.avatar.x
+    const dy = target.avatar.y - this.avatar.y
+    const distance = Math.hypot(dx, dy)
+    if (distance <= GO_TO_STOP_DISTANCE_PX) {
+      return
+    }
+
+    const ratio = (distance - GO_TO_STOP_DISTANCE_PX) / distance
+    this.walkTo(this.avatar.x + dx * ratio, this.avatar.y + dy * ratio)
   }
 
   private showWalkTargetMarker(point: { x: number, y: number }): void {

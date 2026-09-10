@@ -229,6 +229,11 @@
     const officeScene = game?.scene.getScene('office') as OfficeScene | undefined
     await officeScene?.toggleBusyPresence()
   }
+
+  function goToAvatar(sessionId: string): void {
+    const officeScene = game?.scene.getScene('office') as OfficeScene | undefined
+    officeScene?.walkToAvatar(sessionId)
+  }
 </script>
 
 <div class='game-container' bind:this={gameContainer}>
@@ -237,7 +242,7 @@
     <ScreenShareOverlay />
     <BusyOverlay active={localPresence === 'busy'} />
     <MembersSidebar open={membersOpen} />
-    <AvatarProfilePanel />
+    <AvatarProfilePanel onGoTo={goToAvatar} />
     <FpsDisplay {game} />
     <ConnectionQualityIndicator quality={connectionQuality} />
     <Toast />

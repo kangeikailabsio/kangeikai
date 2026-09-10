@@ -13,9 +13,11 @@
     onGoTo: (sessionId: string) => void
     /** "Follow"/"Stop following" (issue #160) — toggles continuously following this sessionId's avatar. */
     onToggleFollow: (sessionId: string) => void
+    /** "Say Hello" (issue #157) — sends a lightweight point-to-point nudge to this sessionId. */
+    onSayHello: (sessionId: string) => void
   }
 
-  const { onGoTo, onToggleFollow }: Props = $props()
+  const { onGoTo, onToggleFollow, onSayHello }: Props = $props()
 
   const AVATAR_IDLE_URL: Record<AvatarSpriteType, string> = {
     man: avatarManIdleUrl,
@@ -34,6 +36,28 @@
    * plain lookup handles both cases with no special-casing.
    */
   const person = $derived(rosterState.people.find(candidate => candidate.sessionId === avatarProfileState.selected))
+
+  /** Short cooldown on the "Say Hello" button after sending (#157's grill) — prevents spamming the recipient's toast/sound. */
+  const HELLO_COOLDOWN_MS = 3000
+  let helloCooldownActive = $state(false)
+
+  // Resets the cooldown whenever the viewed person changes — a cooldown from having just said
+  // hello to someone else shouldn't carry over and block a fresh "Say Hello" to this person.
+  $effect(() => {
+    void person?.sessionId
+    helloCooldownActive = false
+  })
+
+  function sendHello(): void {
+    if (!person || helloCooldownActive) {
+      return
+    }
+    onSayHello(person.sessionId)
+    helloCooldownActive = true
+    setTimeout(() => {
+      helloCooldownActive = false
+    }, HELLO_COOLDOWN_MS)
+  }
 
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
@@ -87,6 +111,13 @@
         <button type='button' class='action' onclick={() => onToggleFollow(person.sessionId)}>
           {followState.sessionId === person.sessionId ? 'Stop following' : 'Follow'}
         </button>
+        <!-- Hidden while the viewed person is busy (#157's grill) — the server revalidates both
+             sides' presence too, so this is just UX, not the actual guard. -->
+        {#if person.presence !== 'busy'}
+          <button type='button' class='action' disabled={helloCooldownActive} onclick={sendHello}>
+            Say Hello
+          </button>
+        {/if}
       </div>
     {/if}
   </div>
@@ -143,6 +174,11 @@
 
   .action:hover {
     background: rgb(255 255 255 / 18%);
+  }
+
+  .action:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
   }
 
   .close {

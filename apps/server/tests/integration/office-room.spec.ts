@@ -367,6 +367,83 @@ describe('officeRoom', () => {
     })
   })
 
+  describe('interaction / "Say Hello" (issue #157)', () => {
+    it('relays a hello to the target with the sender\'s displayName', async () => {
+      const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+      const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+      const clientB = await colyseus.connectTo(room, { displayName: 'Bob', spriteType: 'woman', accessCode: '' })
+      await waitFor(clientA, () => clientA.state.players.has(clientB.sessionId))
+
+      const received = new Promise<{ kind: string, fromSessionId: string, fromDisplayName: string }>((resolve) => {
+        clientB.onMessage('interactionReceived', resolve)
+      })
+      clientA.send('interaction', { kind: 'hello', targetSessionId: clientB.sessionId })
+
+      const payload = await received
+      expect(payload).toEqual({ kind: 'hello', fromSessionId: clientA.sessionId, fromDisplayName: 'Alice' })
+    })
+
+    it('does not deliver anything when the sender is busy', async () => {
+      const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+      // clientB connects first and does the waiting below — matching every other test's pattern
+      // in this file (waiting on the earlier-connected client, whose `.state` has settled by the
+      // time the second `connectTo` resolves) instead of waiting on the client that just connected.
+      const clientB = await colyseus.connectTo(room, { displayName: 'Bob', spriteType: 'woman', accessCode: '' })
+      const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '', presence: 'busy' })
+      await waitFor(clientB, () => clientB.state.players.get(clientA.sessionId)?.presence === 'busy')
+
+      let received = false
+      clientB.onMessage('interactionReceived', () => {
+        received = true
+      })
+      clientA.send('interaction', { kind: 'hello', targetSessionId: clientB.sessionId })
+
+      // No positive signal to wait on for a message that's never sent — a settle delay stands in
+      // for "nothing arrived", same shape as the other silent-no-op cases below.
+      await new Promise(resolve => setTimeout(resolve, 200))
+      expect(received).toBe(false)
+    })
+
+    it('does not deliver anything when the target is busy', async () => {
+      const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+      const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+      const clientB = await colyseus.connectTo(room, { displayName: 'Bob', spriteType: 'woman', accessCode: '', presence: 'busy' })
+      await waitFor(clientA, () => clientA.state.players.get(clientB.sessionId)?.presence === 'busy')
+
+      let received = false
+      clientB.onMessage('interactionReceived', () => {
+        received = true
+      })
+      clientA.send('interaction', { kind: 'hello', targetSessionId: clientB.sessionId })
+
+      await new Promise(resolve => setTimeout(resolve, 200))
+      expect(received).toBe(false)
+    })
+
+    it('is a silent no-op for an unknown targetSessionId', async () => {
+      const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+      const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+
+      // No assertion beyond "doesn't throw" — there's no second client to receive anything.
+      clientA.send('interaction', { kind: 'hello', targetSessionId: 'no-such-session' })
+      await new Promise(resolve => setTimeout(resolve, 200))
+    })
+
+    it('relays an attention kind the same way, even though no client feature sends it yet', async () => {
+      const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+      const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+      const clientB = await colyseus.connectTo(room, { displayName: 'Bob', spriteType: 'woman', accessCode: '' })
+      await waitFor(clientA, () => clientA.state.players.has(clientB.sessionId))
+
+      const received = new Promise<{ kind: string }>((resolve) => {
+        clientB.onMessage('interactionReceived', resolve)
+      })
+      clientA.send('interaction', { kind: 'attention', targetSessionId: clientB.sessionId })
+
+      expect((await received).kind).toBe('attention')
+    })
+  })
+
   describe('access code gate (onAuth)', () => {
     afterEach(() => {
       delete process.env.ACCESS_CODE

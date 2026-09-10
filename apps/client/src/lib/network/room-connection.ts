@@ -30,9 +30,25 @@ export interface UpdateStatePayload {
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected'
 
+/**
+ * Mirrors apps/server's message-schemas.ts InteractionPayload's `kind` — a generic point-to-
+ * point nudge. Only `'hello'` (issue #157, "Say Hello") is acted on by any client feature today;
+ * `'attention'` is reserved for a planned follow-up issue ("chamar atenção") that reuses this
+ * exact same message/handler shape.
+ */
+export type InteractionKind = 'hello' | 'attention'
+
+/** Mirrors apps/server's `interactionReceived` message payload. */
+export interface InteractionReceivedPayload {
+  kind: InteractionKind
+  fromSessionId: string
+  fromDisplayName: string
+}
+
 type ConnectionStateListener = (state: ConnectionState) => void
 type RemoteAvatarListener = (sessionId: string, avatar: AvatarState) => void
 type RemoteAvatarRemoveListener = (sessionId: string) => void
+type InteractionReceivedListener = (payload: InteractionReceivedPayload) => void
 
 /** Baked in at build time (adapter-static/SPA — no server to read this at runtime) — see .env.example. */
 const DEFAULT_SERVER_URL = PUBLIC_COLYSEUS_URL
@@ -86,6 +102,7 @@ export class RoomConnection {
   private readonly remoteAddListeners = new Set<RemoteAvatarListener>()
   private readonly remoteChangeListeners = new Set<RemoteAvatarListener>()
   private readonly remoteRemoveListeners = new Set<RemoteAvatarRemoveListener>()
+  private readonly interactionReceivedListeners = new Set<InteractionReceivedListener>()
 
   private readonly stateSender = new PendingUpdateStateSender(payload => this.room?.send('updateState', payload))
   private proof: string | undefined
@@ -138,6 +155,12 @@ export class RoomConnection {
     return () => this.remoteRemoveListeners.delete(listener)
   }
 
+  /** Fires whenever the server relays a point-to-point interaction (issue #157's "Say Hello") addressed to the local session. */
+  onInteractionReceived(listener: InteractionReceivedListener): () => void {
+    this.interactionReceivedListeners.add(listener)
+    return () => this.interactionReceivedListeners.delete(listener)
+  }
+
   async connect(options: OfficeJoinOptions): Promise<void> {
     this.emitConnectionState('connecting')
     try {
@@ -147,6 +170,7 @@ export class RoomConnection {
       room.onDrop(() => this.emitConnectionState('connecting'))
       room.onReconnect(() => this.emitConnectionState('connected'))
       this.bindRemoteAvatarEvents(room)
+      this.bindInteractionEvents(room)
       await this.awaitSessionProof(room)
       this.emitConnectionState('connected')
     }
@@ -210,6 +234,11 @@ export class RoomConnection {
     this.room?.send('setPresence', { presence })
   }
 
+  /** Sends a point-to-point interaction (issue #157's "Say Hello") to `targetSessionId` — the server revalidates both sides' presence before relaying it, so this is a no-op rather than a client-side guarantee. */
+  sendInteraction(kind: InteractionKind, targetSessionId: string): void {
+    this.room?.send('interaction', { kind, targetSessionId })
+  }
+
   private bindRemoteAvatarEvents(room: Room<OfficeRoomLike, OfficeRoomStateShape>): void {
     const callbacks = getStateCallbacks(room)
 
@@ -227,6 +256,14 @@ export class RoomConnection {
       }
       for (const listener of this.remoteRemoveListeners) {
         listener(sessionId)
+      }
+    })
+  }
+
+  private bindInteractionEvents(room: Room<OfficeRoomLike, OfficeRoomStateShape>): void {
+    room.onMessage<InteractionReceivedPayload>('interactionReceived', (payload) => {
+      for (const listener of this.interactionReceivedListeners) {
+        listener(payload)
       }
     })
   }

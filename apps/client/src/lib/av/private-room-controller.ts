@@ -20,6 +20,8 @@ export interface PrivateRoomTransitionHandlers {
   onConnect: (room: Room, zoneId: number) => void
   /** The private room just ended (dropped back under 2 people, or the local avatar left the zone) — callers should reconnect `office` audio. */
   onDisconnect: () => void
+  /** The connection attempt itself failed — `fetchLiveKitToken` or `room.connect` (issue #142) — instead of just `console.warn`ing silently. */
+  onError: (zoneId: number) => void
 }
 
 /**
@@ -34,6 +36,14 @@ export class PrivateRoomController {
   private zones: readonly PrivateZone[] = []
   private connectedZoneIdInternal: number | null = null
   private connecting = false
+  /**
+   * The zone a connection attempt most recently failed for (issue #142) — blocks `establish()`
+   * from retrying every single frame while still standing in that same zone (occupancy alone
+   * doesn't change just because the attempt failed). Cleared as soon as the local avatar is no
+   * longer in that zone, so leaving and re-entering (a fresh threshold crossing) is the only way
+   * to retry — no automatic or manual retry beyond that, per the issue's design decision.
+   */
+  private failedZoneId: number | null = null
   private readonly tokenEndpoint: string
 
   constructor(tokenEndpoint: string = DEFAULT_TOKEN_ENDPOINT) {
@@ -72,10 +82,16 @@ export class PrivateRoomController {
       await this.teardown(handlers.onDisconnect)
     }
 
+    // No longer standing in the zone a previous attempt failed for — forget it, so walking back
+    // in later (a fresh threshold crossing) can retry instead of staying blocked forever.
+    if (zoneId !== this.failedZoneId) {
+      this.failedZoneId = null
+    }
+
     const shouldBeConnected = zoneId !== null && occupantSessionIds.length >= 1
 
-    if (shouldBeConnected && this.connectedZoneIdInternal === null && !this.connecting) {
-      await this.establish(options, zoneId!, handlers.onConnect, flushLocalPosition)
+    if (shouldBeConnected && this.connectedZoneIdInternal === null && !this.connecting && zoneId !== this.failedZoneId) {
+      await this.establish(options, zoneId!, handlers.onConnect, handlers.onError, flushLocalPosition)
       return
     }
 
@@ -99,7 +115,7 @@ export class PrivateRoomController {
    * reliably enough in production, where real network latency/jitter removes the near-zero-
    * latency ordering that made this race benign in local dev.
    */
-  private async establish(options: ProximityAudioControllerOptions, zoneId: number, onConnect: PrivateRoomTransitionHandlers['onConnect'], flushLocalPosition: () => void): Promise<void> {
+  private async establish(options: ProximityAudioControllerOptions, zoneId: number, onConnect: PrivateRoomTransitionHandlers['onConnect'], onError: PrivateRoomTransitionHandlers['onError'], flushLocalPosition: () => void): Promise<void> {
     this.connecting = true
     flushLocalPosition()
     try {
@@ -113,6 +129,8 @@ export class PrivateRoomController {
     }
     catch (error) {
       console.warn('kangeikai: failed to connect to private room', error)
+      this.failedZoneId = zoneId
+      onError(zoneId)
     }
     finally {
       this.connecting = false

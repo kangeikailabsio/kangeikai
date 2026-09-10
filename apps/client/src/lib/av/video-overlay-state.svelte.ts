@@ -49,7 +49,21 @@ export interface VideoOverlayPendingTile {
   pending: true
 }
 
-export type VideoOverlayEntry = VideoOverlayTile | VideoOverlayPendingTile | VideoOverlayOverflowTile
+/**
+ * The local person's own private-room connection attempt failed (issue #142) — either
+ * `fetchLiveKitToken` or `room.connect` itself. `isLocal` is a `true` literal (not `boolean`):
+ * per the issue's scope, a remote participant's connection failure has no propagation mechanism
+ * and stays indistinguishable from "still connecting" (`VideoOverlayPendingTile`) to everyone
+ * else — only the local person's own failure is ever visible, and only to them.
+ */
+export interface VideoOverlayErrorTile {
+  sessionId: string
+  name: string
+  isLocal: true
+  error: true
+}
+
+export type VideoOverlayEntry = VideoOverlayTile | VideoOverlayPendingTile | VideoOverlayErrorTile | VideoOverlayOverflowTile
 
 export function isOverflowTile(entry: VideoOverlayEntry): entry is VideoOverlayOverflowTile {
   return 'overflowCount' in entry
@@ -57,6 +71,10 @@ export function isOverflowTile(entry: VideoOverlayEntry): entry is VideoOverlayO
 
 export function isPendingTile(entry: VideoOverlayEntry): entry is VideoOverlayPendingTile {
   return 'pending' in entry
+}
+
+export function isErrorTile(entry: VideoOverlayEntry): entry is VideoOverlayErrorTile {
+  return 'error' in entry
 }
 
 /**

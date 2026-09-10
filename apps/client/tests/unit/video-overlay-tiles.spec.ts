@@ -1,5 +1,5 @@
 import type { RemoteVideoOverlayCandidate, VideoOverlayParticipant } from '$lib/av/video-overlay-tiles'
-import { isOverflowTile, isPendingTile } from '$lib/av/video-overlay-state.svelte'
+import { isErrorTile, isOverflowTile, isPendingTile } from '$lib/av/video-overlay-state.svelte'
 import { buildVideoOverlayTiles } from '$lib/av/video-overlay-tiles'
 import { describe, expect, it } from 'vitest'
 
@@ -35,7 +35,13 @@ function tileKey(entry: ReturnType<typeof buildVideoOverlayTiles>[number]): stri
   if (isOverflowTile(entry)) {
     return undefined
   }
-  return isPendingTile(entry) ? `${entry.sessionId}:pending` : `${entry.sessionId}:${entry.kind}`
+  if (isPendingTile(entry)) {
+    return `${entry.sessionId}:pending`
+  }
+  if (isErrorTile(entry)) {
+    return `${entry.sessionId}:error`
+  }
+  return `${entry.sessionId}:${entry.kind}`
 }
 
 describe('buildVideoOverlayTiles', () => {
@@ -178,5 +184,33 @@ describe('buildVideoOverlayTiles with a connecting (pending) tile', () => {
     const entries = buildVideoOverlayTiles([localPendingTile], [remote('a', 10)], 4)
 
     expect(entries[0]).toEqual({ sessionId: 'local', name: 'You', pending: true, isLocal: true })
+  })
+})
+
+describe('buildVideoOverlayTiles with a local connection error (issue #142)', () => {
+  const localErrorTile: VideoOverlayParticipant = { sessionId: 'local', name: 'You', error: true }
+
+  it('renders the local tile as an error, alongside remote occupants still pending', () => {
+    const entries = buildVideoOverlayTiles([localErrorTile], [pendingRemote('a', 10)], 4)
+
+    expect(entries[0]).toEqual({ sessionId: 'local', name: 'You', error: true, isLocal: true })
+    expect(isErrorTile(entries[0])).toBe(true)
+    expect(entries.slice(1).map(tileKey)).toEqual(['a:pending'])
+  })
+
+  it('never lets the local error tile outrank a real remote screen-share tile', () => {
+    const entries = buildVideoOverlayTiles([localErrorTile], [remote('screen-a', 999, 'screen')], 4)
+
+    // Local tile(s) always come first regardless — this only asserts the error tile itself
+    // doesn't claim a "kind" priority it doesn't have; screen-a is still the sole remote entry.
+    expect(entries.map(tileKey)).toEqual(['local:error', 'screen-a:screen'])
+  })
+
+  it('still shows only the local screen tile when alone and error is the local camera-slot state', () => {
+    // No remotes at all — the "hidden entirely unless a local screen tile exists" rule from the
+    // plain camera-tile case applies the same way to an errored local tile: nothing to show.
+    const entries = buildVideoOverlayTiles([localErrorTile], [], 4)
+
+    expect(entries).toEqual([])
   })
 })

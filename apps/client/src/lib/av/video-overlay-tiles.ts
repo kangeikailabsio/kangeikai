@@ -1,13 +1,17 @@
-import type { VideoOverlayEntry, VideoOverlayPendingTile, VideoOverlayTile } from '$lib/av/video-overlay-state.svelte'
+import type { VideoOverlayEntry, VideoOverlayErrorTile, VideoOverlayPendingTile, VideoOverlayTile } from '$lib/av/video-overlay-state.svelte'
+
+/** A remote candidate's data before the priority/distance sort — a real tile-in-waiting, or one still connecting (issue #141's pending placeholder). Never the error variant — see VideoOverlayErrorTile's docs on why that failure isn't propagated to remotes. */
+export type RemoteVideoOverlayParticipant = Omit<VideoOverlayTile, 'isLocal'> | Omit<VideoOverlayPendingTile, 'isLocal'>
 
 /**
- * A tile's data before the local/remote split and the priority/distance sort are applied —
- * either a real tile-in-waiting, or one still connecting (issue #141's pending placeholder).
+ * A tile's data before the local/remote split is applied — everything a remote candidate can be
+ * (see `RemoteVideoOverlayParticipant`), plus, local-only, the local person's own private-room
+ * connection attempt failing (issue #142).
  */
-export type VideoOverlayParticipant = Omit<VideoOverlayTile, 'isLocal'> | Omit<VideoOverlayPendingTile, 'isLocal'>
+export type VideoOverlayParticipant = RemoteVideoOverlayParticipant | Omit<VideoOverlayErrorTile, 'isLocal'>
 
 /** A remote tile candidate, carrying its distance to the local avatar for the closest-first sort. */
-export type RemoteVideoOverlayCandidate = VideoOverlayParticipant & { distance: number }
+export type RemoteVideoOverlayCandidate = RemoteVideoOverlayParticipant & { distance: number }
 
 /** A pending candidate has no `kind` of its own — sorts alongside camera tiles, never ahead of a real screen share. */
 function tileKind(tile: VideoOverlayParticipant): 'camera' | 'screen' {

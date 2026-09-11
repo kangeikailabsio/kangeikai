@@ -94,6 +94,19 @@ describe('playNotificationSound', () => {
     }
   })
 
+  it('creates a distinct, shorter/higher-pitched pair of beeps for the attention tone', () => {
+    const { instances, AudioContextClass } = createFakeAudioContextClass()
+
+    playNotificationSound('attention', AudioContextClass)
+
+    expect(instances).toHaveLength(1)
+    const [instance] = instances
+    expect(instance.oscillators).toHaveLength(2)
+    // Both beeps share the same (higher than hello's) pitch, unlike hello's rising two notes.
+    expect(instance.oscillators[0].frequency.value).toBe(1046)
+    expect(instance.oscillators[1].frequency.value).toBe(1046)
+  })
+
   it('swallows an error thrown by the AudioContext constructor instead of throwing', () => {
     class ThrowingAudioContext {
       constructor() {

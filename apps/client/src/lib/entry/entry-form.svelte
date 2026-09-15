@@ -97,51 +97,55 @@
   <form class='entry-form' onsubmit={handleSubmit}>
     <h1>Join the space</h1>
 
-    <label for='entry-name'>Name</label>
-    <input
-      id='entry-name'
-      type='text'
-      autocomplete='off'
-      maxlength={MAX_NAME_LENGTH}
-      bind:value={name}
-      disabled={pending}
-      oninput={() => (error = undefined)}
-    />
+    <div class='entry-body'>
+      <div class='avatar-column'>
+        {#if avatarPreviewUrl}
+          <img src={avatarPreviewUrl} alt='Your avatar' class='avatar-preview' />
+        {:else}
+          <div class='avatar-preview-placeholder'></div>
+        {/if}
+        <button type='button' disabled={pending || !character} onclick={() => (editingAvatar = true)}>
+          {character ? 'Edit avatar' : 'Generating avatar…'}
+        </button>
+      </div>
 
-    <div class='avatar-section'>
-      {#if avatarPreviewUrl}
-        <img src={avatarPreviewUrl} alt='Your avatar' class='avatar-preview' />
-      {:else}
-        <div class='avatar-preview-placeholder'></div>
-      {/if}
-      <button type='button' disabled={pending || !character} onclick={() => (editingAvatar = true)}>
-        {character ? 'Edit avatar' : 'Generating avatar…'}
-      </button>
+      <div class='fields-column'>
+        <label for='entry-name'>Name</label>
+        <input
+          id='entry-name'
+          type='text'
+          autocomplete='off'
+          maxlength={MAX_NAME_LENGTH}
+          bind:value={name}
+          disabled={pending}
+          oninput={() => (error = undefined)}
+        />
+
+        <label for='entry-access-code'>Access code (if you have one)</label>
+        <input
+          id='entry-access-code'
+          type='password'
+          autocomplete='off'
+          bind:value={accessCode}
+          disabled={pending}
+          oninput={() => (error = undefined)}
+        />
+
+        {#if error}
+          <p class='error'>{error}</p>
+        {:else if joinError}
+          <p class='error'>{joinError}</p>
+        {/if}
+
+        <button type='submit' disabled={pending}>
+          {#if pending}
+            <span class='spinner'></span> Connecting…
+          {:else}
+            Enter
+          {/if}
+        </button>
+      </div>
     </div>
-
-    <label for='entry-access-code'>Access code (if you have one)</label>
-    <input
-      id='entry-access-code'
-      type='password'
-      autocomplete='off'
-      bind:value={accessCode}
-      disabled={pending}
-      oninput={() => (error = undefined)}
-    />
-
-    {#if error}
-      <p class='error'>{error}</p>
-    {:else if joinError}
-      <p class='error'>{joinError}</p>
-    {/if}
-
-    <button type='submit' disabled={pending}>
-      {#if pending}
-        <span class='spinner'></span> Connecting…
-      {:else}
-        Enter
-      {/if}
-    </button>
   </form>
 </div>
 
@@ -166,8 +170,9 @@
   .entry-form {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    width: 280px;
+    gap: 16px;
+    width: 380px;
+    max-width: calc(100vw - 32px);
     padding: 24px;
     border-radius: 12px;
     background: #262626;
@@ -175,7 +180,7 @@
   }
 
   h1 {
-    margin: 0 0 8px;
+    margin: 0;
     font-size: 18px;
   }
 
@@ -183,36 +188,53 @@
     font-size: 14px;
   }
 
-  .avatar-section {
+  .entry-body {
     display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+
+  .avatar-column {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
+  }
+
+  .fields-column {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
   }
 
   .avatar-preview {
-    width: 32px;
-    height: 64px;
+    width: 64px;
+    height: 128px;
     image-rendering: pixelated;
   }
 
   .avatar-preview-placeholder {
-    width: 32px;
-    height: 64px;
+    width: 64px;
+    height: 128px;
     border-radius: 6px;
     background: #1a1a1a;
   }
 
-  .avatar-section button {
-    padding: 8px 12px;
+  .avatar-column button {
+    padding: 6px 10px;
     border: 1px solid #4a4a4a;
     border-radius: 6px;
     background: transparent;
     color: #fff;
-    font-size: 13px;
+    font-size: 12px;
+    text-align: center;
     cursor: pointer;
   }
 
-  .avatar-section button:disabled {
+  .avatar-column button:disabled {
     cursor: not-allowed;
     opacity: 0.7;
   }

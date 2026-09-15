@@ -21,9 +21,9 @@
   const accessoryStyles = stylesOf(manifest.accessory)
 
   const PREVIEW_DIRECTIONS: { direction: AvatarDirection, label: string }[] = [
-    { direction: 'down', label: 'Frente' },
-    { direction: 'right', label: 'Lado' },
-    { direction: 'up', label: 'Costas' },
+    { direction: 'down', label: 'Front' },
+    { direction: 'right', label: 'Side' },
+    { direction: 'up', label: 'Back' },
   ]
 
   function pad(value: number): string {

@@ -1,10 +1,13 @@
 <script lang='ts'>
-  import type { AvatarSpriteType } from '@kangeikai/shared'
-  import type { GuestProfile } from './guest-profile-schema'
+  import type { CharacterProfile, GuestProfile } from './guest-profile-schema'
+  import CharacterCreatorModal from '$lib/character/character-creator-modal.svelte'
+  import { extractPortrait } from '$lib/character/character-portrait'
+  import { generateRandomCharacterProfile } from '$lib/character/character-profile'
+  import { onMount } from 'svelte'
   import * as v from 'valibot'
   import { MAX_NAME_LENGTH } from './constants'
   import { generateDefaultName } from './default-name'
-  import { avatarTypeSchema, displayNameSchema } from './guest-profile-schema'
+  import { displayNameSchema } from './guest-profile-schema'
   import { GuestProfileStore } from './guest-profile-store'
 
   interface Props {
@@ -33,10 +36,43 @@
   const storedProfile = new GuestProfileStore().load()
 
   let name = $state(storedProfile?.displayName ?? generateDefaultName())
-  let avatarType = $state<AvatarSpriteType>(storedProfile?.avatarType ?? 'man')
+  // Not editable here any more (issue #168 replaces this toggle with the Character Creator
+  // below) — kept as-is and passed straight through, since it's still what the map renders
+  // from until issue #170 wires that up to `character` instead (issue #169's fallback decision).
+  const avatarType = storedProfile?.avatarType ?? 'man'
   // Never persisted — it's a shared room lock, not part of the guest's identity/appearance.
   let accessCode = $state('')
   let error = $state<string | undefined>()
+
+  // Undefined only until the first-visit random avatar finishes composing (onMount below) — the
+  // form can't submit without one (see handleSubmit).
+  let character: CharacterProfile | undefined = $state(storedProfile?.character)
+  let avatarPreviewUrl: string | undefined = $state()
+  let editingAvatar = $state(false)
+
+  async function refreshAvatarPreview(): Promise<void> {
+    if (character) {
+      avatarPreviewUrl = await extractPortrait(character.sheets.idle, 'down')
+    }
+  }
+
+  onMount(() => {
+    if (character) {
+      void refreshAvatarPreview()
+    }
+    else {
+      void generateRandomCharacterProfile().then((profile) => {
+        character = profile
+        void refreshAvatarPreview()
+      })
+    }
+  })
+
+  function handleCharacterSave(profile: CharacterProfile): void {
+    character = profile
+    editingAvatar = false
+    void refreshAvatarPreview()
+  }
 
   function handleSubmit(event: SubmitEvent): void {
     event.preventDefault()
@@ -47,13 +83,13 @@
       return
     }
 
-    const avatarResult = v.safeParse(avatarTypeSchema, avatarType)
-    if (!avatarResult.success) {
+    if (!character) {
+      error = 'Your avatar is still being generated — try again in a moment.'
       return
     }
 
     error = undefined
-    onConfirm({ displayName: nameResult.output, avatarType: avatarResult.output }, accessCode)
+    onConfirm({ displayName: nameResult.output, avatarType, character }, accessCode)
   }
 </script>
 
@@ -72,17 +108,16 @@
       oninput={() => (error = undefined)}
     />
 
-    <fieldset disabled={pending}>
-      <legend>Avatar</legend>
-      <label>
-        <input type='radio' name='avatarType' value='man' bind:group={avatarType} />
-        Man
-      </label>
-      <label>
-        <input type='radio' name='avatarType' value='woman' bind:group={avatarType} />
-        Woman
-      </label>
-    </fieldset>
+    <div class='avatar-section'>
+      {#if avatarPreviewUrl}
+        <img src={avatarPreviewUrl} alt='Your avatar' class='avatar-preview' />
+      {:else}
+        <div class='avatar-preview-placeholder'></div>
+      {/if}
+      <button type='button' disabled={pending || !character} onclick={() => (editingAvatar = true)}>
+        {character ? 'Edit avatar' : 'Generating avatar…'}
+      </button>
+    </div>
 
     <label for='entry-access-code'>Access code (if you have one)</label>
     <input
@@ -109,6 +144,14 @@
     </button>
   </form>
 </div>
+
+{#if editingAvatar && character}
+  <CharacterCreatorModal
+    selection={character.selection}
+    onSave={handleCharacterSave}
+    onClose={() => (editingAvatar = false)}
+  />
+{/if}
 
 <style>
   .entry-overlay {
@@ -140,6 +183,40 @@
     font-size: 14px;
   }
 
+  .avatar-section {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .avatar-preview {
+    width: 32px;
+    height: 64px;
+    image-rendering: pixelated;
+  }
+
+  .avatar-preview-placeholder {
+    width: 32px;
+    height: 64px;
+    border-radius: 6px;
+    background: #1a1a1a;
+  }
+
+  .avatar-section button {
+    padding: 8px 12px;
+    border: 1px solid #4a4a4a;
+    border-radius: 6px;
+    background: transparent;
+    color: #fff;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .avatar-section button:disabled {
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+
   input[type='text'],
   input[type='password'] {
     padding: 8px;
@@ -147,25 +224,6 @@
     border-radius: 6px;
     background: #1a1a1a;
     color: #fff;
-    font-size: 14px;
-  }
-
-  fieldset {
-    display: flex;
-    gap: 16px;
-    padding: 8px 0 0;
-    border: none;
-  }
-
-  fieldset label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  legend {
-    margin-bottom: 4px;
-    padding: 0;
     font-size: 14px;
   }
 

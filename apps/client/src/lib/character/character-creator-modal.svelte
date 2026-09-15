@@ -34,8 +34,15 @@
   // pieces (e.g. a stale localStorage value from before an asset change) — better than a modal
   // that opens with a piece that resolves to nothing. Read once with `untrack` — `working` is an
   // editable copy the modal owns from here on, not a live binding to the `selection` prop.
+  //
+  // `selection` arrives as a reactive $state proxy (it's read off the caller's own $state), and
+  // structuredClone() can't clone that directly (DataCloneError) — $state.snapshot() strips the
+  // reactivity into a plain object first, which also makes the extra structuredClone unnecessary.
   const working = $state<CharacterSelection>(
-    untrack(() => isValidCharacterSelection(selection, manifest) ? structuredClone(selection) : randomCharacterSelection(manifest)),
+    untrack(() => {
+      const plainSelection = $state.snapshot(selection)
+      return isValidCharacterSelection(plainSelection, manifest) ? plainSelection : randomCharacterSelection(manifest)
+    }),
   )
 
   let previewDirection: AvatarDirection = $state('down')

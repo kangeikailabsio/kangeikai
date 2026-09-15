@@ -31,6 +31,30 @@ export interface CharacterManifest {
   accessory: readonly CharacterPieceRef[]
 }
 
+/** Every distinct `style` present in `pieces`, ascending — for building a style dropdown. */
+export function stylesOf(pieces: readonly CharacterPieceRef[]): number[] {
+  return [...new Set(pieces.map(piece => piece.style))].sort((a, b) => a - b)
+}
+
+/** Every `variant` that exists for `style` within `pieces`, ascending — for building a variant dropdown once a style is picked (variant counts differ per style, so this can't be a fixed range). */
+export function variantsOf(pieces: readonly CharacterPieceRef[], style: number): number[] {
+  return pieces
+    .filter(piece => piece.style === style)
+    .map(piece => piece.variant ?? 0)
+    .sort((a, b) => a - b)
+}
+
+/**
+ * The variant closest to `preferred` among `available` — exact match if it exists, otherwise
+ * whichever is numerically nearest. Used when switching a slot's style so the variant "index"
+ * (e.g. a color/pattern slot) carries over as well as it can, instead of always resetting to
+ * the first variant (jarring when styles have different variant counts).
+ */
+export function nearestVariant(available: readonly number[], preferred: number): number {
+  return available.reduce((closest, candidate) =>
+    Math.abs(candidate - preferred) < Math.abs(closest - preferred) ? candidate : closest)
+}
+
 function hasPiece(pieces: readonly CharacterPieceRef[], ref: CharacterPieceRef): boolean {
   return pieces.some(piece => piece.style === ref.style && piece.variant === ref.variant)
 }

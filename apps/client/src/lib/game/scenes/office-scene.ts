@@ -200,8 +200,10 @@ const AVATAR_SPRITE_TYPES: AvatarSpriteType[] = ['man', 'woman']
 /**
  * Texture key for a spriteType+segment's spritesheet, e.g. "man-idle". Shared by all four
  * directions' animations, which each play a different frame range from the same sheet.
+ * `'custom'` (issue #170) is the local player's Character Creator avatar — see
+ * `getSpriteAnimation`'s doc comment in avatar.ts.
  */
-function avatarTextureKey(spriteType: AvatarSpriteType, segment: 'idle' | 'walk'): string {
+function avatarTextureKey(spriteType: AvatarSpriteType | 'custom', segment: 'idle' | 'walk'): string {
   return `${spriteType}-${segment}`
 }
 
@@ -262,6 +264,12 @@ export interface OfficeSceneData {
    * room-protocol.md) — a shared room lock, not part of the guest's identity.
    */
   accessCode: string
+  /**
+   * The Character Creator's composed idle/walk sheets (issue #167/#168), if the guest has one —
+   * `undefined` for a profile saved before the creator existed. Only ever renders the *local*
+   * avatar (issue #170); `spriteType` above still governs remote avatars until issue #171.
+   */
+  customAvatarSheets?: { idle: string, walk: string }
 }
 
 export class OfficeScene extends Phaser.Scene {
@@ -296,6 +304,8 @@ export class OfficeScene extends Phaser.Scene {
   private mapKey!: string
   private displayName!: string
   private spriteType!: AvatarSpriteType
+  /** Set from `OfficeSceneData.customAvatarSheets` — see `localVisualKey()`. */
+  private customAvatarSheets: { idle: string, walk: string } | undefined
   private accessCode!: string
   private presence: AvatarPresence = 'available'
   private mediaControls: MediaControls | undefined
@@ -335,6 +345,7 @@ export class OfficeScene extends Phaser.Scene {
   init(data: OfficeSceneData): void {
     this.displayName = data.displayName
     this.spriteType = data.spriteType
+    this.customAvatarSheets = data.customAvatarSheets
     this.accessCode = data.accessCode
   }
 
@@ -345,6 +356,19 @@ export class OfficeScene extends Phaser.Scene {
     this.load.spritesheet(avatarTextureKey('man', 'walk'), avatarManWalkUrl, AVATAR_FRAME_SIZE)
     this.load.spritesheet(avatarTextureKey('woman', 'idle'), avatarWomanIdleUrl, AVATAR_FRAME_SIZE)
     this.load.spritesheet(avatarTextureKey('woman', 'walk'), avatarWomanWalkUrl, AVATAR_FRAME_SIZE)
+
+    // The composed sheets are already-decoded data URLs (issue #167), not files on disk — Phaser's
+    // loader accepts a data: URL here exactly like a real one, so this needs no different loading
+    // mechanism from the four static sheets above.
+    if (this.customAvatarSheets) {
+      this.load.spritesheet(avatarTextureKey('custom', 'idle'), this.customAvatarSheets.idle, AVATAR_FRAME_SIZE)
+      this.load.spritesheet(avatarTextureKey('custom', 'walk'), this.customAvatarSheets.walk, AVATAR_FRAME_SIZE)
+    }
+  }
+
+  /** Which texture/animation key the *local* avatar's sprite should use — the Character Creator's `custom` sheets when the guest has one, else the static `spriteType` sheets (issue #170). */
+  private localVisualKey(): AvatarSpriteType | 'custom' {
+    return this.customAvatarSheets ? 'custom' : this.spriteType
   }
 
   create(): void {
@@ -380,7 +404,14 @@ export class OfficeScene extends Phaser.Scene {
     this.privateZoneSpotlight.setDepth(PRIVATE_ZONE_SPOTLIGHT_DEPTH)
     this.privateZoneSpotlight.setAlpha(0)
 
-    for (const spriteType of AVATAR_SPRITE_TYPES) {
+    // Only add 'custom' to the list actually animated if its textures were loaded in preload()
+    // (this.customAvatarSheets set) — generateFrameNumbers would fail against a texture that
+    // was never registered.
+    const visualKeysToAnimate: readonly (AvatarSpriteType | 'custom')[] = this.customAvatarSheets
+      ? [...AVATAR_SPRITE_TYPES, 'custom']
+      : AVATAR_SPRITE_TYPES
+
+    for (const spriteType of visualKeysToAnimate) {
       for (const motionState of Object.keys(MOTION_STATE_ANIMATIONS) as AvatarMotionState[]) {
         const { textureSegment, frameRate } = MOTION_STATE_ANIMATIONS[motionState]
         const textureKey = avatarTextureKey(spriteType, textureSegment)
@@ -428,8 +459,8 @@ export class OfficeScene extends Phaser.Scene {
       feetHitbox,
     )
 
-    this.avatarView = this.add.sprite(this.avatar.x, this.avatar.y, avatarTextureKey(this.spriteType, 'idle'))
-    this.avatarView.anims.play(getSpriteAnimation(this.avatar.spriteType, this.avatar.motionState, this.avatar.direction).key)
+    this.avatarView = this.add.sprite(this.avatar.x, this.avatar.y, avatarTextureKey(this.localVisualKey(), 'idle'))
+    this.avatarView.anims.play(getSpriteAnimation(this.localVisualKey(), this.avatar.motionState, this.avatar.direction).key)
     this.makeAvatarHoverable(this.avatarView, 'local')
     this.avatarNameLabel = new AvatarNameLabel(this, this.avatar.x, this.avatar.y, 'You')
 
@@ -764,7 +795,7 @@ export class OfficeScene extends Phaser.Scene {
     this.avatarView.setPosition(this.avatar.x, this.avatar.y)
     this.avatarNameLabel.setPosition(this.avatar.x, this.avatar.y)
 
-    const animation = getSpriteAnimation(this.avatar.spriteType, this.avatar.motionState, this.avatar.direction)
+    const animation = getSpriteAnimation(this.localVisualKey(), this.avatar.motionState, this.avatar.direction)
     if (this.avatarView.anims.currentAnim?.key !== animation.key) {
       this.avatarView.anims.play(animation.key)
     }

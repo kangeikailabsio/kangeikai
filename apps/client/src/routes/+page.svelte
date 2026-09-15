@@ -102,7 +102,12 @@
       scene: [],
     })
 
-    game.scene.add('office', OfficeScene, true, { displayName: profile.displayName, spriteType: profile.avatarType, accessCode })
+    game.scene.add('office', OfficeScene, true, {
+      displayName: profile.displayName,
+      spriteType: profile.avatarType,
+      accessCode,
+      customAvatarSheets: profile.character?.sheets,
+    })
 
     rosterState.reset()
     rosterState.setLocalName(profile.displayName)

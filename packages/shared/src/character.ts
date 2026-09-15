@@ -31,6 +31,19 @@ export interface CharacterManifest {
   accessory: readonly CharacterPieceRef[]
 }
 
+/** Every distinct `style` present in `pieces`, ascending — for building a style dropdown. */
+export function stylesOf(pieces: readonly CharacterPieceRef[]): number[] {
+  return [...new Set(pieces.map(piece => piece.style))].sort((a, b) => a - b)
+}
+
+/** Every `variant` that exists for `style` within `pieces`, ascending — for building a variant dropdown once a style is picked (variant counts differ per style, so this can't be a fixed range). */
+export function variantsOf(pieces: readonly CharacterPieceRef[], style: number): number[] {
+  return pieces
+    .filter(piece => piece.style === style)
+    .map(piece => piece.variant ?? 0)
+    .sort((a, b) => a - b)
+}
+
 function hasPiece(pieces: readonly CharacterPieceRef[], ref: CharacterPieceRef): boolean {
   return pieces.some(piece => piece.style === ref.style && piece.variant === ref.variant)
 }

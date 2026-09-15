@@ -1,5 +1,5 @@
 import type { CharacterManifest } from '@kangeikai/shared'
-import { isValidCharacterSelection, randomCharacterSelection } from '@kangeikai/shared'
+import { isValidCharacterSelection, randomCharacterSelection, stylesOf, variantsOf } from '@kangeikai/shared'
 import { describe, expect, it } from 'vitest'
 
 const manifest: CharacterManifest = {
@@ -83,5 +83,22 @@ describe('randomCharacterSelection', () => {
     for (const random of [0, 0.25, 0.5, 0.75, 0.99]) {
       expect(isValidCharacterSelection(randomCharacterSelection(manifest, () => random), manifest)).toBe(true)
     }
+  })
+})
+
+describe('stylesOf', () => {
+  it('returns every distinct style, ascending, without duplicates', () => {
+    expect(stylesOf(manifest.outfit)).toEqual([1, 2])
+  })
+})
+
+describe('variantsOf', () => {
+  it('returns only the variants that exist for that style, ascending', () => {
+    expect(variantsOf(manifest.outfit, 1)).toEqual([1, 2])
+    expect(variantsOf(manifest.outfit, 2)).toEqual([1])
+  })
+
+  it('returns an empty list for a style with no pieces', () => {
+    expect(variantsOf(manifest.outfit, 99)).toEqual([])
   })
 })

@@ -4,7 +4,7 @@
   import { buildCharacterManifest, resolvePieceUrl } from '$lib/character/character-pieces'
   import { extractPortrait } from '$lib/character/character-portrait'
   import { composeCharacterSheets } from '$lib/character/compose-character'
-  import { isValidCharacterSelection, randomCharacterSelection, stylesOf, variantsOf } from '@kangeikai/shared'
+  import { isValidCharacterSelection, nearestVariant, randomCharacterSelection, stylesOf, variantsOf } from '@kangeikai/shared'
   import { onMount, untrack } from 'svelte'
 
   interface Props {
@@ -89,7 +89,7 @@
   }
 
   function setOutfitStyle(style: number): void {
-    working.outfit = { style, variant: variantsOf(manifest.outfit, style)[0] }
+    working.outfit = { style, variant: nearestVariant(variantsOf(manifest.outfit, style), working.outfit.variant ?? 0) }
     void recompose()
   }
 
@@ -99,7 +99,7 @@
   }
 
   function setHairstyleStyle(style: number): void {
-    working.hairstyle = { style, variant: variantsOf(manifest.hairstyle, style)[0] }
+    working.hairstyle = { style, variant: nearestVariant(variantsOf(manifest.hairstyle, style), working.hairstyle.variant ?? 0) }
     void recompose()
   }
 
@@ -109,7 +109,13 @@
   }
 
   function setAccessoryStyle(style: number | null): void {
-    working.accessory = style === null ? null : { style, variant: variantsOf(manifest.accessory, style)[0] }
+    if (style === null) {
+      working.accessory = null
+    }
+    else {
+      const preferredVariant = working.accessory?.variant ?? 0
+      working.accessory = { style, variant: nearestVariant(variantsOf(manifest.accessory, style), preferredVariant) }
+    }
     void recompose()
   }
 

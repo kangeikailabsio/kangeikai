@@ -1,5 +1,5 @@
 import type { CharacterManifest } from '@kangeikai/shared'
-import { isValidCharacterSelection, randomCharacterSelection, stylesOf, variantsOf } from '@kangeikai/shared'
+import { isValidCharacterSelection, nearestVariant, randomCharacterSelection, stylesOf, variantsOf } from '@kangeikai/shared'
 import { describe, expect, it } from 'vitest'
 
 const manifest: CharacterManifest = {
@@ -100,5 +100,22 @@ describe('variantsOf', () => {
 
   it('returns an empty list for a style with no pieces', () => {
     expect(variantsOf(manifest.outfit, 99)).toEqual([])
+  })
+})
+
+describe('nearestVariant', () => {
+  it('keeps the exact variant when it exists in the new style', () => {
+    expect(nearestVariant([1, 2, 3, 4], 2)).toBe(2)
+  })
+
+  it('falls back to the closest variant when the exact one does not exist', () => {
+    expect(nearestVariant([1, 2, 3], 5)).toBe(3)
+    expect(nearestVariant([3, 4, 5], 1)).toBe(3)
+  })
+
+  it('picks the nearer of two equally-spaced options by iteration order', () => {
+    // 2 and 4 are both 1 away from 3 — reduce() keeps the first one found ("closest" starts as
+    // the first element, and a candidate only replaces it on a *strictly* smaller distance).
+    expect(nearestVariant([2, 4], 3)).toBe(2)
   })
 })

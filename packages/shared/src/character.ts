@@ -44,6 +44,17 @@ export function variantsOf(pieces: readonly CharacterPieceRef[], style: number):
     .sort((a, b) => a - b)
 }
 
+/**
+ * The variant closest to `preferred` among `available` — exact match if it exists, otherwise
+ * whichever is numerically nearest. Used when switching a slot's style so the variant "index"
+ * (e.g. a color/pattern slot) carries over as well as it can, instead of always resetting to
+ * the first variant (jarring when styles have different variant counts).
+ */
+export function nearestVariant(available: readonly number[], preferred: number): number {
+  return available.reduce((closest, candidate) =>
+    Math.abs(candidate - preferred) < Math.abs(closest - preferred) ? candidate : closest)
+}
+
 function hasPiece(pieces: readonly CharacterPieceRef[], ref: CharacterPieceRef): boolean {
   return pieces.some(piece => piece.style === ref.style && piece.variant === ref.variant)
 }

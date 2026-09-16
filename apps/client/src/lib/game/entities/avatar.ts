@@ -60,7 +60,13 @@ export interface SpriteAnimation {
   key: string
 }
 
-export function getSpriteAnimation(spriteType: AvatarSpriteType, motionState: AvatarMotionState, direction: AvatarDirection): SpriteAnimation {
+/**
+ * `'custom'` is a client-only rendering key (issue #170) for a Character Creator avatar — it's
+ * never part of `AvatarSpriteType` itself (that stays `'man' | 'woman'`, still what's synced to
+ * the server/other clients per issue #169's fallback decision), only ever used to pick which
+ * texture/animation the *local* player's own sprite plays.
+ */
+export function getSpriteAnimation(spriteType: AvatarSpriteType | 'custom', motionState: AvatarMotionState, direction: AvatarDirection): SpriteAnimation {
   return {
     key: `${spriteType}-${motionState}-${direction}`,
   }

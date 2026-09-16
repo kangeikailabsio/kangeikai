@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.8.0...v0.9.0) (2026-09-16)
+
+
+### Features
+
+* Character Creator — customização de avatar (corpo, olhos, roupa, cabelo, acessório) ([#176](https://github.com/kangeikailabsio/kangeikai/issues/176)) ([114c29b](https://github.com/kangeikailabsio/kangeikai/commit/114c29bbceab5a0b495d8b9cf8e247f907d1d4fb))
+
 ## [0.8.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.7.0...v0.8.0) (2026-09-11)
 
 

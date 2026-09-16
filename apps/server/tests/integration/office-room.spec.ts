@@ -93,6 +93,48 @@ describe('officeRoom', () => {
     expect(aFromB?.motionState).toBe('walking')
   })
 
+  it('propagates a character selection to other clients on join (issue #171)', async () => {
+    const characterSelection = {
+      body: 3,
+      eyes: 5,
+      outfit: { style: 3, variant: 4 },
+      hairstyle: { style: 8, variant: 3 },
+      accessory: null,
+    }
+
+    const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '', characterSelection })
+    const clientB = await colyseus.connectTo(room, { displayName: 'Bob', spriteType: 'woman', accessCode: '' })
+
+    // clientB's initial full-state sync (its own avatar's `.players` map populated at all) needs
+    // its own await first — same reason the "propagates identity and movement" test above does
+    // this before touching a just-connected client's `state.players`.
+    await nextStateChange(clientB)
+    await waitFor(clientB, () => clientB.state.players.has(clientA.sessionId))
+
+    const aFromB = clientB.state.players.get(clientA.sessionId)
+    expect(aFromB?.characterSelection).toBe(JSON.stringify(characterSelection))
+  })
+
+  it('defaults characterSelection to an empty string for a guest with no Character Creator selection', async () => {
+    const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+    const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+
+    await nextStateChange(clientA)
+    expect(clientA.state.players.get(clientA.sessionId)?.characterSelection).toBe('')
+  })
+
+  it('rejects a join whose characterSelection has the wrong shape', async () => {
+    const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+
+    await expect(colyseus.connectTo(room, {
+      displayName: 'Alice',
+      spriteType: 'man',
+      accessCode: '',
+      characterSelection: { body: 'not-a-number' },
+    })).rejects.toThrow()
+  })
+
   it('broadcasts a new avatar on join and removes it on a clean leave', async () => {
     const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
     const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })

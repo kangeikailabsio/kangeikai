@@ -113,12 +113,13 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
   }
 
   onJoin(client: Client, options: unknown): void {
-    const { displayName, spriteType, presence } = v.parse(officeJoinOptionsSchema, options)
+    const { displayName, spriteType, presence, characterSelection } = v.parse(officeJoinOptionsSchema, options)
 
     const avatar = new AvatarSchema()
     avatar.displayName = displayName
     avatar.spriteType = spriteType
     avatar.presence = presence
+    avatar.characterSelection = characterSelection ? JSON.stringify(characterSelection) : ''
     avatar.x = SPAWN_X
     avatar.y = SPAWN_Y
 

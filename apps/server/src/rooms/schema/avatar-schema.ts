@@ -10,4 +10,10 @@ export class AvatarSchema extends Schema {
   @type('string') motionState: AvatarMotionState = 'idle'
   @type('string') spriteType: AvatarSpriteType = 'man'
   @type('string') presence: AvatarPresence = 'available'
+  /**
+   * JSON-encoded `CharacterSelection` (issue #171), empty string for none — Colyseus schemas
+   * don't need a dedicated nested type for something this small and join-time-only; the client
+   * parses it back in `room-connection.ts`'s `toAvatarSnapshot`.
+   */
+  @type('string') characterSelection = ''
 }

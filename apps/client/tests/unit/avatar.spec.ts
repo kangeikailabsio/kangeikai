@@ -1,4 +1,4 @@
-import { Avatar } from '$lib/game/entities/avatar'
+import { Avatar, getSpriteAnimation } from '$lib/game/entities/avatar'
 import { describe, expect, it } from 'vitest'
 
 describe('avatar', () => {
@@ -72,5 +72,15 @@ describe('avatar', () => {
     avatar.update({ direction: 'right', sprint: false }, 0.1)
 
     expect(avatar.x).toBe(120)
+  })
+})
+
+describe('getSpriteAnimation', () => {
+  it('builds a key from spriteType, motionState and direction', () => {
+    expect(getSpriteAnimation('man', 'walking', 'down').key).toBe('man-walking-down')
+  })
+
+  it('also accepts \'custom\' — the local Character Creator avatar (issue #170)', () => {
+    expect(getSpriteAnimation('custom', 'idle', 'up').key).toBe('custom-idle-up')
   })
 })

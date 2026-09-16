@@ -1,6 +1,6 @@
 import type { MapSchema } from '@colyseus/schema'
 import type { Room } from '@colyseus/sdk'
-import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
+import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, CharacterSelection } from '@kangeikai/shared'
 import { PUBLIC_COLYSEUS_URL } from '$env/static/public'
 import { Client, getStateCallbacks } from '@colyseus/sdk'
 import { PendingUpdateStateSender } from './pending-update-state-sender'
@@ -18,6 +18,8 @@ export interface OfficeJoinOptions {
    */
   accessCode: string
   presence?: AvatarPresence
+  /** Absent for a guest with no Character Creator selection (issue #169's fallback decision). */
+  characterSelection?: CharacterSelection
 }
 
 /** Mirrors contracts/office-room-protocol.md's UpdateStatePayload. */
@@ -55,8 +57,24 @@ const DEFAULT_SERVER_URL = PUBLIC_COLYSEUS_URL
 /** How long to wait for the server's "sessionProof" message before giving up (see connect()). */
 const SESSION_PROOF_TIMEOUT_MS = 5000
 
+/**
+ * The raw shape actually on the wire (`AvatarSchema`) — `characterSelection` is a JSON string
+ * there (issue #171), not yet the parsed `CharacterSelection` object `AvatarState` exposes to
+ * the rest of the client. `toAvatarSnapshot` is the boundary that converts one into the other.
+ */
+interface AvatarSchemaLike {
+  displayName: string
+  x: number
+  y: number
+  direction: AvatarDirection
+  motionState: AvatarMotionState
+  spriteType: AvatarSpriteType
+  presence: AvatarPresence
+  characterSelection: string
+}
+
 interface OfficeRoomStateShape {
-  players: MapSchema<AvatarState>
+  players: MapSchema<AvatarSchemaLike>
 }
 
 /**
@@ -70,7 +88,20 @@ interface OfficeRoomLike {
   onJoin: (client: unknown, options?: OfficeJoinOptions) => unknown
 }
 
-function toAvatarSnapshot(avatar: AvatarState): AvatarState {
+/** Empty string (no selection) or malformed JSON both become `undefined` — never throws. */
+function parseCharacterSelection(raw: string): CharacterSelection | undefined {
+  if (!raw) {
+    return undefined
+  }
+  try {
+    return JSON.parse(raw) as CharacterSelection
+  }
+  catch {
+    return undefined
+  }
+}
+
+function toAvatarSnapshot(avatar: AvatarSchemaLike): AvatarState {
   return {
     displayName: avatar.displayName,
     x: avatar.x,
@@ -79,6 +110,7 @@ function toAvatarSnapshot(avatar: AvatarState): AvatarState {
     motionState: avatar.motionState,
     spriteType: avatar.spriteType,
     presence: avatar.presence,
+    characterSelection: parseCharacterSelection(avatar.characterSelection),
   }
 }
 
@@ -268,7 +300,7 @@ export class RoomConnection {
     })
   }
 
-  private emitRemoteAvatar(listeners: Set<RemoteAvatarListener>, sessionId: string, avatar: AvatarState): void {
+  private emitRemoteAvatar(listeners: Set<RemoteAvatarListener>, sessionId: string, avatar: AvatarSchemaLike): void {
     const snapshot = toAvatarSnapshot(avatar)
     for (const listener of listeners) {
       listener(sessionId, snapshot)

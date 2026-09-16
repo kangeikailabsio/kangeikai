@@ -27,11 +27,12 @@ const LAYER_ORDER: readonly { slot: CharacterSlot, ref: (selection: CharacterSel
   { slot: 'accessory', ref: selection => selection.accessory },
 ]
 
-function loadImage(url: string): Promise<HTMLImageElement> {
+/** Exported for reuse wherever an already-composed sheet (a data URL) needs to become an `HTMLImageElement` again — e.g. office-scene.ts registering a remote player's composed sheets as a Phaser texture (issue #171). */
+export function loadImageElement(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image()
     image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error(`Failed to load character piece image: ${url}`))
+    image.onerror = () => reject(new Error(`Failed to load image: ${url}`))
     image.src = url
   })
 }
@@ -68,7 +69,7 @@ export async function composeCharacterSheets(selection: CharacterSelection): Pro
     })
     .filter((url): url is string => url !== undefined)
 
-  const images = await Promise.all(urls.map(loadImage))
+  const images = await Promise.all(urls.map(loadImageElement))
 
   return {
     idle: composeRow(images, IDLE_ROW_Y),

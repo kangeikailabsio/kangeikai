@@ -107,6 +107,7 @@
       spriteType: profile.avatarType,
       accessCode,
       customAvatarSheets: profile.character?.sheets,
+      characterSelection: profile.character?.selection,
     })
 
     rosterState.reset()

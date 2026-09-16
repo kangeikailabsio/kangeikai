@@ -6,7 +6,7 @@ import type { HoverTarget } from '$lib/game/entities/avatar-hover'
 import type { CollisionRect } from '$lib/game/map/collision'
 import type { PathfindingGrid } from '$lib/game/map/pathfinding'
 import type { InteractionReceivedPayload } from '$lib/network/room-connection'
-import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, PrivateZone, TiledSpaceObject } from '@kangeikai/shared'
+import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, CharacterSelection, PrivateZone, TiledSpaceObject } from '@kangeikai/shared'
 import type { LocalVideoTrack, RemoteVideoTrack, Room } from 'livekit-client'
 import avatarManIdleUrl from '$lib/assets/sprites/avatar-man-idle.png?url'
 import avatarManWalkUrl from '$lib/assets/sprites/avatar-man-walk.png?url'
@@ -22,6 +22,8 @@ import { screenShareGridState } from '$lib/av/screen-share-grid-state.svelte'
 import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
 import { videoOverlayState } from '$lib/av/video-overlay-state.svelte'
 import { buildVideoOverlayTiles } from '$lib/av/video-overlay-tiles'
+import { buildCharacterManifest } from '$lib/character/character-pieces'
+import { composeCharacterSheets, loadImageElement } from '$lib/character/compose-character'
 import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
 import { clampedCameraCenter, clampZoom, fitToMapZoom } from '$lib/game/camera/camera-math'
 import { Avatar, AVATAR_FRAME_RANGES, feetHitbox, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
@@ -40,7 +42,7 @@ import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
 import { followState } from '$lib/people/follow-state.svelte'
 import { attentionModalState } from '$lib/ui/attention-modal-state.svelte'
 import { toastState } from '$lib/ui/toast-state.svelte'
-import { privateZoneAt, resolvePrivateZones } from '@kangeikai/shared'
+import { isValidCharacterSelection, privateZoneAt, resolvePrivateZones } from '@kangeikai/shared'
 import { Track } from 'livekit-client'
 import Phaser from 'phaser'
 
@@ -208,6 +210,20 @@ function avatarTextureKey(spriteType: AvatarSpriteType | 'custom', segment: 'idl
 }
 
 /**
+ * Texture key for a specific remote player's composed Character Creator sheet (issue #171).
+ * Unlike the local player's single `'custom'` key, every remote session needs its own — each
+ * one's composed sheet is different pixel content, so they can't share a texture/animation key
+ * the way the static `man`/`woman` ones do.
+ */
+function remoteAvatarTextureKey(sessionId: string, segment: 'idle' | 'walk'): string {
+  return `remote-${sessionId}-${segment}`
+}
+
+function remoteCustomAnimationKey(sessionId: string, motionState: AvatarMotionState, direction: AvatarDirection): string {
+  return `remote-${sessionId}-${motionState}-${direction}`
+}
+
+/**
  * Native tile size (1 tile-px = 1 screen-px) — the starting zoom on load and the level scroll-
  * wheel zooming (#89) returns toward as you zoom back out, before hitting `minZoom`.
  */
@@ -239,6 +255,14 @@ interface RemoteAvatarEntry {
   /** Currently rendered position — eased toward `avatar.x/y` each frame, see `updateRemoteAvatarViews`. */
   renderX: number
   renderY: number
+  /**
+   * True once this session's Character Creator textures/animations have been registered
+   * (issue #171's `applyRemoteCharacterAppearance`) — false while that composition is still in
+   * flight, or if the avatar has no `characterSelection` at all, in which case it just renders
+   * from `spriteType` like before. Drives both which animation key to play and whether
+   * `removeRemoteAvatar` has per-session textures/animations to clean up.
+   */
+  hasCustomAppearance: boolean
 }
 
 /**
@@ -266,10 +290,16 @@ export interface OfficeSceneData {
   accessCode: string
   /**
    * The Character Creator's composed idle/walk sheets (issue #167/#168), if the guest has one —
-   * `undefined` for a profile saved before the creator existed. Only ever renders the *local*
-   * avatar (issue #170); `spriteType` above still governs remote avatars until issue #171.
+   * `undefined` for a profile saved before the creator existed. Renders the *local* avatar
+   * (issue #170).
    */
   customAvatarSheets?: { idle: string, walk: string }
+  /**
+   * The raw selection behind `customAvatarSheets` — sent to the server at join (issue #171) so
+   * other players can compose the same appearance themselves (only the small selection travels
+   * over the network, never the images). `undefined` alongside `customAvatarSheets` above.
+   */
+  characterSelection?: CharacterSelection
 }
 
 export class OfficeScene extends Phaser.Scene {
@@ -306,6 +336,10 @@ export class OfficeScene extends Phaser.Scene {
   private spriteType!: AvatarSpriteType
   /** Set from `OfficeSceneData.customAvatarSheets` — see `localVisualKey()`. */
   private customAvatarSheets: { idle: string, walk: string } | undefined
+  /** Set from `OfficeSceneData.characterSelection` — sent to the server at join (issue #171). */
+  private characterSelection: CharacterSelection | undefined
+  /** Computed once — reused by `applyRemoteCharacterAppearance` to sanity-check a remote selection before composing it. */
+  private readonly characterManifest = buildCharacterManifest()
   private accessCode!: string
   private presence: AvatarPresence = 'available'
   private mediaControls: MediaControls | undefined
@@ -346,6 +380,7 @@ export class OfficeScene extends Phaser.Scene {
     this.displayName = data.displayName
     this.spriteType = data.spriteType
     this.customAvatarSheets = data.customAvatarSheets
+    this.characterSelection = data.characterSelection
     this.accessCode = data.accessCode
   }
 
@@ -486,6 +521,7 @@ export class OfficeScene extends Phaser.Scene {
       spriteType: this.spriteType,
       accessCode: this.accessCode,
       presence: this.presence,
+      characterSelection: this.characterSelection,
     })
       .then(() => {
         this.game.events.emit(ROOM_JOINED_EVENT)
@@ -1113,7 +1149,58 @@ export class OfficeScene extends Phaser.Scene {
     const nameLabel = new AvatarNameLabel(this, avatar.x, avatar.y, state.displayName)
     nameLabel.setPresence(state.presence)
 
-    this.remoteAvatars.set(sessionId, { avatar, view, nameLabel, presence: state.presence, displayName: state.displayName, renderX: avatar.x, renderY: avatar.y })
+    this.remoteAvatars.set(sessionId, { avatar, view, nameLabel, presence: state.presence, displayName: state.displayName, renderX: avatar.x, renderY: avatar.y, hasCustomAppearance: false })
+
+    // Fire-and-forget: starts out looking like a plain spriteType avatar (above) and swaps to
+    // the composed appearance once ready, rather than blocking the avatar's first appearance on
+    // it. `characterSelection` is only ever set at join (issue #171's deliberate scope), so this
+    // only needs to run once here, never from updateRemoteAvatar.
+    if (state.characterSelection) {
+      void this.applyRemoteCharacterAppearance(sessionId, state.characterSelection)
+    }
+  }
+
+  /**
+   * Composes a remote player's Character Creator selection (issue #171) and swaps their sprite
+   * over to it — the same engine (#167) the local player's own creator uses, just fed a
+   * selection that arrived over the network instead of the local guest profile. Re-checks
+   * `remoteAvatars` after every await: the player may have already left by the time composition
+   * finishes, and every check below bails out rather than registering orphaned textures.
+   */
+  private async applyRemoteCharacterAppearance(sessionId: string, selection: CharacterSelection): Promise<void> {
+    if (!isValidCharacterSelection(selection, this.characterManifest)) {
+      return
+    }
+
+    const sheets = await composeCharacterSheets(selection)
+    if (!this.remoteAvatars.has(sessionId)) {
+      return
+    }
+
+    const [idleImage, walkImage] = await Promise.all([loadImageElement(sheets.idle), loadImageElement(sheets.walk)])
+    const entry = this.remoteAvatars.get(sessionId)
+    if (!entry) {
+      return
+    }
+
+    this.textures.addSpriteSheet(remoteAvatarTextureKey(sessionId, 'idle'), idleImage, AVATAR_FRAME_SIZE)
+    this.textures.addSpriteSheet(remoteAvatarTextureKey(sessionId, 'walk'), walkImage, AVATAR_FRAME_SIZE)
+
+    for (const motionState of Object.keys(MOTION_STATE_ANIMATIONS) as AvatarMotionState[]) {
+      const { textureSegment, frameRate } = MOTION_STATE_ANIMATIONS[motionState]
+      const textureKey = remoteAvatarTextureKey(sessionId, textureSegment)
+      for (const direction of Object.keys(AVATAR_FRAME_RANGES) as AvatarDirection[]) {
+        this.anims.create({
+          key: remoteCustomAnimationKey(sessionId, motionState, direction),
+          frames: this.anims.generateFrameNumbers(textureKey, AVATAR_FRAME_RANGES[direction]),
+          frameRate,
+          repeat: -1,
+        })
+      }
+    }
+
+    entry.hasCustomAppearance = true
+    entry.view.anims.play(remoteCustomAnimationKey(sessionId, entry.avatar.motionState, entry.avatar.direction))
   }
 
   private updateRemoteAvatar(sessionId: string, state: AvatarState): void {
@@ -1132,9 +1219,11 @@ export class OfficeScene extends Phaser.Scene {
     entry.presence = state.presence
     entry.nameLabel.setPresence(state.presence)
 
-    const animation = getSpriteAnimation(state.spriteType, state.motionState, state.direction)
-    if (entry.view.anims.currentAnim?.key !== animation.key) {
-      entry.view.anims.play(animation.key)
+    const animationKey = entry.hasCustomAppearance
+      ? remoteCustomAnimationKey(sessionId, state.motionState, state.direction)
+      : getSpriteAnimation(state.spriteType, state.motionState, state.direction).key
+    if (entry.view.anims.currentAnim?.key !== animationKey) {
+      entry.view.anims.play(animationKey)
     }
   }
 
@@ -1142,6 +1231,15 @@ export class OfficeScene extends Phaser.Scene {
     const entry = this.remoteAvatars.get(sessionId)
     entry?.view.destroy()
     entry?.nameLabel.destroy()
+    if (entry?.hasCustomAppearance) {
+      for (const motionState of Object.keys(MOTION_STATE_ANIMATIONS) as AvatarMotionState[]) {
+        for (const direction of Object.keys(AVATAR_FRAME_RANGES) as AvatarDirection[]) {
+          this.anims.remove(remoteCustomAnimationKey(sessionId, motionState, direction))
+        }
+      }
+      this.textures.remove(remoteAvatarTextureKey(sessionId, 'idle'))
+      this.textures.remove(remoteAvatarTextureKey(sessionId, 'walk'))
+    }
     this.remoteAvatars.delete(sessionId)
     if (this.hoveredTarget === sessionId) {
       this.hoveredTarget = undefined

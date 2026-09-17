@@ -32,8 +32,20 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
 - **Sem continuidade de sessão/posição ao dar refresh na página** — cada refresh cria uma sessão
   nova no Colyseus e volta pro spawn point, mesmo o servidor já suportando reconexão
   (`allowReconnection`/`reconnectionToken`, `office-room.ts:122-138`) — falta o client guardar o
-  token e tentar `reconnect()` antes de criar sessão nova. Notado em `docs/mvp-plan.md`, sem
-  issue aberta.
+  token e tentar `reconnect()` antes de criar sessão nova. A duplicata visível que isso causava
+  (avatar antigo nunca some) é corrigida pela
+  [#178](https://github.com/kangeikailabsio/kangeikai/issues/178) via deduplicação por
+  identidade persistente no `onJoin` — mas isso só limpa a cópia antiga, não retoma a sessão de
+  fato: cada refresh continua sendo um respawn do zero, sem posição/estado preservado. Notado em
+  `docs/mvp-plan.md`, sem issue aberta pra continuidade real.
+- **Identificador de guest persistente não é autenticado** — a correção da
+  [#178](https://github.com/kangeikailabsio/kangeikai/issues/178) usa um UUID gerado pelo próprio
+  client e salvo em `localStorage` só pra deduplicar avatares no `onJoin`; como o servidor nunca
+  verifica esse ID, alguém que descobrisse o ID de outra pessoa (acesso físico ao navegador dela,
+  tráfego sem TLS) poderia forçar a remoção do avatar dela do mapa. Sem exposição de dados —
+  o pior caso é um "kick" que se autocorrige no próximo join dela. Resolver de verdade exige
+  credencial de sessão assinada pelo servidor, o que só faz sentido quando existir conta de
+  usuário.
 - **`privateZoneAt` assume que zonas privadas nunca se sobrepõem** — `packages/shared/src/private-zones.ts:46-48`
   documenta a suposição mas não a garante; se algum mapa no Tiled tiver duas zonas `private`
   sobrepostas, qual delas "vence" é arbitrário e silencioso. Baixa prioridade — depende de erro

@@ -1,6 +1,6 @@
 /** Kept pure so keyboard and pointer priority share the same tested policy. */
-export function blocksOfficeInput(options: { gameOpen: boolean, screenShareOpen: boolean, busy: boolean, typing: boolean }): boolean {
-  return options.gameOpen || options.screenShareOpen || options.busy || options.typing
+export function blocksOfficeInput(options: { gameOpen: boolean, screenShareOpen: boolean, attentionOpen?: boolean, busy: boolean, typing: boolean }): boolean {
+  return options.gameOpen || options.screenShareOpen || Boolean(options.attentionOpen) || options.busy || options.typing
 }
 
 export function isTypingTarget(target: EventTarget | null): boolean {

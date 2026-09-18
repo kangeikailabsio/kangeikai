@@ -7,7 +7,7 @@ import { CloseCode, Room } from 'colyseus'
 import * as v from 'valibot'
 import { gameTables, privateZones } from '../map-zones'
 import { computeSessionProof } from '../session-proof'
-import { officeJoinOptionsSchema, setPresencePayloadSchema, updateStatePayloadSchema } from './message-schemas'
+import { interactionPayloadSchema, officeJoinOptionsSchema, setPresencePayloadSchema, updateStatePayloadSchema } from './message-schemas'
 import { AvatarSchema } from './schema/avatar-schema'
 import { OfficeRoomState } from './schema/office-room-state'
 
@@ -75,6 +75,42 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
 
       avatar.presence = result.output.presence
     })
+
+    /**
+     * Generic point-to-point nudge (issue #157's "Say Hello"; a planned "chamar atenção" issue
+     * reuses this same handler/schema with `kind: 'attention'` instead) — relays `kind` verbatim
+     * to whichever client owns `targetSessionId`, so it's the *client* that decides what UI a
+     * given `kind` gets, not this handler. Revalidates presence server-side on both ends rather
+     * than trusting the client's own busy-hidden button, same guard style as `updateState`/
+     * `setPresence` above: either side missing or busy is a silent no-op.
+     */
+    this.onMessage('interaction', (client, message) => {
+      const result = v.safeParse(interactionPayloadSchema, message)
+      if (!result.success) {
+        return
+      }
+
+      const sender = this.state.players.get(client.sessionId)
+      if (!sender || sender.presence === 'busy') {
+        return
+      }
+
+      const target = this.state.players.get(result.output.targetSessionId)
+      if (!target || target.presence === 'busy') {
+        return
+      }
+
+      const targetClient = this.clients.getById(result.output.targetSessionId)
+      if (!targetClient) {
+        return
+      }
+
+      targetClient.send('interactionReceived', {
+        kind: result.output.kind,
+        fromSessionId: client.sessionId,
+        fromDisplayName: sender.displayName,
+      })
+    })
   }
 
   /**
@@ -95,12 +131,13 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
   }
 
   onJoin(client: Client, options: unknown): void {
-    const { displayName, spriteType, presence } = v.parse(officeJoinOptionsSchema, options)
+    const { displayName, spriteType, presence, characterSelection } = v.parse(officeJoinOptionsSchema, options)
 
     const avatar = new AvatarSchema()
     avatar.displayName = displayName
     avatar.spriteType = spriteType
     avatar.presence = presence
+    avatar.characterSelection = characterSelection ? JSON.stringify(characterSelection) : ''
     avatar.x = SPAWN_X
     avatar.y = SPAWN_Y
 

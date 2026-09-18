@@ -2,7 +2,7 @@
   import type { MediaControls } from '$lib/av/media-controls'
   import type { ScreenShareQualityTier } from '$lib/av/screen-share-quality'
   import type { GuestProfile } from '$lib/entry/guest-profile-schema'
-  import type { ConnectionState, RoomConnection } from '$lib/network/room-connection'
+  import type { ConnectionState, InteractionReceivedPayload, RoomConnection } from '$lib/network/room-connection'
   import type { AvatarPresence } from '@kangeikai/shared'
   import AvatarVideoOverlay from '$lib/av/avatar-video-overlay.svelte'
   import BusyOverlay from '$lib/av/busy-overlay.svelte'
@@ -16,12 +16,19 @@
   import FpsDisplay from '$lib/game/fps-display.svelte'
   import { gameSessionState } from '$lib/game/games/game-session-state.svelte'
   import PoolOverlay from '$lib/game/games/pool-overlay.svelte'
-  import { CONNECTION_QUALITY_CHANGED_EVENT, LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT, SCREEN_SHARE_ENDED_EVENT } from '$lib/game/scenes/office-scene'
+  import { ATTENTION_RECEIVED_EVENT, CONNECTION_QUALITY_CHANGED_EVENT, HELLO_RECEIVED_EVENT, LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT, SCREEN_SHARE_ENDED_EVENT } from '$lib/game/scenes/office-scene'
   import ConnectionStatusBanner from '$lib/network/connection-status-banner.svelte'
   import AvatarProfilePanel from '$lib/people/avatar-profile-panel.svelte'
   import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
+  import FollowIndicator from '$lib/people/follow-indicator.svelte'
+  import { followState } from '$lib/people/follow-state.svelte'
   import MembersSidebar from '$lib/people/members-sidebar.svelte'
   import { rosterState } from '$lib/people/roster-state.svelte'
+  import { attentionModalState } from '$lib/ui/attention-modal-state.svelte'
+  import AttentionModal from '$lib/ui/attention-modal.svelte'
+  import { helloToastState } from '$lib/ui/hello-toast-state.svelte'
+  import HelloToast from '$lib/ui/hello-toast.svelte'
+  import { playNotificationSound } from '$lib/ui/notification-sound'
   import Toast from '$lib/ui/toast.svelte'
   import { ConnectionQuality } from 'livekit-client'
   import Phaser from 'phaser'
@@ -97,12 +104,21 @@
       scene: [],
     })
 
-    game.scene.add('office', OfficeScene, true, { displayName: profile.displayName, spriteType: profile.avatarType, accessCode })
+    game.scene.add('office', OfficeScene, true, {
+      displayName: profile.displayName,
+      spriteType: profile.avatarType,
+      accessCode,
+      customAvatarSheets: profile.character?.sheets,
+      characterSelection: profile.character?.selection,
+    })
 
     rosterState.reset()
     rosterState.setLocalName(profile.displayName)
     rosterState.setLocalSpriteType(profile.avatarType)
     avatarProfileState.close()
+    followState.stop()
+    helloToastState.dismiss()
+    attentionModalState.dismiss()
     game.events.on(ROOM_CONNECTION_READY_EVENT, (roomConnection: RoomConnection) => {
       unwireRoster = rosterState.connect(roomConnection)
       unwireConnectionStatus = roomConnection.onConnectionStateChange((state) => {
@@ -141,6 +157,19 @@
       connecting = false
     })
 
+    // "Say Hello" (issue #157).
+    game.events.on(HELLO_RECEIVED_EVENT, (payload: InteractionReceivedPayload) => {
+      helloToastState.show(payload.fromDisplayName)
+      playNotificationSound('hello')
+    })
+
+    // "Chamar atenção" (issue #158) — office-scene.ts only emits this once its camera shake has
+    // already finished, so the modal never appears simultaneously with the shake.
+    game.events.on(ATTENTION_RECEIVED_EVENT, (payload: InteractionReceivedPayload) => {
+      attentionModalState.show(payload.fromDisplayName)
+      playNotificationSound('attention')
+    })
+
     // Most likely a wrong/missing access code (OfficeRoom.onAuth) — there's no meaningful
     // in-game state to show, so tear down and let the person try again from the entry form.
     game.events.on(ROOM_JOIN_FAILED_EVENT, () => {
@@ -154,6 +183,9 @@
       rosterState.reset()
       membersOpen = false
       avatarProfileState.close()
+      followState.stop()
+      helloToastState.dismiss()
+      attentionModalState.dismiss()
     })
   }
 
@@ -231,6 +263,35 @@
     const officeScene = game?.scene.getScene('office') as OfficeScene | undefined
     await officeScene?.toggleBusyPresence()
   }
+
+  function goToAvatar(sessionId: string): void {
+    const officeScene = game?.scene.getScene('office') as OfficeScene | undefined
+    officeScene?.walkToAvatar(sessionId)
+  }
+
+  function toggleFollowAvatar(sessionId: string): void {
+    const officeScene = game?.scene.getScene('office') as OfficeScene | undefined
+    officeScene?.toggleFollowAvatar(sessionId)
+  }
+
+  /** The indicator's own stop button (issue #160) — one of the three ways to stop, independent of the profile panel. */
+  function stopFollowing(): void {
+    if (!followState.sessionId) {
+      return
+    }
+    const officeScene = game?.scene.getScene('office') as OfficeScene | undefined
+    officeScene?.toggleFollowAvatar(followState.sessionId)
+  }
+
+  function sendHello(sessionId: string): void {
+    const officeScene = game?.scene.getScene('office') as OfficeScene | undefined
+    officeScene?.sendHello(sessionId)
+  }
+
+  function sendAttention(sessionId: string): void {
+    const officeScene = game?.scene.getScene('office') as OfficeScene | undefined
+    officeScene?.sendAttention(sessionId)
+  }
 </script>
 
 <div class='game-container' bind:this={gameContainer}>
@@ -239,11 +300,14 @@
     <ScreenShareOverlay />
     <BusyOverlay active={localPresence === 'busy'} />
     <MembersSidebar open={membersOpen} />
-    <AvatarProfilePanel />
+    <AvatarProfilePanel onGoTo={goToAvatar} onToggleFollow={toggleFollowAvatar} onSayHello={sendHello} onGetAttention={sendAttention} />
+    <FollowIndicator onStop={stopFollowing} />
     {#if gameSessionState.open}<PoolOverlay />{/if}
     <FpsDisplay {game} />
     <ConnectionQualityIndicator quality={connectionQuality} />
     <Toast />
+    <HelloToast />
+    <AttentionModal />
     <ConnectionStatusBanner state={connectionState} />
   {/if}
 </div>

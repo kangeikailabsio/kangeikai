@@ -5,8 +5,8 @@ import type { RemoteVideoOverlayCandidate, VideoOverlayParticipant } from '$lib/
 import type { HoverTarget } from '$lib/game/entities/avatar-hover'
 import type { CollisionRect } from '$lib/game/map/collision'
 import type { PathfindingGrid } from '$lib/game/map/pathfinding'
-import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, GameTable, PrivateZone, TiledSpaceObject } from '@kangeikai/shared'
-
+import type { InteractionReceivedPayload } from '$lib/network/room-connection'
+import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, CharacterSelection, GameTable, PrivateZone, TiledSpaceObject } from '@kangeikai/shared'
 import type { LocalVideoTrack, RemoteVideoTrack, Room } from 'livekit-client'
 import avatarManIdleUrl from '$lib/assets/sprites/avatar-man-idle.png?url'
 import avatarManWalkUrl from '$lib/assets/sprites/avatar-man-walk.png?url'
@@ -22,6 +22,8 @@ import { screenShareGridState } from '$lib/av/screen-share-grid-state.svelte'
 import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
 import { videoOverlayState } from '$lib/av/video-overlay-state.svelte'
 import { buildVideoOverlayTiles } from '$lib/av/video-overlay-tiles'
+import { buildCharacterManifest } from '$lib/character/character-pieces'
+import { composeCharacterSheets, loadImageElement } from '$lib/character/compose-character'
 import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
 import { clampedCameraCenter, clampZoom, fitToMapZoom } from '$lib/game/camera/camera-math'
 import { Avatar, AVATAR_FRAME_RANGES, feetHitbox, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
@@ -32,14 +34,18 @@ import { gameSessionState } from '$lib/game/games/game-session-state.svelte'
 import { TableGlow } from '$lib/game/games/table-glow'
 import { AutoWalkController } from '$lib/game/input/auto-walk-controller'
 import { DoubleClickDetector } from '$lib/game/input/double-click-detector'
+import { FollowController } from '$lib/game/input/follow-controller'
 import { MovementController } from '$lib/game/input/movement-controller'
 import { queueActiveMapLoad } from '$lib/game/map/active-map'
+import { resolveApproachPoint } from '$lib/game/map/approach-point'
 import { buildPathfindingGrid, findPath } from '$lib/game/map/pathfinding'
 import { resolveRespawnPoint } from '$lib/game/map/respawn-point'
 import { RoomConnection } from '$lib/network/room-connection'
 import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
+import { followState } from '$lib/people/follow-state.svelte'
+import { attentionModalState } from '$lib/ui/attention-modal-state.svelte'
 import { toastState } from '$lib/ui/toast-state.svelte'
-import { privateZoneAt, resolveGameTables, resolvePrivateZones, selectGameTable, tableContains } from '@kangeikai/shared'
+import { isValidCharacterSelection, privateZoneAt, resolveGameTables, resolvePrivateZones, selectGameTable, tableContains } from '@kangeikai/shared'
 import { Track } from 'livekit-client'
 import Phaser from 'phaser'
 
@@ -85,6 +91,16 @@ export const ROOM_JOINED_EVENT = 'room-joined'
  */
 export const ROOM_CONNECTION_READY_EVENT = 'room-connection-ready'
 
+/** Emitted on `game.events` when a "Say Hello" (issue #157) arrives for the local session. */
+export const HELLO_RECEIVED_EVENT = 'hello-received'
+
+/**
+ * Emitted on `game.events` when a "chamar atenção" (issue #158) arrives for the local session —
+ * only once the camera shake below has finished (`SHAKE_COMPLETE`), never simultaneously with
+ * it (#158's grill: shake first, modal only after).
+ */
+export const ATTENTION_RECEIVED_EVENT = 'attention-received'
+
 /**
  * Cap on remote video tiles shown in the strip at once — beyond this, the closest
  * `MAX_REMOTE_VIDEO_TILES` remain visible and the rest collapse into a single "+N" overflow
@@ -113,8 +129,34 @@ const WALK_TARGET_MARKER_COLOR = 0xE8A9C9
 const INVALID_TARGET_MARKER_COLOR = 0xEF4444
 const TARGET_MARKER_RADIUS_PX = 6
 const INVALID_TARGET_MARKER_DURATION_MS = 300
+/** "Go to" (issue #159) stops one tile short of the target's exact position, not on top of them — tiles are 32px. */
+const GO_TO_STOP_DISTANCE_PX = 32
 /** Shown for both an off-map click and an on-map click with no open route to it (#92) — from the user's point of view the result is the same. */
 const PATH_UNREACHABLE_MESSAGE = 'Não é possível chegar até aí'
+
+/**
+ * "Follow" (issue #160) keeps this much distance from the followed avatar — a "companion" gap
+ * rather than "Go to"'s one-time snapshot distance. Comfortably above `ARRIVAL_TOLERANCE_PX` so
+ * the route settles instead of endlessly recalculating right at the stop line (see the issue's
+ * risk note).
+ */
+const FOLLOW_STANDOFF_DISTANCE_PX = 40
+/**
+ * How far the followed avatar has to move (since the last recalculated route) before "Follow"
+ * recomputes its path — recalculating on every frame the target so much as twitches would thrash
+ * `findPath`/`setPath` for no visible benefit; this threshold keeps recalculation proportional to
+ * actual movement instead.
+ */
+const FOLLOW_RETARGET_THRESHOLD_PX = 24
+
+/**
+ * "Chamar atenção" (issue #158) camera shake — moderate on purpose, well under Phaser's own
+ * default intensity (0.05): noticeable without making the screen hard to read for the ~1/3
+ * second it runs. The issue's own risk note flags this as needing visual calibration — adjust
+ * if it ends up feeling too strong/too subtle once seen live.
+ */
+const ATTENTION_SHAKE_DURATION_MS = 350
+const ATTENTION_SHAKE_INTENSITY = 0.015
 
 /**
  * Pathfinding grid cell size (#92) — half a tile (tiles are 32px), giving routes room to fit
@@ -163,9 +205,25 @@ const AVATAR_SPRITE_TYPES: AvatarSpriteType[] = ['man', 'woman']
 /**
  * Texture key for a spriteType+segment's spritesheet, e.g. "man-idle". Shared by all four
  * directions' animations, which each play a different frame range from the same sheet.
+ * `'custom'` (issue #170) is the local player's Character Creator avatar — see
+ * `getSpriteAnimation`'s doc comment in avatar.ts.
  */
-function avatarTextureKey(spriteType: AvatarSpriteType, segment: 'idle' | 'walk'): string {
+function avatarTextureKey(spriteType: AvatarSpriteType | 'custom', segment: 'idle' | 'walk'): string {
   return `${spriteType}-${segment}`
+}
+
+/**
+ * Texture key for a specific remote player's composed Character Creator sheet (issue #171).
+ * Unlike the local player's single `'custom'` key, every remote session needs its own — each
+ * one's composed sheet is different pixel content, so they can't share a texture/animation key
+ * the way the static `man`/`woman` ones do.
+ */
+function remoteAvatarTextureKey(sessionId: string, segment: 'idle' | 'walk'): string {
+  return `remote-${sessionId}-${segment}`
+}
+
+function remoteCustomAnimationKey(sessionId: string, motionState: AvatarMotionState, direction: AvatarDirection): string {
+  return `remote-${sessionId}-${motionState}-${direction}`
 }
 
 /**
@@ -200,6 +258,14 @@ interface RemoteAvatarEntry {
   /** Currently rendered position — eased toward `avatar.x/y` each frame, see `updateRemoteAvatarViews`. */
   renderX: number
   renderY: number
+  /**
+   * True once this session's Character Creator textures/animations have been registered
+   * (issue #171's `applyRemoteCharacterAppearance`) — false while that composition is still in
+   * flight, or if the avatar has no `characterSelection` at all, in which case it just renders
+   * from `spriteType` like before. Drives both which animation key to play and whether
+   * `removeRemoteAvatar` has per-session textures/animations to clean up.
+   */
+  hasCustomAppearance: boolean
 }
 
 /**
@@ -225,6 +291,18 @@ export interface OfficeSceneData {
    * room-protocol.md) — a shared room lock, not part of the guest's identity.
    */
   accessCode: string
+  /**
+   * The Character Creator's composed idle/walk sheets (issue #167/#168), if the guest has one —
+   * `undefined` for a profile saved before the creator existed. Renders the *local* avatar
+   * (issue #170).
+   */
+  customAvatarSheets?: { idle: string, walk: string }
+  /**
+   * The raw selection behind `customAvatarSheets` — sent to the server at join (issue #171) so
+   * other players can compose the same appearance themselves (only the small selection travels
+   * over the network, never the images). `undefined` alongside `customAvatarSheets` above.
+   */
+  characterSelection?: CharacterSelection
 }
 
 export class OfficeScene extends Phaser.Scene {
@@ -235,7 +313,7 @@ export class OfficeScene extends Phaser.Scene {
   private overlayRefreshDueAt = 0
 
   private officeInputBlocked(): boolean {
-    return blocksOfficeInput({ gameOpen: gameSessionState.open, screenShareOpen: screenShareOverlayState.expanded, busy: this.presence === 'busy', typing: isTypingTarget(document.activeElement) })
+    return blocksOfficeInput({ gameOpen: gameSessionState.open, screenShareOpen: screenShareOverlayState.expanded, attentionOpen: attentionModalState.open, busy: this.presence === 'busy', typing: isTypingTarget(document.activeElement) })
   }
 
   private hoveredGameTable(): GameTable | undefined {
@@ -245,6 +323,7 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private openGameTable(table: GameTable): void {
+    this.stopFollow()
     this.movementController.clear()
     this.autoWalkController.cancel()
     this.clearWalkTargetMarker()
@@ -263,6 +342,7 @@ export class OfficeScene extends Phaser.Scene {
 
   private readonly movementController = new MovementController()
   private readonly autoWalkController = new AutoWalkController()
+  private readonly followController = new FollowController()
   private readonly doubleClickDetector = new DoubleClickDetector()
   private walkTargetMarker: Phaser.GameObjects.Arc | undefined
   private hoveredTarget: HoverTarget | undefined
@@ -291,11 +371,19 @@ export class OfficeScene extends Phaser.Scene {
   private mapKey!: string
   private displayName!: string
   private spriteType!: AvatarSpriteType
+  /** Set from `OfficeSceneData.customAvatarSheets` — see `localVisualKey()`. */
+  private customAvatarSheets: { idle: string, walk: string } | undefined
+  /** Set from `OfficeSceneData.characterSelection` — sent to the server at join (issue #171). */
+  private characterSelection: CharacterSelection | undefined
+  /** Computed once — reused by `applyRemoteCharacterAppearance` to sanity-check a remote selection before composing it. */
+  private readonly characterManifest = buildCharacterManifest()
   private accessCode!: string
   private presence: AvatarPresence = 'available'
   private mediaControls: MediaControls | undefined
   /** Tracks the screen-share overlay's previous open state, to edge-trigger `movementController.clear()` (#100) only on the transition into it, not every frame it stays open. */
   private wasScreenShareOverlayExpanded = false
+  /** Same edge-trigger care as `wasScreenShareOverlayExpanded`, for the "chamar atenção" (#158) blocking modal. */
+  private wasAttentionModalOpen = false
   /** Set only while connected to a private zone's isolated room — `null` means ambient `office` audio is active. */
   private connectedPrivateRoom: Room | null = null
   /** The `spaces` layer's `private: true` objects, read once in `create()` (issue #151's spotlight needs the same zones `PrivateRoomController` already gets). */
@@ -328,6 +416,8 @@ export class OfficeScene extends Phaser.Scene {
   init(data: OfficeSceneData): void {
     this.displayName = data.displayName
     this.spriteType = data.spriteType
+    this.customAvatarSheets = data.customAvatarSheets
+    this.characterSelection = data.characterSelection
     this.accessCode = data.accessCode
   }
 
@@ -338,6 +428,19 @@ export class OfficeScene extends Phaser.Scene {
     this.load.spritesheet(avatarTextureKey('man', 'walk'), avatarManWalkUrl, AVATAR_FRAME_SIZE)
     this.load.spritesheet(avatarTextureKey('woman', 'idle'), avatarWomanIdleUrl, AVATAR_FRAME_SIZE)
     this.load.spritesheet(avatarTextureKey('woman', 'walk'), avatarWomanWalkUrl, AVATAR_FRAME_SIZE)
+
+    // The composed sheets are already-decoded data URLs (issue #167), not files on disk — Phaser's
+    // loader accepts a data: URL here exactly like a real one, so this needs no different loading
+    // mechanism from the four static sheets above.
+    if (this.customAvatarSheets) {
+      this.load.spritesheet(avatarTextureKey('custom', 'idle'), this.customAvatarSheets.idle, AVATAR_FRAME_SIZE)
+      this.load.spritesheet(avatarTextureKey('custom', 'walk'), this.customAvatarSheets.walk, AVATAR_FRAME_SIZE)
+    }
+  }
+
+  /** Which texture/animation key the *local* avatar's sprite should use — the Character Creator's `custom` sheets when the guest has one, else the static `spriteType` sheets (issue #170). */
+  private localVisualKey(): AvatarSpriteType | 'custom' {
+    return this.customAvatarSheets ? 'custom' : this.spriteType
   }
 
   create(): void {
@@ -384,7 +487,14 @@ export class OfficeScene extends Phaser.Scene {
     this.privateZoneSpotlight.setDepth(PRIVATE_ZONE_SPOTLIGHT_DEPTH)
     this.privateZoneSpotlight.setAlpha(0)
 
-    for (const spriteType of AVATAR_SPRITE_TYPES) {
+    // Only add 'custom' to the list actually animated if its textures were loaded in preload()
+    // (this.customAvatarSheets set) — generateFrameNumbers would fail against a texture that
+    // was never registered.
+    const visualKeysToAnimate: readonly (AvatarSpriteType | 'custom')[] = this.customAvatarSheets
+      ? [...AVATAR_SPRITE_TYPES, 'custom']
+      : AVATAR_SPRITE_TYPES
+
+    for (const spriteType of visualKeysToAnimate) {
       for (const motionState of Object.keys(MOTION_STATE_ANIMATIONS) as AvatarMotionState[]) {
         const { textureSegment, frameRate } = MOTION_STATE_ANIMATIONS[motionState]
         const textureKey = avatarTextureKey(spriteType, textureSegment)
@@ -432,8 +542,8 @@ export class OfficeScene extends Phaser.Scene {
       feetHitbox,
     )
 
-    this.avatarView = this.add.sprite(this.avatar.x, this.avatar.y, avatarTextureKey(this.spriteType, 'idle'))
-    this.avatarView.anims.play(getSpriteAnimation(this.avatar.spriteType, this.avatar.motionState, this.avatar.direction).key)
+    this.avatarView = this.add.sprite(this.avatar.x, this.avatar.y, avatarTextureKey(this.localVisualKey(), 'idle'))
+    this.avatarView.anims.play(getSpriteAnimation(this.localVisualKey(), this.avatar.motionState, this.avatar.direction).key)
     this.makeAvatarHoverable(this.avatarView, 'local')
     this.avatarNameLabel = new AvatarNameLabel(this, this.avatar.x, this.avatar.y, 'You')
 
@@ -450,6 +560,7 @@ export class OfficeScene extends Phaser.Scene {
     // instead, so it never renders at the placeholder.
     this.roomConnection.onRemoteAvatarChange((sessionId, state) => this.updateRemoteAvatar(sessionId, state))
     this.roomConnection.onRemoteAvatarRemove(sessionId => this.removeRemoteAvatar(sessionId))
+    this.roomConnection.onInteractionReceived(payload => this.handleInteractionReceived(payload))
     this.game.events.emit(ROOM_CONNECTION_READY_EVENT, this.roomConnection)
     this.presence = this.busyPresenceStore.load()
     this.avatarNameLabel.setPresence(this.presence)
@@ -458,6 +569,7 @@ export class OfficeScene extends Phaser.Scene {
       spriteType: this.spriteType,
       accessCode: this.accessCode,
       presence: this.presence,
+      characterSelection: this.characterSelection,
     })
       .then(() => {
         this.game.events.emit(ROOM_JOINED_EVENT)
@@ -602,6 +714,42 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   /**
+   * "Say Hello" (issue #157) — sends a lightweight point-to-point nudge to `targetSessionId`.
+   * No local busy/existence check here: `avatar-profile-panel.svelte` already hides the button
+   * while the viewed person is busy, and the server is the actual source of truth either way
+   * (revalidates both sides' presence before relaying, per the issue's grill). Shows the
+   * sender's own transient confirmation toast immediately — optimistic, since there's no
+   * ack/nack from the server either way for this fire-and-forget message.
+   */
+  sendHello(targetSessionId: string): void {
+    this.roomConnection.sendInteraction('hello', targetSessionId)
+    toastState.show('Hello sent')
+  }
+
+  /** "Chamar atenção" (issue #158) — same shape as `sendHello`, just a different `kind`. */
+  sendAttention(targetSessionId: string): void {
+    this.roomConnection.sendInteraction('attention', targetSessionId)
+    toastState.show('Attention sent')
+  }
+
+  /**
+   * `'hello'` (#157) surfaces immediately. `'attention'` (#158) shakes the camera first and only
+   * emits once the shake finishes (`SHAKE_COMPLETE`, `once` not `on` — a single shake per
+   * interaction) — shake-then-modal, never simultaneous, per #158's grill.
+   */
+  private handleInteractionReceived(payload: InteractionReceivedPayload): void {
+    if (payload.kind === 'hello') {
+      this.game.events.emit(HELLO_RECEIVED_EVENT, payload)
+      return
+    }
+
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.SHAKE_COMPLETE, () => {
+      this.game.events.emit(ATTENTION_RECEIVED_EVENT, payload)
+    })
+    this.cameras.main.shake(ATTENTION_SHAKE_DURATION_MS, ATTENTION_SHAKE_INTENSITY)
+  }
+
+  /**
    * `PrivateRoomController` calls this once a zone's 2nd person arrives: leaves `office`'s
    * audio for the duration (a real, isolated call — not just muting) and points media controls/
    * video overlay at the private room instead.
@@ -707,17 +855,26 @@ export class OfficeScene extends Phaser.Scene {
     }
     this.wasScreenShareOverlayExpanded = screenShareOverlayOpen
 
+    const attentionModalOpen = attentionModalState.open
+    if (attentionModalOpen && !this.wasAttentionModalOpen) {
+      this.movementController.clear()
+      this.autoWalkController.cancel()
+      this.clearWalkTargetMarker()
+    }
+    this.wasAttentionModalOpen = attentionModalOpen
+
     const manualIntent = this.officeInputBlocked()
       ? { direction: null, sprint: false }
       : this.movementController.getIntent()
 
     let intent = manualIntent
     if (manualIntent.direction) {
-      // A manual key always wins over an in-progress auto-walk.
+      // A manual key always wins over an in-progress auto-walk, "Follow" included (#160 DoD).
       this.autoWalkController.cancel()
       this.clearWalkTargetMarker()
+      this.stopFollow()
     }
-    else if (this.autoWalkController.active) {
+    else if (this.autoWalkController.active && !this.officeInputBlocked()) {
       intent = this.autoWalkController.getIntent(this.avatar.x, this.avatar.y)
       if (!this.autoWalkController.active) {
         // Arrived this frame.
@@ -739,10 +896,12 @@ export class OfficeScene extends Phaser.Scene {
       toastState.show(PATH_UNREACHABLE_MESSAGE)
     }
 
+    this.updateFollow()
+
     this.avatarView.setPosition(this.avatar.x, this.avatar.y)
     this.avatarNameLabel.setPosition(this.avatar.x, this.avatar.y)
 
-    const animation = getSpriteAnimation(this.avatar.spriteType, this.avatar.motionState, this.avatar.direction)
+    const animation = getSpriteAnimation(this.localVisualKey(), this.avatar.motionState, this.avatar.direction)
     if (this.avatarView.anims.currentAnim?.key !== animation.key) {
       this.avatarView.anims.play(animation.key)
     }
@@ -1066,7 +1225,58 @@ export class OfficeScene extends Phaser.Scene {
     const nameLabel = new AvatarNameLabel(this, avatar.x, avatar.y, state.displayName)
     nameLabel.setPresence(state.presence)
 
-    this.remoteAvatars.set(sessionId, { avatar, view, nameLabel, presence: state.presence, displayName: state.displayName, renderX: avatar.x, renderY: avatar.y })
+    this.remoteAvatars.set(sessionId, { avatar, view, nameLabel, presence: state.presence, displayName: state.displayName, renderX: avatar.x, renderY: avatar.y, hasCustomAppearance: false })
+
+    // Fire-and-forget: starts out looking like a plain spriteType avatar (above) and swaps to
+    // the composed appearance once ready, rather than blocking the avatar's first appearance on
+    // it. `characterSelection` is only ever set at join (issue #171's deliberate scope), so this
+    // only needs to run once here, never from updateRemoteAvatar.
+    if (state.characterSelection) {
+      void this.applyRemoteCharacterAppearance(sessionId, state.characterSelection)
+    }
+  }
+
+  /**
+   * Composes a remote player's Character Creator selection (issue #171) and swaps their sprite
+   * over to it — the same engine (#167) the local player's own creator uses, just fed a
+   * selection that arrived over the network instead of the local guest profile. Re-checks
+   * `remoteAvatars` after every await: the player may have already left by the time composition
+   * finishes, and every check below bails out rather than registering orphaned textures.
+   */
+  private async applyRemoteCharacterAppearance(sessionId: string, selection: CharacterSelection): Promise<void> {
+    if (!isValidCharacterSelection(selection, this.characterManifest)) {
+      return
+    }
+
+    const sheets = await composeCharacterSheets(selection)
+    if (!this.remoteAvatars.has(sessionId)) {
+      return
+    }
+
+    const [idleImage, walkImage] = await Promise.all([loadImageElement(sheets.idle), loadImageElement(sheets.walk)])
+    const entry = this.remoteAvatars.get(sessionId)
+    if (!entry) {
+      return
+    }
+
+    this.textures.addSpriteSheet(remoteAvatarTextureKey(sessionId, 'idle'), idleImage, AVATAR_FRAME_SIZE)
+    this.textures.addSpriteSheet(remoteAvatarTextureKey(sessionId, 'walk'), walkImage, AVATAR_FRAME_SIZE)
+
+    for (const motionState of Object.keys(MOTION_STATE_ANIMATIONS) as AvatarMotionState[]) {
+      const { textureSegment, frameRate } = MOTION_STATE_ANIMATIONS[motionState]
+      const textureKey = remoteAvatarTextureKey(sessionId, textureSegment)
+      for (const direction of Object.keys(AVATAR_FRAME_RANGES) as AvatarDirection[]) {
+        this.anims.create({
+          key: remoteCustomAnimationKey(sessionId, motionState, direction),
+          frames: this.anims.generateFrameNumbers(textureKey, AVATAR_FRAME_RANGES[direction]),
+          frameRate,
+          repeat: -1,
+        })
+      }
+    }
+
+    entry.hasCustomAppearance = true
+    entry.view.anims.play(remoteCustomAnimationKey(sessionId, entry.avatar.motionState, entry.avatar.direction))
   }
 
   private updateRemoteAvatar(sessionId: string, state: AvatarState): void {
@@ -1085,9 +1295,11 @@ export class OfficeScene extends Phaser.Scene {
     entry.presence = state.presence
     entry.nameLabel.setPresence(state.presence)
 
-    const animation = getSpriteAnimation(state.spriteType, state.motionState, state.direction)
-    if (entry.view.anims.currentAnim?.key !== animation.key) {
-      entry.view.anims.play(animation.key)
+    const animationKey = entry.hasCustomAppearance
+      ? remoteCustomAnimationKey(sessionId, state.motionState, state.direction)
+      : getSpriteAnimation(state.spriteType, state.motionState, state.direction).key
+    if (entry.view.anims.currentAnim?.key !== animationKey) {
+      entry.view.anims.play(animationKey)
     }
   }
 
@@ -1095,14 +1307,26 @@ export class OfficeScene extends Phaser.Scene {
     const entry = this.remoteAvatars.get(sessionId)
     entry?.view.destroy()
     entry?.nameLabel.destroy()
+    if (entry?.hasCustomAppearance) {
+      for (const motionState of Object.keys(MOTION_STATE_ANIMATIONS) as AvatarMotionState[]) {
+        for (const direction of Object.keys(AVATAR_FRAME_RANGES) as AvatarDirection[]) {
+          this.anims.remove(remoteCustomAnimationKey(sessionId, motionState, direction))
+        }
+      }
+      this.textures.remove(remoteAvatarTextureKey(sessionId, 'idle'))
+      this.textures.remove(remoteAvatarTextureKey(sessionId, 'walk'))
+    }
     this.remoteAvatars.delete(sessionId)
     if (this.hoveredTarget === sessionId) {
       this.hoveredTarget = undefined
     }
+    if (this.followController.targetSessionId === sessionId) {
+      this.stopFollow()
+    }
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
-    if (gameSessionState.open || screenShareOverlayState.expanded || isTypingTarget(event.target))
+    if (gameSessionState.open || screenShareOverlayState.expanded || attentionModalState.open || isTypingTarget(event.target))
       return
     if (event.code === 'KeyX') {
       if (!event.repeat && this.presence !== 'busy') {
@@ -1231,14 +1455,149 @@ export class OfficeScene extends Phaser.Scene {
       return
     }
 
-    const path = findPath(this.pathfindingGrid, this.colliders, feetHitbox, { x: this.avatar.x, y: this.avatar.y }, { x: worldPoint.x, y: worldPoint.y })
+    this.walkTo(worldPoint.x, worldPoint.y)
+  }
+
+  /**
+   * Shared by click-to-move (`handlePointerDown`), the "Go to" profile-panel button (#159), and
+   * "Follow" (#160) — pathfinds from the current position to `(x, y)` and starts the walk, or
+   * shows the same "unreachable" feedback either way if there's no route.
+   *
+   * `showGroundMarker` is `false` only for "Follow"'s own repeated recalculations — a pink dot
+   * re-appearing on the ground every time the route retargets (several times a second while the
+   * followed avatar moves) read as visual clutter rather than useful feedback, unlike a single
+   * deliberate "Go to"/click-to-move target. The "unreachable" toast still fires either way
+   * (still useful information), just without the red ground flash.
+   */
+  private walkTo(x: number, y: number, showGroundMarker = true): void {
+    const path = findPath(this.pathfindingGrid, this.colliders, feetHitbox, { x: this.avatar.x, y: this.avatar.y }, { x, y })
     if (!path) {
-      this.showUnreachableTargetFeedback(worldPoint)
+      if (showGroundMarker) {
+        this.showUnreachableTargetFeedback({ x, y })
+      }
+      else {
+        toastState.show(PATH_UNREACHABLE_MESSAGE)
+      }
       return
     }
 
     this.autoWalkController.setPath(path)
-    this.showWalkTargetMarker(worldPoint)
+    if (showGroundMarker) {
+      this.showWalkTargetMarker({ x, y })
+    }
+    else {
+      this.clearWalkTargetMarker()
+    }
+  }
+
+  /**
+   * "Go to" (issue #159) — walks to wherever `sessionId`'s avatar currently is, as a one-time
+   * snapshot: if they move after this is called, the walk does not retarget (that's "Follow",
+   * `toggleFollowAvatar` below, #160). A no-op if the session isn't a known remote avatar
+   * (already left, or a stale panel reference).
+   *
+   * Stops `GO_TO_STOP_DISTANCE_PX` short of their exact position — along the straight line from
+   * the local avatar's current spot, not their exact tile — so the two avatars don't end up
+   * stacked on top of each other. Already within that distance: a no-op, nothing to walk toward.
+   */
+  walkToAvatar(sessionId: string): void {
+    if (this.officeInputBlocked())
+      return
+    const target = this.remoteAvatars.get(sessionId)
+    if (!target) {
+      return
+    }
+
+    const point = resolveApproachPoint({ x: this.avatar.x, y: this.avatar.y }, { x: target.avatar.x, y: target.avatar.y }, GO_TO_STOP_DISTANCE_PX)
+    if (!point) {
+      return
+    }
+    this.walkTo(point.x, point.y)
+  }
+
+  /**
+   * "Follow"/"Stop following" (issue #160) — starting a follow on someone new replaces whatever
+   * was previously followed (only one active at a time, per the issue's grill), including calling
+   * this again on the exact same sessionId, which toggles it off (mirrors the panel button's
+   * "Follow" → "Stop following" label flip).
+   */
+  toggleFollowAvatar(sessionId: string): void {
+    if (this.followController.targetSessionId === sessionId) {
+      this.stopFollow()
+      return
+    }
+    this.startFollow(sessionId)
+  }
+
+  private startFollow(sessionId: string): void {
+    if (this.officeInputBlocked())
+      return
+    this.followController.start(sessionId)
+    followState.start(sessionId)
+    // Route toward the target's current position immediately, rather than waiting for it to
+    // move past FOLLOW_RETARGET_THRESHOLD_PX first.
+    this.recalculateFollowRoute()
+  }
+
+  private stopFollow(): void {
+    if (!this.followController.active) {
+      return
+    }
+    this.followController.stop()
+    followState.stop()
+    this.autoWalkController.cancel()
+    this.clearWalkTargetMarker()
+  }
+
+  /**
+   * Called every frame: re-walks toward the followed avatar's current position once it's moved
+   * past `FOLLOW_RETARGET_THRESHOLD_PX` since the last recalculation (not every frame — see the
+   * constant's comment) and auto-cancels if the target has left the room (#160 DoD).
+   */
+  private updateFollow(): void {
+    if (this.officeInputBlocked())
+      return
+    if (!this.followController.active) {
+      return
+    }
+    const sessionId = this.followController.targetSessionId
+    const target = sessionId ? this.remoteAvatars.get(sessionId) : undefined
+    if (!target) {
+      this.stopFollow()
+      return
+    }
+
+    const targetPosition = { x: target.avatar.x, y: target.avatar.y }
+    if (this.followController.shouldRecalculate(targetPosition, FOLLOW_RETARGET_THRESHOLD_PX)) {
+      this.recalculateFollowRoute()
+    }
+  }
+
+  /**
+   * Aims at a point `FOLLOW_STANDOFF_DISTANCE_PX` from the followed avatar's current position
+   * (not the exact tile, so the two avatars never stack) and records that position as the new
+   * recalculation baseline, regardless of whether a route was actually walked — an already-close-
+   * enough target (`resolveApproachPoint` returning `null`) still counts as "recalculated", or
+   * the very next frame would immediately trigger another recalculation for the same position.
+   */
+  private recalculateFollowRoute(): void {
+    const sessionId = this.followController.targetSessionId
+    const target = sessionId ? this.remoteAvatars.get(sessionId) : undefined
+    if (!target) {
+      return
+    }
+
+    const targetPosition = { x: target.avatar.x, y: target.avatar.y }
+    this.followController.recalculated(targetPosition)
+
+    const point = resolveApproachPoint({ x: this.avatar.x, y: this.avatar.y }, targetPosition, FOLLOW_STANDOFF_DISTANCE_PX)
+    if (!point) {
+      // Already close enough — don't keep chasing the exact tile.
+      this.autoWalkController.cancel()
+      this.clearWalkTargetMarker()
+      return
+    }
+    this.walkTo(point.x, point.y, false)
   }
 
   private showWalkTargetMarker(point: { x: number, y: number }): void {

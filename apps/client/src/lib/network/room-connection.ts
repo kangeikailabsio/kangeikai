@@ -1,7 +1,7 @@
 import type { MapSchema } from '@colyseus/schema'
 import type { Room } from '@colyseus/sdk'
 import type { PoolCommand, PoolEvent } from '@kangeikai/game-pool/protocol'
-import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
+import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, CharacterSelection } from '@kangeikai/shared'
 import { PUBLIC_COLYSEUS_URL } from '$env/static/public'
 import { Client, getStateCallbacks } from '@colyseus/sdk'
 import { POOL_COMMAND, POOL_EVENT } from '@kangeikai/game-pool/protocol'
@@ -20,6 +20,8 @@ export interface OfficeJoinOptions {
    */
   accessCode: string
   presence?: AvatarPresence
+  /** Absent for a guest with no Character Creator selection (issue #169's fallback decision). */
+  characterSelection?: CharacterSelection
 }
 
 /** Mirrors contracts/office-room-protocol.md's UpdateStatePayload. */
@@ -32,17 +34,49 @@ export interface UpdateStatePayload {
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected'
 
+/**
+ * Mirrors apps/server's message-schemas.ts InteractionPayload's `kind` — a generic point-to-
+ * point nudge. Only `'hello'` (issue #157, "Say Hello") is acted on by any client feature today;
+ * `'attention'` is reserved for a planned follow-up issue ("chamar atenção") that reuses this
+ * exact same message/handler shape.
+ */
+export type InteractionKind = 'hello' | 'attention'
+
+/** Mirrors apps/server's `interactionReceived` message payload. */
+export interface InteractionReceivedPayload {
+  kind: InteractionKind
+  fromSessionId: string
+  fromDisplayName: string
+}
+
 type ConnectionStateListener = (state: ConnectionState) => void
 type RemoteAvatarListener = (sessionId: string, avatar: AvatarState) => void
 type RemoteAvatarRemoveListener = (sessionId: string) => void
+type InteractionReceivedListener = (payload: InteractionReceivedPayload) => void
 
 /** Baked in at build time (adapter-static/SPA — no server to read this at runtime) — see .env.example. */
 const DEFAULT_SERVER_URL = PUBLIC_COLYSEUS_URL
 /** How long to wait for the server's "sessionProof" message before giving up (see connect()). */
 const SESSION_PROOF_TIMEOUT_MS = 5000
 
+/**
+ * The raw shape actually on the wire (`AvatarSchema`) — `characterSelection` is a JSON string
+ * there (issue #171), not yet the parsed `CharacterSelection` object `AvatarState` exposes to
+ * the rest of the client. `toAvatarSnapshot` is the boundary that converts one into the other.
+ */
+interface AvatarSchemaLike {
+  displayName: string
+  x: number
+  y: number
+  direction: AvatarDirection
+  motionState: AvatarMotionState
+  spriteType: AvatarSpriteType
+  presence: AvatarPresence
+  characterSelection: string
+}
+
 interface OfficeRoomStateShape {
-  players: MapSchema<AvatarState>
+  players: MapSchema<AvatarSchemaLike>
 }
 
 /**
@@ -56,7 +90,20 @@ interface OfficeRoomLike {
   onJoin: (client: unknown, options?: OfficeJoinOptions) => unknown
 }
 
-function toAvatarSnapshot(avatar: AvatarState): AvatarState {
+/** Empty string (no selection) or malformed JSON both become `undefined` — never throws. */
+function parseCharacterSelection(raw: string): CharacterSelection | undefined {
+  if (!raw) {
+    return undefined
+  }
+  try {
+    return JSON.parse(raw) as CharacterSelection
+  }
+  catch {
+    return undefined
+  }
+}
+
+function toAvatarSnapshot(avatar: AvatarSchemaLike): AvatarState {
   return {
     displayName: avatar.displayName,
     x: avatar.x,
@@ -65,6 +112,7 @@ function toAvatarSnapshot(avatar: AvatarState): AvatarState {
     motionState: avatar.motionState,
     spriteType: avatar.spriteType,
     presence: avatar.presence,
+    characterSelection: parseCharacterSelection(avatar.characterSelection),
   }
 }
 
@@ -101,6 +149,7 @@ export class RoomConnection {
   private readonly remoteAddListeners = new Set<RemoteAvatarListener>()
   private readonly remoteChangeListeners = new Set<RemoteAvatarListener>()
   private readonly remoteRemoveListeners = new Set<RemoteAvatarRemoveListener>()
+  private readonly interactionReceivedListeners = new Set<InteractionReceivedListener>()
 
   private readonly stateSender = new PendingUpdateStateSender(payload => this.room?.send('updateState', payload))
   private proof: string | undefined
@@ -153,6 +202,12 @@ export class RoomConnection {
     return () => this.remoteRemoveListeners.delete(listener)
   }
 
+  /** Fires whenever the server relays a point-to-point interaction (issue #157's "Say Hello") addressed to the local session. */
+  onInteractionReceived(listener: InteractionReceivedListener): () => void {
+    this.interactionReceivedListeners.add(listener)
+    return () => this.interactionReceivedListeners.delete(listener)
+  }
+
   async connect(options: OfficeJoinOptions): Promise<void> {
     this.emitConnectionState('connecting')
     try {
@@ -163,6 +218,7 @@ export class RoomConnection {
       room.onDrop(() => this.emitConnectionState('connecting'))
       room.onReconnect(() => this.emitConnectionState('connected'))
       this.bindRemoteAvatarEvents(room)
+      this.bindInteractionEvents(room)
       await this.awaitSessionProof(room)
       this.emitConnectionState('connected')
     }
@@ -226,6 +282,11 @@ export class RoomConnection {
     this.room?.send('setPresence', { presence })
   }
 
+  /** Sends a point-to-point interaction (issue #157's "Say Hello") to `targetSessionId` — the server revalidates both sides' presence before relaying it, so this is a no-op rather than a client-side guarantee. */
+  sendInteraction(kind: InteractionKind, targetSessionId: string): void {
+    this.room?.send('interaction', { kind, targetSessionId })
+  }
+
   private bindRemoteAvatarEvents(room: Room<OfficeRoomLike, OfficeRoomStateShape>): void {
     const callbacks = getStateCallbacks(room)
 
@@ -247,7 +308,15 @@ export class RoomConnection {
     })
   }
 
-  private emitRemoteAvatar(listeners: Set<RemoteAvatarListener>, sessionId: string, avatar: AvatarState): void {
+  private bindInteractionEvents(room: Room<OfficeRoomLike, OfficeRoomStateShape>): void {
+    room.onMessage<InteractionReceivedPayload>('interactionReceived', (payload) => {
+      for (const listener of this.interactionReceivedListeners) {
+        listener(payload)
+      }
+    })
+  }
+
+  private emitRemoteAvatar(listeners: Set<RemoteAvatarListener>, sessionId: string, avatar: AvatarSchemaLike): void {
     const snapshot = toAvatarSnapshot(avatar)
     for (const listener of listeners) {
       listener(sessionId, snapshot)

@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.9.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.8.0...v0.9.0) (2026-09-16)
+
+
+### Features
+
+* Character Creator — customização de avatar (corpo, olhos, roupa, cabelo, acessório) ([#176](https://github.com/kangeikailabsio/kangeikai/issues/176)) ([114c29b](https://github.com/kangeikailabsio/kangeikai/commit/114c29bbceab5a0b495d8b9cf8e247f907d1d4fb))
+
+## [0.8.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.7.0...v0.8.0) (2026-09-11)
+
+
+### Features
+
+* "chamar atenção" — camera shake + blocking modal ([#158](https://github.com/kangeikailabsio/kangeikai/issues/158)) ([#165](https://github.com/kangeikailabsio/kangeikai/issues/165)) ([310c7f8](https://github.com/kangeikailabsio/kangeikai/commit/310c7f84ec4ef5443e7088b4f77df6e453844832))
+* "Say Hello" button with a persistent toast and notification sound ([#164](https://github.com/kangeikailabsio/kangeikai/issues/164)) ([f6eb493](https://github.com/kangeikailabsio/kangeikai/commit/f6eb49317b8513ede9e4de557c92c78f00cdcc6d))
+* **client:** "Follow" button continuously follows another avatar ([#163](https://github.com/kangeikailabsio/kangeikai/issues/163)) ([47abee9](https://github.com/kangeikailabsio/kangeikai/commit/47abee980b7aad4c40249eaf42aea68da579d62b))
+* **client:** "Go to" button walks to another avatar's position ([#161](https://github.com/kangeikailabsio/kangeikai/issues/161)) ([963d9d0](https://github.com/kangeikailabsio/kangeikai/commit/963d9d0d4f88d5e2ba2d5fd14bcde8de9ae27344))
+
 ## [0.7.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.6.3...v0.7.0) (2026-09-10)
 
 

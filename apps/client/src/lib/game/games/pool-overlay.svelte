@@ -2,6 +2,7 @@
   import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
   import { gameSessionState as session } from '$lib/game/games/game-session-state.svelte'
   import AvatarPortrait from '$lib/people/avatar-portrait.svelte'
+  import { attentionModalState } from '$lib/ui/attention-modal-state.svelte'
   import { createPoolRenderer } from '@kangeikai/game-pool/client'
   import { ballBodyCss, ballHueCss, groupOf, hasClearedGroup, toCssHex } from '@kangeikai/game-pool/core'
   import { FLOOR_EDGE } from '@kangeikai/game-pool/floor'
@@ -17,7 +18,7 @@
   const snapshot = $derived(session.snapshot)
   const seat = $derived(snapshot?.players.findIndex(player => player?.sessionId === session.sessionId) ?? -1)
   const active = $derived(snapshot?.phase === 'aiming' || snapshot?.phase === 'moving')
-  const canInteract = $derived(Boolean(snapshot && session.connected && !session.closing && !confirmExit && !screenShareOverlayState.expanded && !snapshot.paused && snapshot.phase === 'aiming' && seat === snapshot.turn))
+  const canInteract = $derived(Boolean(snapshot && session.connected && !session.closing && !confirmExit && !screenShareOverlayState.expanded && !attentionModalState.open && !snapshot.paused && snapshot.phase === 'aiming' && seat === snapshot.turn))
   const placing = $derived(Boolean(snapshot?.ballInHand && (!snapshot.cuePlaced || reposition)))
   const remaining = $derived(snapshot?.paused ? Math.ceil(snapshot.remainingMs / 1000) : snapshot?.deadline ? Math.max(0, Math.ceil((snapshot.deadline - snapshot.serverTime - (now - session.receivedAt)) / 1000)) : null)
   /**
@@ -82,7 +83,7 @@
   }
 
   function keydown(event: KeyboardEvent): void {
-    if (screenShareOverlayState.expanded)
+    if (screenShareOverlayState.expanded || attentionModalState.open)
       return
     if (event.code === 'Escape') {
       event.preventDefault()

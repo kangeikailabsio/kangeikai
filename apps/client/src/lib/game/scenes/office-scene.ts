@@ -5,7 +5,8 @@ import type { RemoteVideoOverlayCandidate, VideoOverlayParticipant } from '$lib/
 import type { HoverTarget } from '$lib/game/entities/avatar-hover'
 import type { CollisionRect } from '$lib/game/map/collision'
 import type { PathfindingGrid } from '$lib/game/map/pathfinding'
-import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, PrivateZone, TiledSpaceObject } from '@kangeikai/shared'
+import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, GameTable, PrivateZone, TiledSpaceObject } from '@kangeikai/shared'
+
 import type { LocalVideoTrack, RemoteVideoTrack, Room } from 'livekit-client'
 import avatarManIdleUrl from '$lib/assets/sprites/avatar-man-idle.png?url'
 import avatarManWalkUrl from '$lib/assets/sprites/avatar-man-walk.png?url'
@@ -26,6 +27,9 @@ import { clampedCameraCenter, clampZoom, fitToMapZoom } from '$lib/game/camera/c
 import { Avatar, AVATAR_FRAME_RANGES, feetHitbox, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
 import { resolveHoverTargetPosition } from '$lib/game/entities/avatar-hover'
 import { AvatarNameLabel } from '$lib/game/entities/avatar-name-label'
+import { blocksOfficeInput, isTypingTarget, nextOverlayRefresh } from '$lib/game/games/game-input'
+import { gameSessionState } from '$lib/game/games/game-session-state.svelte'
+import { TableGlow } from '$lib/game/games/table-glow'
 import { AutoWalkController } from '$lib/game/input/auto-walk-controller'
 import { DoubleClickDetector } from '$lib/game/input/double-click-detector'
 import { MovementController } from '$lib/game/input/movement-controller'
@@ -35,7 +39,7 @@ import { resolveRespawnPoint } from '$lib/game/map/respawn-point'
 import { RoomConnection } from '$lib/network/room-connection'
 import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
 import { toastState } from '$lib/ui/toast-state.svelte'
-import { privateZoneAt, resolvePrivateZones } from '@kangeikai/shared'
+import { privateZoneAt, resolveGameTables, resolvePrivateZones, selectGameTable, tableContains } from '@kangeikai/shared'
 import { Track } from 'livekit-client'
 import Phaser from 'phaser'
 
@@ -224,6 +228,39 @@ export interface OfficeSceneData {
 }
 
 export class OfficeScene extends Phaser.Scene {
+  private gameTables: GameTable[] = []
+  private tableGlows = new Map<string, TableGlow>()
+  private gameWasOpen = false
+  /** Next frame time the video-strip view models may be rebuilt (see `nextOverlayRefresh`). */
+  private overlayRefreshDueAt = 0
+
+  private officeInputBlocked(): boolean {
+    return blocksOfficeInput({ gameOpen: gameSessionState.open, screenShareOpen: screenShareOverlayState.expanded, busy: this.presence === 'busy', typing: isTypingTarget(document.activeElement) })
+  }
+
+  private hoveredGameTable(): GameTable | undefined {
+    const pointer = this.input.activePointer
+    const point = this.cameras.main.getWorldPoint(pointer.x, pointer.y)
+    return this.gameTables.find(table => tableContains(table, point.x, point.y))
+  }
+
+  private openGameTable(table: GameTable): void {
+    this.movementController.clear()
+    this.autoWalkController.cancel()
+    this.clearWalkTargetMarker()
+    avatarProfileState.close()
+    this.roomConnection.sendState({ x: this.avatar.x, y: this.avatar.y, direction: this.avatar.direction, motionState: 'idle' })
+    gameSessionState.openTable(table.id)
+  }
+
+  private updateGameInteraction(): void {
+    const hovered = this.hoveredGameTable()
+    const nearby = selectGameTable(this.gameTables, this.avatar.x, this.avatar.y, hovered?.id)
+    const highlighted = !this.officeInputBlocked() && hovered?.id === nearby?.id ? nearby?.id : undefined
+    for (const [id, glow] of this.tableGlows)
+      glow.setActive(id === highlighted)
+  }
+
   private readonly movementController = new MovementController()
   private readonly autoWalkController = new AutoWalkController()
   private readonly doubleClickDetector = new DoubleClickDetector()
@@ -331,6 +368,17 @@ export class OfficeScene extends Phaser.Scene {
     const spaceObjects = (map.getObjectLayer('spaces')?.objects ?? []) as TiledSpaceObject[]
     this.privateZones = resolvePrivateZones(spaceObjects)
     this.privateRoomController.setZones(this.privateZones)
+    this.gameTables = resolveGameTables(map.getObjectLayer('games')?.objects ?? [])
+    for (const table of this.gameTables) {
+      const layer = map.layers.find(layer => layer.name.endsWith(`/${table.id}/table`))?.tilemapLayer
+      if (layer)
+        this.tableGlows.set(table.id, new TableGlow(this, layer, table))
+    }
+    const disconnectGameSession = gameSessionState.connect(this.roomConnection)
+    const removeGameErrors = this.roomConnection.onPoolEvent((event) => {
+      if (event.kind === 'error' && !gameSessionState.open)
+        toastState.show(event.message)
+    })
 
     this.privateZoneSpotlight = this.add.graphics()
     this.privateZoneSpotlight.setDepth(PRIVATE_ZONE_SPOTLIGHT_DEPTH)
@@ -421,6 +469,10 @@ export class OfficeScene extends Phaser.Scene {
       })
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.tableGlows.forEach(glow => glow.destroy())
+      this.tableGlows.clear()
+      disconnectGameSession()
+      removeGameErrors()
       this.input.keyboard?.off('keydown', this.handleKeyDown, this)
       this.input.keyboard?.off('keyup', this.handleKeyUp, this)
       this.input.off('pointerdown', this.handlePointerDown, this)
@@ -630,7 +682,23 @@ export class OfficeScene extends Phaser.Scene {
     this.connectProximityAudio(micEnabled, cameraEnabled, false)
   }
 
-  update(_time: number, delta: number): void {
+  update(time: number, delta: number): void {
+    const gameOpen = gameSessionState.open
+    if (gameOpen || this.gameWasOpen) {
+      this.movementController.clear()
+      this.autoWalkController.cancel()
+      this.clearWalkTargetMarker()
+    }
+    if (gameOpen !== this.gameWasOpen) {
+      // Render off, logic on: `SceneManager.render` gates on `visible` while `update` keeps stepping
+      // every active scene, so proximity audio/video and private-room logic carry on while the 82
+      // flattened tile layers stop being culled and re-tessellated behind a full-screen overlay.
+      this.scene.setVisible(!gameOpen)
+    }
+    this.gameWasOpen = gameOpen
+    const overlayRefresh = nextOverlayRefresh(time, this.overlayRefreshDueAt, gameOpen)
+    this.overlayRefreshDueAt = overlayRefresh.dueAt
+    const refreshOverlay = overlayRefresh.refresh
     const screenShareOverlayOpen = screenShareOverlayState.expanded
     if (screenShareOverlayOpen && !this.wasScreenShareOverlayExpanded) {
       // Same care as setLocalPresence's busy transition: cancel whatever's already pressed so
@@ -639,7 +707,7 @@ export class OfficeScene extends Phaser.Scene {
     }
     this.wasScreenShareOverlayExpanded = screenShareOverlayOpen
 
-    const manualIntent = (this.presence === 'busy' || screenShareOverlayOpen)
+    const manualIntent = this.officeInputBlocked()
       ? { direction: null, sprint: false }
       : this.movementController.getIntent()
 
@@ -710,9 +778,10 @@ export class OfficeScene extends Phaser.Scene {
       // Isolated, small room — everyone in it is "in the call", no distance falloff needed.
       // Local busy still hides the strip here: this path lists all remoteParticipants, not nearby.
       if (this.presence === 'busy') {
-        videoOverlayState.set([])
+        if (refreshOverlay)
+          videoOverlayState.set([])
       }
-      else {
+      else if (refreshOverlay) {
         // `occupantSessionIds` (Colyseus position, always accurate) is who's expected in this
         // zone's call; `remoteParticipants` (LiveKit) is who's actually connected so far — the
         // gap between the two is exactly who gets a pending placeholder (issue #141). Recomputed
@@ -734,22 +803,27 @@ export class OfficeScene extends Phaser.Scene {
       if (this.localPrivateRoomConnectErrorZoneId !== null) {
         const { zoneId, occupantSessionIds } = resolvePrivateZoneOccupancy(this.privateZones, localPosition, remotePositions)
         if (zoneId === this.localPrivateRoomConnectErrorZoneId) {
-          this.updateVideoOverlayForLocalConnectError(occupantSessionIds)
+          if (refreshOverlay)
+            this.updateVideoOverlayForLocalConnectError(occupantSessionIds)
         }
         else {
           // No longer standing in the zone that failed (issue #142) — stop showing its error
-          // tile; PrivateRoomController's own retry-blocking already resets the same way.
+          // tile; PrivateRoomController's own retry-blocking already resets the same way. This is
+          // real state, not a view write, so it is never throttled: delaying it would keep a stale
+          // error tile alive after the avatar has already left the zone.
           this.localPrivateRoomConnectErrorZoneId = null
-          this.updateVideoOverlay(nearbySessionIds, this.proximityAudioController.liveKitRoom)
+          if (refreshOverlay)
+            this.updateVideoOverlay(nearbySessionIds, this.proximityAudioController.liveKitRoom)
         }
       }
-      else {
+      else if (refreshOverlay) {
         this.updateVideoOverlay(nearbySessionIds, this.proximityAudioController.liveKitRoom)
       }
     }
 
     this.updateRemoteAvatarViews(delta / 1000)
     this.updateHoverRing()
+    this.updateGameInteraction()
   }
 
   /**
@@ -1028,6 +1102,16 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
+    if (gameSessionState.open || screenShareOverlayState.expanded || isTypingTarget(event.target))
+      return
+    if (event.code === 'KeyX') {
+      if (!event.repeat && this.presence !== 'busy') {
+        const table = selectGameTable(this.gameTables, this.avatar.x, this.avatar.y, this.hoveredGameTable()?.id)
+        if (table)
+          this.openGameTable(table)
+      }
+      return
+    }
     if (event.code === 'KeyB') {
       if (!event.repeat) {
         void this.toggleBusyPresence()
@@ -1068,6 +1152,8 @@ export class OfficeScene extends Phaser.Scene {
    * every frame at any zoom, so no separate anchor math is needed here.
    */
   private handleWheel(_pointer: Phaser.Input.Pointer, _currentlyOver: Phaser.GameObjects.GameObject[], _deltaX: number, deltaY: number): void {
+    if (this.officeInputBlocked())
+      return
     const factor = Math.exp(-deltaY * WHEEL_ZOOM_SENSITIVITY)
     this.targetZoom = clampZoom(this.targetZoom * factor, this.minZoom, MAX_ZOOM)
     this.cameras.main.zoomTo(this.targetZoom, ZOOM_TWEEN_DURATION_MS)
@@ -1118,6 +1204,16 @@ export class OfficeScene extends Phaser.Scene {
    * runs before the `isDoubleClick` check returns early below), the second one just also walks.
    */
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
+    if (this.officeInputBlocked() || !pointer.leftButtonDown())
+      return
+    const hovered = this.hoveredGameTable()
+    if (hovered && selectGameTable([hovered], this.avatar.x, this.avatar.y)) {
+      this.openGameTable(hovered)
+      return
+    }
+
+    if (this.presence === 'busy')
+      return
     const isDoubleClick = this.doubleClickDetector.registerClick({ x: pointer.x, y: pointer.y }, this.time.now)
     if (!isDoubleClick) {
       if (this.hoveredTarget) {

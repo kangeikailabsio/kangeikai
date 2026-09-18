@@ -1,9 +1,11 @@
 import type { Client } from 'colyseus'
 import process from 'node:process'
+import { POOL_COMMAND, POOL_EVENT } from '@kangeikai/game-pool/protocol'
+import { PoolManager } from '@kangeikai/game-pool/server'
 import { privateZoneAt } from '@kangeikai/shared'
 import { CloseCode, Room } from 'colyseus'
 import * as v from 'valibot'
-import { privateZones } from '../map-zones'
+import { gameTables, privateZones } from '../map-zones'
 import { computeSessionProof } from '../session-proof'
 import { officeJoinOptionsSchema, setPresencePayloadSchema, updateStatePayloadSchema } from './message-schemas'
 import { AvatarSchema } from './schema/avatar-schema'
@@ -20,8 +22,24 @@ const SPAWN_Y = 150
 const RECONNECTION_GRACE_PERIOD_SECONDS = 15
 
 export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
+  private pool!: PoolManager
+
   onCreate(): void {
     this.setState(new OfficeRoomState())
+    this.pool = new PoolManager(gameTables, {
+      identity: (sessionId) => {
+        const avatar = this.state.players.get(sessionId)
+        return avatar ? { name: avatar.displayName, spriteType: avatar.spriteType, x: avatar.x, y: avatar.y, available: avatar.presence === 'available' } : undefined
+      },
+      send: (sessionId, event) => this.clients.find(client => client.sessionId === sessionId)?.send(POOL_EVENT, event),
+    })
+    this.onMessage(POOL_COMMAND, (client, message) => {
+      this.pool.handle(client.sessionId, message)
+      const avatar = this.state.players.get(client.sessionId)
+      if (avatar && this.pool.isAttached(client.sessionId))
+        avatar.motionState = 'idle'
+    })
+    this.setSimulationInterval(delta => this.pool.tick(delta), 1000 / 60)
 
     this.onMessage('updateState', (client, message) => {
       const result = v.safeParse(updateStatePayloadSchema, message)
@@ -34,7 +52,7 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
         return
       }
 
-      if (avatar.presence === 'busy') {
+      if (avatar.presence === 'busy' || this.pool.isAttached(client.sessionId)) {
         return
       }
 
@@ -124,16 +142,24 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
     this.state.players.delete(client.sessionId)
 
     if (!avatar || code === CloseCode.CONSENTED) {
+      this.pool.leave(client.sessionId)
       return
     }
 
+    this.pool.drop(client.sessionId)
     try {
       await this.allowReconnection(client, RECONNECTION_GRACE_PERIOD_SECONDS)
       this.state.players.set(client.sessionId, avatar)
+      this.pool.reconnect(client.sessionId)
     }
     catch {
+      this.pool.leave(client.sessionId)
       // Grace period elapsed without reconnecting — session is already removed above, so this
       // finalizes as a full leave (FR-009) with no further action needed.
     }
+  }
+
+  onDispose(): void {
+    this.pool.dispose()
   }
 }

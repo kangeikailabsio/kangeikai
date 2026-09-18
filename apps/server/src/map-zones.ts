@@ -1,6 +1,6 @@
 import type { PrivateZone, TiledSpaceObject } from '@kangeikai/shared'
 import { readFileSync } from 'node:fs'
-import { resolvePrivateZones } from '@kangeikai/shared'
+import { resolveGameTables, resolvePrivateZones } from '@kangeikai/shared'
 
 interface TiledLayer {
   name: string
@@ -31,3 +31,6 @@ function loadPrivateZones(): PrivateZone[] {
 
 /** Parsed once at process startup — the map doesn't change while the server is running. */
 export const privateZones: PrivateZone[] = loadPrivateZones()
+
+const mapJson = JSON.parse(readFileSync(MAP_PATH, 'utf-8')) as TiledMapJson
+export const gameTables = resolveGameTables(mapJson.layers.find(layer => layer.name === 'games')?.objects ?? [])

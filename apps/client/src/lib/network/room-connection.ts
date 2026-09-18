@@ -1,8 +1,10 @@
 import type { MapSchema } from '@colyseus/schema'
 import type { Room } from '@colyseus/sdk'
+import type { PoolCommand, PoolEvent } from '@kangeikai/game-pool/protocol'
 import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
 import { PUBLIC_COLYSEUS_URL } from '$env/static/public'
 import { Client, getStateCallbacks } from '@colyseus/sdk'
+import { POOL_COMMAND, POOL_EVENT } from '@kangeikai/game-pool/protocol'
 import { PendingUpdateStateSender } from './pending-update-state-sender'
 
 /**
@@ -83,6 +85,19 @@ export class RoomConnection {
   private room: Room<OfficeRoomLike, OfficeRoomStateShape> | undefined
 
   private readonly connectionListeners = new Set<ConnectionStateListener>()
+  private readonly poolListeners = new Set<(event: PoolEvent) => void>()
+
+  onPoolEvent(listener: (event: PoolEvent) => void): () => void {
+    this.poolListeners.add(listener)
+    return () => {
+      this.poolListeners.delete(listener)
+    }
+  }
+
+  sendPool(command: PoolCommand): void {
+    this.room?.send(POOL_COMMAND, command)
+  }
+
   private readonly remoteAddListeners = new Set<RemoteAvatarListener>()
   private readonly remoteChangeListeners = new Set<RemoteAvatarListener>()
   private readonly remoteRemoveListeners = new Set<RemoteAvatarRemoveListener>()
@@ -143,6 +158,7 @@ export class RoomConnection {
     try {
       const room = await this.client.joinOrCreate<OfficeRoomLike>('office', options)
       this.room = room
+      room.onMessage<PoolEvent>(POOL_EVENT, event => this.poolListeners.forEach(listener => listener(event)))
       room.onLeave(() => this.emitConnectionState('disconnected'))
       room.onDrop(() => this.emitConnectionState('connecting'))
       room.onReconnect(() => this.emitConnectionState('connected'))

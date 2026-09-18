@@ -1,21 +1,9 @@
 <script lang='ts'>
-  import type { AvatarSpriteType } from '@kangeikai/shared'
-  import avatarManIdleUrl from '$lib/assets/sprites/avatar-man-idle.png?url'
-  import avatarWomanIdleUrl from '$lib/assets/sprites/avatar-woman-idle.png?url'
   import { connectionQualityDisplayState } from '$lib/av/connection-quality-display-state.svelte'
   import { fpsDisplayState } from '$lib/game/fps-display-state.svelte'
+  import AvatarPortrait from '$lib/people/avatar-portrait.svelte'
   import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
   import { rosterState } from '$lib/people/roster-state.svelte'
-
-  const AVATAR_IDLE_URL: Record<AvatarSpriteType, string> = {
-    man: avatarManIdleUrl,
-    woman: avatarWomanIdleUrl,
-  }
-
-  /** Frame width mirrors office-scene.ts's AVATAR_FRAME_SIZE (height is set directly in CSS below). */
-  const FRAME_WIDTH = 32
-  /** First frame of the "down" (idle, facing the camera) range — avatar.ts's AVATAR_FRAME_RANGES.down.start — a standing-still portrait, not a walk-cycle frame. */
-  const ICON_FRAME_INDEX = 18
 
   /**
    * `avatarProfileState.selected` is a sessionId, or the sentinel `'local'` for the player's own
@@ -38,11 +26,7 @@
   <div class='avatar-profile-panel' role='dialog' aria-label='Avatar profile'>
     <button type='button' class='close' onclick={() => avatarProfileState.close()} aria-label='Close'>×</button>
     <div class='header'>
-      <div
-        class='icon'
-        style:background-image='url({AVATAR_IDLE_URL[person.spriteType]})'
-        style:background-position='-{ICON_FRAME_INDEX * FRAME_WIDTH}px 0'
-      ></div>
+      <AvatarPortrait spriteType={person.spriteType} name={person.name} />
       <div class='info'>
         <span class='name'>{person.name}</span>
         <span class='presence'>
@@ -119,14 +103,6 @@
 
   .close:hover {
     color: #fff;
-  }
-
-  .icon {
-    width: 32px;
-    height: 64px;
-    background-repeat: no-repeat;
-    image-rendering: pixelated;
-    flex-shrink: 0;
   }
 
   .info {

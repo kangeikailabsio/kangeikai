@@ -113,13 +113,27 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
   }
 
   onJoin(client: Client, options: unknown): void {
-    const { displayName, spriteType, presence, characterSelection } = v.parse(officeJoinOptionsSchema, options)
+    const { displayName, spriteType, presence, characterSelection, guestId } = v.parse(officeJoinOptionsSchema, options)
+
+    // Same guest rejoining (typically a page reload) while their previous session's avatar is
+    // still around — e.g. the old socket hasn't closed on the server yet, or is still within its
+    // `allowReconnection` grace period below. Drop it synchronously instead of leaving both
+    // entries on the map until `onLeave`/the grace period eventually catches up (issue #178).
+    if (guestId) {
+      for (const [existingSessionId, existingAvatar] of this.state.players.entries()) {
+        if (existingAvatar.guestId === guestId) {
+          this.state.players.delete(existingSessionId)
+          break
+        }
+      }
+    }
 
     const avatar = new AvatarSchema()
     avatar.displayName = displayName
     avatar.spriteType = spriteType
     avatar.presence = presence
     avatar.characterSelection = characterSelection ? JSON.stringify(characterSelection) : ''
+    avatar.guestId = guestId ?? ''
     avatar.x = SPAWN_X
     avatar.y = SPAWN_Y
 

@@ -40,12 +40,13 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   `docs/mvp-plan.md`, sem issue aberta pra continuidade real.
 - **Identificador de guest persistente não é autenticado** — a correção da
   [#178](https://github.com/kangeikailabsio/kangeikai/issues/178) usa um UUID gerado pelo próprio
-  client e salvo em `localStorage` só pra deduplicar avatares no `onJoin`; como o servidor nunca
-  verifica esse ID, alguém que descobrisse o ID de outra pessoa (acesso físico ao navegador dela,
-  tráfego sem TLS) poderia forçar a remoção do avatar dela do mapa. Sem exposição de dados —
-  o pior caso é um "kick" que se autocorrige no próximo join dela. Resolver de verdade exige
-  credencial de sessão assinada pelo servidor, o que só faz sentido quando existir conta de
-  usuário.
+  client e salvo em `sessionStorage` (por aba, não `localStorage`/por navegador — evita que abrir
+  uma segunda aba do mesmo navegador derrube o avatar da primeira) só pra deduplicar avatares no
+  `onJoin`; como o servidor nunca verifica esse ID, alguém que descobrisse o ID de outra pessoa
+  (acesso físico à aba dela, tráfego sem TLS) poderia forçar a remoção do avatar dela do mapa.
+  Sem exposição de dados — o pior caso é um "kick" que se autocorrige no próximo join dela.
+  Resolver de verdade exige credencial de sessão assinada pelo servidor, o que só faz sentido
+  quando existir conta de usuário.
 - **`privateZoneAt` assume que zonas privadas nunca se sobrepõem** — `packages/shared/src/private-zones.ts:46-48`
   documenta a suposição mas não a garante; se algum mapa no Tiled tiver duas zonas `private`
   sobrepostas, qual delas "vence" é arbitrário e silencioso. Baixa prioridade — depende de erro

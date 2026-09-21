@@ -25,6 +25,7 @@ import { buildVideoOverlayTiles } from '$lib/av/video-overlay-tiles'
 import { buildCharacterManifest } from '$lib/character/character-pieces'
 import { composeCharacterSheets, loadImageElement } from '$lib/character/compose-character'
 import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
+import { GuestIdStore } from '$lib/entry/guest-id-store'
 import { clampedCameraCenter, clampZoom, fitToMapZoom } from '$lib/game/camera/camera-math'
 import { Avatar, AVATAR_FRAME_RANGES, feetHitbox, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
 import { resolveHoverTargetPosition } from '$lib/game/entities/avatar-hover'
@@ -311,6 +312,7 @@ export class OfficeScene extends Phaser.Scene {
   private hoveredTarget: HoverTarget | undefined
   private hoverRing: Phaser.GameObjects.Arc | undefined
   private readonly busyPresenceStore = new BusyPresenceStore()
+  private readonly guestIdStore = new GuestIdStore()
   private readonly roomConnection = new RoomConnection()
   private readonly proximityAudioController = new ProximityAudioController()
   private readonly privateRoomController = new PrivateRoomController()
@@ -522,6 +524,7 @@ export class OfficeScene extends Phaser.Scene {
       accessCode: this.accessCode,
       presence: this.presence,
       characterSelection: this.characterSelection,
+      guestId: this.guestIdStore.get(),
     })
       .then(() => {
         this.game.events.emit(ROOM_JOINED_EVENT)

@@ -81,7 +81,8 @@ describe('officeRoom', () => {
     // watching for the delta patch clientA's update below is expected to trigger
     await nextStateChange(clientB)
 
-    const nextChange = nextStateChange(clientB)
+    // Joining can produce another unrelated patch before the movement is processed.
+    const nextChange = waitFor(clientB, () => clientB.state.players.get(clientA.sessionId)?.x === 42)
     clientA.send('updateState', { x: 42, y: 84, direction: 'right', motionState: 'walking' })
     await nextChange
 

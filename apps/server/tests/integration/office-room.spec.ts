@@ -486,6 +486,55 @@ describe('officeRoom', () => {
     })
   })
 
+  describe('duplicate-avatar dedup by guestId (issue #178)', () => {
+    it('removes the previous avatar when the same guestId rejoins before the old session leaves', async () => {
+      const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+      const observer = await colyseus.connectTo(room, { displayName: 'Observer', spriteType: 'woman', accessCode: '' })
+
+      const firstJoin = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '', guestId: 'guest-1' })
+      await waitFor(observer, () => observer.state.players.has(firstJoin.sessionId))
+
+      // Simulate a reload racing ahead of the old socket's close being detected server-side:
+      // the old connection is still open (no leave() call) when the same guestId rejoins.
+      const secondJoin = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '', guestId: 'guest-1' })
+      await waitFor(observer, () => !observer.state.players.has(firstJoin.sessionId))
+
+      expect(observer.state.players.has(secondJoin.sessionId)).toBe(true)
+      expect(observer.state.players.size).toBe(2) // observer + secondJoin only
+    })
+
+    it('keeps both avatars when two different guestIds join (different tabs/guests)', async () => {
+      const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+      const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '', guestId: 'guest-a' })
+      const clientB = await colyseus.connectTo(room, { displayName: 'Bob', spriteType: 'woman', accessCode: '', guestId: 'guest-b' })
+
+      await waitFor(clientA, () => clientA.state.players.has(clientB.sessionId))
+      expect(clientA.state.players.has(clientA.sessionId)).toBe(true)
+      expect(clientA.state.players.has(clientB.sessionId)).toBe(true)
+    })
+
+    it('never dedups when guestId is omitted, matching pre-#178 behavior', async () => {
+      const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+      const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+      const clientB = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+
+      await waitFor(clientA, () => clientA.state.players.has(clientB.sessionId))
+      expect(clientA.state.players.has(clientA.sessionId)).toBe(true)
+      expect(clientA.state.players.has(clientB.sessionId)).toBe(true)
+    })
+
+    it('does not leak guestId to other clients\' synced state', async () => {
+      const room = await colyseus.createRoom('office', { displayName: 'Alice', spriteType: 'man', accessCode: '' })
+      const clientA = await colyseus.connectTo(room, { displayName: 'Alice', spriteType: 'man', accessCode: '', guestId: 'guest-secret' })
+      const clientB = await colyseus.connectTo(room, { displayName: 'Bob', spriteType: 'woman', accessCode: '' })
+      await nextStateChange(clientB)
+      await waitFor(clientB, () => clientB.state.players.has(clientA.sessionId))
+
+      const aFromB = clientB.state.players.get(clientA.sessionId) as unknown as Record<string, unknown>
+      expect(aFromB.guestId).toBeUndefined()
+    })
+  })
+
   describe('access code gate (onAuth)', () => {
     afterEach(() => {
       delete process.env.ACCESS_CODE

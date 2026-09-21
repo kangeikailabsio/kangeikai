@@ -20,6 +20,12 @@ export interface OfficeJoinOptions {
   presence?: AvatarPresence
   /** Absent for a guest with no Character Creator selection (issue #169's fallback decision). */
   characterSelection?: CharacterSelection
+  /**
+   * Stable per-tab identifier (`GuestIdStore`) — lets `OfficeRoom.onJoin` recognize a rejoin
+   * from the same tab (e.g. a page reload) and drop the previous, now-stale avatar instead of
+   * leaving a duplicate on the map (issue #178). Never synced to other clients.
+   */
+  guestId: string
 }
 
 /** Mirrors contracts/office-room-protocol.md's UpdateStatePayload. */

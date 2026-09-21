@@ -64,6 +64,18 @@ describe('officeJoinOptionsSchema', () => {
 
     expect(result.success).toBe(false)
   })
+
+  it('accepts and passes through a guestId (issue #178)', () => {
+    const result = v.parse(officeJoinOptionsSchema, { ...baseJoinOptions, guestId: 'guest-123' })
+
+    expect(result.guestId).toBe('guest-123')
+  })
+
+  it('leaves guestId undefined when omitted, for an old client build (issue #178)', () => {
+    const result = v.parse(officeJoinOptionsSchema, baseJoinOptions)
+
+    expect(result.guestId).toBeUndefined()
+  })
 })
 
 describe('setPresencePayloadSchema', () => {

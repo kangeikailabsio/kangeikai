@@ -7,6 +7,9 @@ export const GUEST_PROFILE_STORAGE_KEY = 'kangeikai:guest-profile'
 /** Single `sessionStorage` key the busy/available picklist is stored under (per-tab presence). */
 export const BUSY_PRESENCE_STORAGE_KEY = 'kangeikai:busy-presence'
 
+/** Single `sessionStorage` key the per-tab guest identifier is stored under (issue #178's dedup). */
+export const GUEST_ID_STORAGE_KEY = 'kangeikai:guest-id'
+
 /** Combined with a noun and a number by `generateDefaultName()` (FR-006, research.md). */
 export const DEFAULT_NAME_ADJECTIVES = [
   'Quiet',

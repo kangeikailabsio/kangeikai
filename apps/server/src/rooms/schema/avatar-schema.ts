@@ -16,4 +16,10 @@ export class AvatarSchema extends Schema {
    * parses it back in `room-connection.ts`'s `toAvatarSnapshot`.
    */
   @type('string') characterSelection = ''
+
+  /**
+   * Deliberately NOT `@type`-annotated — this is server-only bookkeeping for `OfficeRoom.onJoin`'s
+   * duplicate-avatar dedup (issue #178), never synced to any client.
+   */
+  guestId = ''
 }

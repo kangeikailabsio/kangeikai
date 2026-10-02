@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/kangeikailabsio/kangeikai/compare/v0.9.0...v0.9.1) (2026-09-21)
+
+
+### Fixes
+
+* dedupe stale avatars on rejoin via a persistent guest identifier ([#178](https://github.com/kangeikailabsio/kangeikai/issues/178)) ([#181](https://github.com/kangeikailabsio/kangeikai/issues/181)) ([81aefbc](https://github.com/kangeikailabsio/kangeikai/commit/81aefbcd6ae1af655550eb89f5989748c119bde0))
+
 ## [0.9.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.8.0...v0.9.0) (2026-09-16)
 
 

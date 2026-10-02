@@ -46,6 +46,12 @@ export const officeJoinOptionsSchema = v.object({
   accessCode: v.string(),
   /** Absent for a guest with no Character Creator selection (issue #169's fallback decision). */
   characterSelection: v.optional(characterSelectionSchema),
+  /**
+   * Client's per-tab identifier (issue #178), used by `OfficeRoom.onJoin` to drop a stale
+   * duplicate left behind by the same tab's previous session. Optional so an old/mismatched
+   * client build without it still joins — it just skips the dedup, same as today.
+   */
+  guestId: v.optional(v.string()),
 })
 
 /** Client→server "updateState" message payload (contracts/office-room-protocol.md). */

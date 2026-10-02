@@ -13,6 +13,7 @@
   "dependencies": {
     "@colyseus/schema": "^4.0.31",
     "@colyseus/ws-transport": "^0.17.13",
+    "@kangeikai/game-pool": "workspace:*",
     "@kangeikai/shared": "workspace:*",
     "colyseus": "^0.17.10",
     "express": "^5.2.1",

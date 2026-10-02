@@ -1,7 +1,7 @@
 { "compressionlevel":-1,
  "height":80,
  "infinite":false,
- "layers":[
+ "layers":[{"id":152,"name":"games","type":"objectgroup","opacity":1,"visible":true,"x":0,"y":0,"draworder":"topdown","objects":[{"id":119,"name":"pool","type":"game","x":256,"y":1504,"width":128,"height":96,"rotation":0,"visible":true,"properties":[{"name":"gameType","type":"string","value":"pool"}]},{"id":120,"name":"pool-2","type":"game","x":256,"y":1376,"width":128,"height":96,"rotation":0,"visible":true,"properties":[{"name":"gameType","type":"string","value":"pool"}]}]},
         {
          "id":11,
          "layers":[
@@ -9052,8 +9052,8 @@
          "x":0,
          "y":0
         }],
- "nextlayerid":152,
- "nextobjectid":119,
+ "nextlayerid":153,
+ "nextobjectid":121,
  "orientation":"orthogonal",
  "renderorder":"right-down",
  "tiledversion":"1.12.2",

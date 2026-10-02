@@ -1,0 +1,33 @@
+{
+  "name": "@kangeikai/game-pool",
+  "type": "module",
+  "version": "0.0.1",
+  "private": true,
+  "exports": {
+    "./aim": "./src/aim.ts",
+    "./core": "./src/core.ts",
+    "./floor": "./src/floor.ts",
+    "./predict": "./src/predict.ts",
+    "./table-art": "./src/table-art.ts",
+    "./physics": "./src/physics.ts",
+    "./protocol": "./src/protocol.ts",
+    "./server": "./src/server.ts",
+    "./client": "./src/client.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "phaser": "^4.2.1"
+  },
+  "dependencies": {
+    "@kangeikai/shared": "workspace:*",
+    "valibot": "^1.4.2"
+  },
+  "devDependencies": {
+    "phaser": "^4.2.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.0"
+  }
+}

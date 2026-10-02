@@ -24,7 +24,7 @@ export default defineConfig({
       // client (issue #60) — SvelteKit's default fs.allow list doesn't reach outside
       // apps/client, so the dev server 403s on it (production `vite build` isn't affected, since
       // that restriction is dev-server-only) without this.
-      allow: [path.resolve(import.meta.dirname, '../../packages/shared')],
+      allow: [path.resolve(import.meta.dirname, '../../packages')],
     },
   },
   test: {

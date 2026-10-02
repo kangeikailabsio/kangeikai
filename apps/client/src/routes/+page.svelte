@@ -14,6 +14,8 @@
   import EntryForm from '$lib/entry/entry-form.svelte'
   import { GuestProfileStore } from '$lib/entry/guest-profile-store'
   import FpsDisplay from '$lib/game/fps-display.svelte'
+  import { gameSessionState } from '$lib/game/games/game-session-state.svelte'
+  import PoolOverlay from '$lib/game/games/pool-overlay.svelte'
   import { ATTENTION_RECEIVED_EVENT, CONNECTION_QUALITY_CHANGED_EVENT, HELLO_RECEIVED_EVENT, LOCAL_PRESENCE_EVENT, MEDIA_CONTROLS_READY_EVENT, OfficeScene, ROOM_CONNECTION_READY_EVENT, ROOM_JOIN_FAILED_EVENT, ROOM_JOINED_EVENT, SCREEN_SHARE_ENDED_EVENT } from '$lib/game/scenes/office-scene'
   import ConnectionStatusBanner from '$lib/network/connection-status-banner.svelte'
   import AvatarProfilePanel from '$lib/people/avatar-profile-panel.svelte'
@@ -300,6 +302,7 @@
     <MembersSidebar open={membersOpen} />
     <AvatarProfilePanel onGoTo={goToAvatar} onToggleFollow={toggleFollowAvatar} onSayHello={sendHello} onGetAttention={sendAttention} />
     <FollowIndicator onStop={stopFollowing} />
+    {#if gameSessionState.open}<PoolOverlay />{/if}
     <FpsDisplay {game} />
     <ConnectionQualityIndicator quality={connectionQuality} />
     <Toast />

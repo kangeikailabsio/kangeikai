@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.9.1...v0.10.0) (2026-10-16)
+
+
+### Features
+
+* **pool:** add multiplayer eight-ball with spectators ([#180](https://github.com/kangeikailabsio/kangeikai/issues/180)) ([b2244bb](https://github.com/kangeikailabsio/kangeikai/commit/b2244bbe44dfb0410d589dba692040b4eb9e25c4))
+
 ## [0.9.1](https://github.com/kangeikailabsio/kangeikai/compare/v0.9.0...v0.9.1) (2026-09-21)
 
 

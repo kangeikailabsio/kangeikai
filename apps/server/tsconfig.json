@@ -5,6 +5,7 @@
     "experimentalDecorators": true,
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "paths": { "$lib/*": ["./src/*"] },
     "resolveJsonModule": true,
     "strict": true,
     "declaration": false,

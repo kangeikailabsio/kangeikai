@@ -14,7 +14,8 @@
     "dev:server": "pnpm --filter ./apps/server dev",
     "build": "pnpm --filter ./apps/client build",
     "lint": "eslint .",
-    "test": "pnpm --filter ./apps/client test"
+    "test": "pnpm -r --if-present test",
+    "check": "pnpm -r --if-present check"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^4.0.0",

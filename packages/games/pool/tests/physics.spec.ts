@@ -78,8 +78,8 @@ describe('continuous pool physics', () => {
     }
   })
 
-  it('sizes pockets at 1.45 times the ball radius', () => {
-    expect(POCKET_RADIUS).toBe(1.45 * BALL_RADIUS)
+  it('sizes pockets at 1.75 times the ball radius', () => {
+    expect(POCKET_RADIUS).toBe(1.75 * BALL_RADIUS)
   })
 
   it.each([[100, 10, -1600, 0], [300, 10, 1600, 0], [10, 100, 0, -1600], [700, 10, 1600, 0]])('pockets a rail-hugging ball at (%s,%s)', (x, y, vx, vy) => {

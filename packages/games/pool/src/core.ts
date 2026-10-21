@@ -78,7 +78,9 @@ export function evaluateShot(context: ShotContext, report: ShotReport): ShotOutc
       groups[opponent] = first === 'solids' ? 'stripes' : 'solids'
     }
   }
-  const keepsTurn = !foul && report.pocketed.some(id => breaking ? id !== 0 : groupOf(id) !== null && groupOf(id) === groups[shooter])
+  // House rule: potting any opponent ball ends the turn, even alongside an own-group pot (not a foul). Uses the pre-shot groups so an open table still assigns on a mixed pot.
+  const pottedOpponent = !breaking && report.pocketed.some(id => groupOf(id) !== null && groupOf(id) === context.groups[opponent])
+  const keepsTurn = !foul && !pottedOpponent && report.pocketed.some(id => breaking ? id !== 0 : groupOf(id) !== null && groupOf(id) === groups[shooter])
   return { groups, next: keepsTurn ? shooter : opponent, foul, winner, respotEight: breaking && report.pocketed.includes(8) }
 }
 

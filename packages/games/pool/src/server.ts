@@ -3,7 +3,7 @@ import type { ShotReport } from '@kangeikai/game-pool/physics'
 import type { PoolCommand, PoolEvent, PoolSnapshot } from '@kangeikai/game-pool/protocol'
 import type { AvatarSpriteType, GameTable } from '@kangeikai/shared'
 import { evaluateShot, hasClearedGroup } from '@kangeikai/game-pool/core'
-import { canPlaceBall, createRack, emptyReport, FIXED_STEP, MAX_SHOT_SPEED, respotEight, stepPhysics } from '@kangeikai/game-pool/physics'
+import { canPlaceBall, createRack, emptyReport, FIXED_STEP, respotEight, stepPhysics, strikeCue } from '@kangeikai/game-pool/physics'
 import { poolCommandSchema, SHOT_TIME_MS, SNAPSHOT_INTERVAL_MS } from '@kangeikai/game-pool/protocol'
 import { distanceToTable, GAME_INTERACTION_DISTANCE } from '@kangeikai/shared'
 import * as v from 'valibot'
@@ -96,34 +96,41 @@ export class PoolManager {
       if (s.players.every(player => player?.ready && player.connected))
         this.start(table)
     }
-    else {
-      if (index !== s.turn || index < 0 || s.phase !== 'aiming' || s.paused || command.matchId !== s.matchId || command.turnId !== s.turnId) {
-        reject('Esta jogada não está disponível.')
-        return
-      }
-      if (s.deadline !== null && this.now() >= s.deadline) {
-        this.timeout(table)
-        reject('O tempo da jogada terminou.')
-        return
-      }
-      const cue = s.balls.find(ball => ball.id === 0)!
-      if (command.kind === 'place') {
-        if (!s.ballInHand || !canPlaceBall(s.balls, 0, command.x, command.y)) {
-          reject('Posição inválida para a branca.')
-          return
-        }
-        Object.assign(cue, { x: command.x, y: command.y, vx: 0, vy: 0, pocketed: false })
-        s.cuePlaced = true
-      }
-      else if (command.kind === 'shoot') {
-        if (!s.cuePlaced || cue.pocketed) {
-          reject('Posicione a branca antes da tacada.')
-          return
-        }
-        this.shoot(table, command)
-      }
+    else if (!this.takeTurn(table, index, command, reject)) {
+      return
     }
     this.broadcast(table)
+  }
+
+  /** Validates and applies a place/shoot command for the seat at `index`; false when it was rejected. */
+  private takeTurn(table: TableSession, index: number, command: Extract<PoolCommand, { kind: 'place' | 'shoot' }>, reject: (message: string) => void): boolean {
+    const s = table.state
+    if (index !== s.turn || index < 0 || s.phase !== 'aiming' || s.paused || command.matchId !== s.matchId || command.turnId !== s.turnId) {
+      reject('Esta jogada não está disponível.')
+      return false
+    }
+    if (s.deadline !== null && this.now() >= s.deadline) {
+      this.timeout(table)
+      reject('O tempo da jogada terminou.')
+      return false
+    }
+    const cue = s.balls.find(ball => ball.id === 0)!
+    if (command.kind === 'place') {
+      if (!s.ballInHand || !canPlaceBall(s.balls, 0, command.x, command.y)) {
+        reject('Posição inválida para a branca.')
+        return false
+      }
+      Object.assign(cue, { x: command.x, y: command.y, vx: 0, vy: 0, pocketed: false })
+      s.cuePlaced = true
+    }
+    else {
+      if (!s.cuePlaced || cue.pocketed) {
+        reject('Posicione a branca antes da tacada.')
+        return false
+      }
+      this.shoot(table, command)
+    }
+    return true
   }
 
   private open(id: string, tableId: string, reject: (message: string) => void): void {
@@ -209,9 +216,7 @@ export class PoolManager {
     table.context = { shooter: s.turn, groups: [...s.groups], breaking: s.breaking, eligibleForEight: hasClearedGroup(s.balls, s.groups[s.turn]) }
     table.report = emptyReport()
     table.accumulator = 0
-    const cue = s.balls.find(ball => ball.id === 0)!
-    cue.vx = Math.cos(command.angle) * command.power * MAX_SHOT_SPEED
-    cue.vy = Math.sin(command.angle) * command.power * MAX_SHOT_SPEED
+    strikeCue(s.balls, command.angle, command.power)
     s.phase = 'moving'
     s.deadline = null
     s.ballInHand = false

@@ -61,6 +61,13 @@ function impactTime(x: number, y: number, vx: number, vy: number, radius: number
 
 type Impact = { kind: 'pair', a: Ball, b: Ball } | { kind: 'rail', a: Ball, axis: 'x' | 'y' } | { kind: 'pocket', a: Ball }
 
+/** Launches the cue ball: `angle` in radians, `power` in (0, 1] of MAX_SHOT_SPEED. */
+export function strikeCue(balls: Ball[], angle: number, power: number): void {
+  const cue = balls.find(ball => ball.id === 0)!
+  cue.vx = Math.cos(angle) * power * MAX_SHOT_SPEED
+  cue.vy = Math.sin(angle) * power * MAX_SHOT_SPEED
+}
+
 /** Event-based continuous collision detection prevents tunnelling, including at maximum power. */
 export function stepPhysics(balls: Ball[], report: ShotReport, dt = FIXED_STEP): boolean {
   let remaining = dt

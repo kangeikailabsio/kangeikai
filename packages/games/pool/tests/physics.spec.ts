@@ -1,5 +1,5 @@
 import type { Ball } from '@kangeikai/game-pool/physics'
-import { BALL_RADIUS, canPlaceBall, createRack, emptyReport, MAX_SHOT_SPEED, respotEight, stepPhysics } from '@kangeikai/game-pool/physics'
+import { BALL_RADIUS, canPlaceBall, createRack, emptyReport, MAX_SHOT_SPEED, POCKET_RADIUS, respotEight, stepPhysics } from '@kangeikai/game-pool/physics'
 import { describe, expect, it } from 'vitest'
 
 function ball(id: number, x: number, y: number, vx = 0, vy = 0): Ball {
@@ -76,6 +76,18 @@ describe('continuous pool physics', () => {
       for (const b of balls.filter(b => b !== a && !b.pocketed))
         expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThanOrEqual(19.999)
     }
+  })
+
+  it('sizes pockets at twice the ball radius', () => {
+    expect(POCKET_RADIUS).toBe(2 * BALL_RADIUS)
+  })
+
+  it.each([[100, 10, -1600, 0], [300, 10, 1600, 0], [10, 100, 0, -1600], [700, 10, 1600, 0]])('pockets a rail-hugging ball at (%s,%s)', (x, y, vx, vy) => {
+    const balls = [ball(0, x, y, vx, vy)]
+    const report = emptyReport()
+    stepPhysics(balls, report, 0.1)
+    expect(balls[0].pocketed).toBe(true)
+    expect(report.pocketed).toEqual([0])
   })
 
   it('rejects placement outside the cloth, in pockets, overlapping, or non-finite', () => {

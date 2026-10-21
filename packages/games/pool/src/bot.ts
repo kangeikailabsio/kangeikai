@@ -15,12 +15,12 @@ export const BOT_THINK_MS = 1500
 /** Simulating is the expensive part, so only this many candidates are tried per shot. */
 export const BOT_SIMULATED_CANDIDATES = 5
 /** Chance of playing the 2nd or 3rd best candidate instead of the best. */
-const SECOND_BEST_CHANCE = 0.25
-const ANGLE_SIGMA_BASE_DEG = 0.8
-const ANGLE_SIGMA_MAX_DEG = 2.5
+const SECOND_BEST_CHANCE = 0.12
+const ANGLE_SIGMA_BASE_DEG = 0.5
+const ANGLE_SIGMA_MAX_DEG = 1.6
 /** Extra degrees of angle noise per world unit travelled by the cue and the object ball. */
-const ANGLE_SIGMA_PER_UNIT = 1.7 / 600
-const POWER_NOISE = 0.08
+const ANGLE_SIGMA_PER_UNIT = 1.1 / 600
+const POWER_NOISE = 0.06
 const DECELERATION = 120
 /** Thinnest cut the bot will try, as cos(angle between the aim line and the pot line). */
 const MIN_CUT_COS = 0.35

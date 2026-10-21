@@ -2,6 +2,7 @@ import type { Seat, ShotContext } from '@kangeikai/game-pool/core'
 import type { ShotReport } from '@kangeikai/game-pool/physics'
 import type { PoolCommand, PoolEvent, PoolSnapshot } from '@kangeikai/game-pool/protocol'
 import type { AvatarSpriteType, GameTable } from '@kangeikai/shared'
+import { BotBrain } from '@kangeikai/game-pool/bot'
 import { evaluateShot, hasClearedGroup } from '@kangeikai/game-pool/core'
 import { canPlaceBall, createRack, emptyReport, FIXED_STEP, respotEight, stepPhysics, strikeCue } from '@kangeikai/game-pool/physics'
 import { poolCommandSchema, SHOT_TIME_MS, SNAPSHOT_INTERVAL_MS } from '@kangeikai/game-pool/protocol'
@@ -17,7 +18,12 @@ interface TableSession {
   accumulator: number
   lastBroadcast: number
   nextBreaker: Seat
+  /** Set on tables where the second seat is the server-side bot. */
+  bot: { seat: Seat, brain: BotBrain } | null
 }
+
+const BOT_NAME = 'Bot'
+const BOT_SPRITE: AvatarSpriteType = 'man'
 
 export interface PoolHost {
   identity: (sessionId: string) => { name: string, spriteType: AvatarSpriteType, x: number, y: number, available: boolean } | undefined
@@ -77,14 +83,23 @@ export class PoolManager {
       const member = table.members.get(id)!
       s.players[free] = { sessionId: id, name: member.name, spriteType: member.spriteType, ready: false, connected: true }
     }
+    else if (command.kind === 'playBot') {
+      if (index >= 0 || s.players.some(Boolean) || s.phase === 'aiming' || s.phase === 'moving') {
+        reject('O bot só joga numa mesa vazia.')
+        return
+      }
+      const member = table.members.get(id)!
+      s.players[0] = { sessionId: id, name: member.name, spriteType: member.spriteType, ready: false, connected: true }
+      s.players[1] = { sessionId: `bot:${command.tableId}`, name: BOT_NAME, spriteType: BOT_SPRITE, ready: true, connected: true }
+      table.bot = { seat: 1, brain: new BotBrain(this.random) }
+      table.nextBreaker = 0
+    }
     else if (command.kind === 'stand') {
       if (index >= 0) {
         this.forfeit(table, index as Seat)
         s.players[index] = null
-        s.players.forEach((player) => {
-          if (player)
-            player.ready = false
-        })
+        this.removeBot(table)
+        this.resetReady(table)
       }
     }
     else if (command.kind === 'ready') {
@@ -176,6 +191,7 @@ export class PoolManager {
         accumulator: 0,
         lastBroadcast: 0,
         nextBreaker: this.random() < 0.5 ? 0 : 1,
+        bot: null,
       }
       this.sessions.set(tableId, table)
     }
@@ -202,13 +218,27 @@ export class PoolManager {
       remainingMs: SHOT_TIME_MS,
       deadline: this.now() + SHOT_TIME_MS,
     })
-    table.nextBreaker = table.nextBreaker === 0 ? 1 : 0
+    // Against the bot the human always breaks, so the alternation is skipped.
+    if (!table.bot)
+      table.nextBreaker = table.nextBreaker === 0 ? 1 : 0
     table.accumulator = 0
     table.context = null
-    s.players.forEach((player) => {
+    this.resetReady(table)
+  }
+
+  /** Clears everyone's ready flag, except the bot's: it is always ready for the next match. */
+  private resetReady(table: TableSession): void {
+    table.state.players.forEach((player, seat) => {
       if (player)
-        player.ready = false
+        player.ready = table.bot?.seat === seat
     })
+  }
+
+  private removeBot(table: TableSession): void {
+    if (!table.bot)
+      return
+    table.state.players[table.bot.seat] = null
+    table.bot = null
   }
 
   private shoot(table: TableSession, command: Extract<PoolCommand, { kind: 'shoot' }>): void {
@@ -227,6 +257,8 @@ export class PoolManager {
     const now = this.now()
     for (const table of this.sessions.values()) {
       const s = table.state
+      if (table.bot && s.phase === 'aiming' && !s.paused && s.turn === table.bot.seat)
+        this.driveBot(table, table.bot, now)
       if (s.phase === 'moving') {
         table.accumulator += Math.min(Math.max(deltaMs, 0), 250) / 1000
         while (table.accumulator >= FIXED_STEP && s.phase === 'moving') {
@@ -243,6 +275,18 @@ export class PoolManager {
         this.timeout(table)
       }
     }
+  }
+
+  /** Gives the bot one slice of work; it plans over several ticks and acts through the same rules as a human. */
+  private driveBot(table: TableSession, bot: NonNullable<TableSession['bot']>, now: number): void {
+    const s = table.state
+    const action = bot.brain.update({ seat: bot.seat, groups: s.groups, breaking: s.breaking, balls: s.balls, matchId: s.matchId, turnId: s.turnId, ballInHand: s.ballInHand, cuePlaced: s.cuePlaced }, now)
+    if (!action)
+      return
+    const turn = { tableId: s.tableId, matchId: s.matchId, turnId: s.turnId }
+    const command: Extract<PoolCommand, { kind: 'place' | 'shoot' }> = action.kind === 'place' ? { kind: 'place', ...turn, x: action.x, y: action.y } : { kind: 'shoot', ...turn, angle: action.angle, power: action.power }
+    if (this.takeTurn(table, bot.seat, command, () => {}))
+      this.broadcast(table)
   }
 
   private resolve(table: TableSession): void {
@@ -292,10 +336,7 @@ export class PoolManager {
     s.balls.forEach((ball) => {
       ball.vx = ball.vy = 0
     })
-    s.players.forEach((player) => {
-      if (player)
-        player.ready = false
-    })
+    this.resetReady(table)
   }
 
   private forfeit(table: TableSession, seat: Seat): void {
@@ -316,10 +357,8 @@ export class PoolManager {
     if (index >= 0) {
       this.forfeit(table, index as Seat)
       table.state.players[index] = null
-      table.state.players.forEach((player) => {
-        if (player)
-          player.ready = false
-      })
+      this.removeBot(table)
+      this.resetReady(table)
     }
     table.members.delete(id)
     this.membership.delete(id)

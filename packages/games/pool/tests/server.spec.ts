@@ -161,3 +161,83 @@ describe('pool session authority', () => {
     expect(snapshots.get('new')).toMatchObject({ phase: 'waiting', players: [null, null] })
   })
 })
+
+describe('bot tables', () => {
+  interface Session { state: PoolSnapshot, bot: unknown }
+  const session = () => (manager as unknown as { sessions: Map<string, Session> }).sessions.get('one')!
+  function playBot(id = 'a'): void {
+    open(id)
+    manager.handle(id, { kind: 'playBot', tableId: 'one' })
+  }
+  function run(ms: number, id = 'a'): void {
+    for (let elapsed = 0; elapsed < ms; elapsed += 16) {
+      now += 16
+      manager.tick(16)
+    }
+    expect(snapshots.get(id)).toBeDefined()
+  }
+
+  it('seats the human first and a ready bot second, and blocks everyone else from sitting', () => {
+    playBot()
+    expect(snapshots.get('a')!.players[0]).toMatchObject({ sessionId: 'a', ready: false })
+    expect(snapshots.get('a')!.players[1]).toMatchObject({ name: 'Bot', ready: true, connected: true })
+    open('c')
+    manager.handle('c', { kind: 'sit', tableId: 'one' })
+    expect(events.get('c')?.kind).toBe('error')
+    expect(snapshots.get('c')!.spectators).toBe(1)
+  })
+  it('refuses the bot on a table that is not empty', () => {
+    open('a')
+    manager.handle('a', { kind: 'sit', tableId: 'one' })
+    playBot('b')
+    expect(events.get('b')?.kind).toBe('error')
+    expect(snapshots.get('b')!.players[1]).toBeNull()
+  })
+  it('starts when the human is ready and the human breaks, rematches included', () => {
+    playBot()
+    manager.handle('a', { kind: 'ready', tableId: 'one', ready: true })
+    expect(snapshots.get('a')).toMatchObject({ phase: 'aiming', turn: 0, breaking: true })
+    ;(manager as unknown as { finish: (table: Session, winner: number, notice: string) => void }).finish(session(), 0, 'done')
+    expect(snapshots.get('a')!.players[1]?.ready).toBe(true)
+    manager.handle('a', { kind: 'ready', tableId: 'one', ready: true })
+    expect(snapshots.get('a')).toMatchObject({ phase: 'aiming', turn: 0, matchId: 2 })
+  })
+  it('does not act on the human turn', () => {
+    playBot()
+    manager.handle('a', { kind: 'ready', tableId: 'one', ready: true })
+    const before = snapshots.get('a')!.turnId
+    run(5000)
+    expect(snapshots.get('a')).toMatchObject({ turnId: before, phase: 'aiming' })
+  })
+  it('shoots on its own turn after thinking, without a human command', () => {
+    playBot()
+    manager.handle('a', { kind: 'ready', tableId: 'one', ready: true })
+    Object.assign(session().state, { turn: 1, breaking: false })
+    const before = session().state.turnId
+    run(1000)
+    expect(session().state.phase).toBe('aiming')
+    run(25_000)
+    expect(session().state.turnId).toBeGreaterThan(before)
+  })
+  it('places the cue ball itself when it has ball in hand', () => {
+    playBot()
+    manager.handle('a', { kind: 'ready', tableId: 'one', ready: true })
+    Object.assign(session().state, { turn: 1, breaking: false, ballInHand: true, cuePlaced: false })
+    run(1000)
+    expect(session().state.cuePlaced).toBe(false)
+    run(2000)
+    expect(session().state.cuePlaced).toBe(true)
+  })
+  it('removes the bot when the human stands up or leaves', () => {
+    playBot()
+    manager.handle('a', { kind: 'stand', tableId: 'one' })
+    expect(snapshots.get('a')!.players).toEqual([null, null])
+    manager.handle('a', { kind: 'playBot', tableId: 'one' })
+    manager.handle('a', { kind: 'ready', tableId: 'one', ready: true })
+    open('w')
+    manager.leave('a')
+    expect(snapshots.get('w')).toMatchObject({ phase: 'finished', winner: 1, players: [null, null] })
+    manager.handle('w', { kind: 'playBot', tableId: 'one' })
+    expect(snapshots.get('w')!.players[1]).toMatchObject({ name: 'Bot' })
+  })
+})

@@ -99,11 +99,13 @@ export function generateCandidates(balls: Ball[], cue: Point, targets: number[])
     if (!target)
       continue
     for (const pocket of POCKETS) {
-      const length = Math.hypot(pocket.x - target.x, pocket.y - target.y)
+      // Rails keep ball centers off the pocket centre, so aim at the nearest point a ball can reach.
+      const aim = { x: Math.min(TABLE_WIDTH - BALL_RADIUS, Math.max(BALL_RADIUS, pocket.x)), y: Math.min(TABLE_HEIGHT - BALL_RADIUS, Math.max(BALL_RADIUS, pocket.y)) }
+      const length = Math.hypot(aim.x - target.x, aim.y - target.y)
       if (length < 1)
         continue
-      const ux = (pocket.x - target.x) / length
-      const uy = (pocket.y - target.y) / length
+      const ux = (aim.x - target.x) / length
+      const uy = (aim.y - target.y) / length
       const ghost = { x: target.x - ux * 2 * BALL_RADIUS, y: target.y - uy * 2 * BALL_RADIUS }
       if (ghost.x < BALL_RADIUS || ghost.x > TABLE_WIDTH - BALL_RADIUS || ghost.y < BALL_RADIUS || ghost.y > TABLE_HEIGHT - BALL_RADIUS)
         continue
@@ -111,7 +113,7 @@ export function generateCandidates(balls: Ball[], cue: Point, targets: number[])
       if (cueDistance < 1e-6)
         continue
       const cos = ((ghost.x - cue.x) * ux + (ghost.y - cue.y) * uy) / cueDistance
-      if (cos < MIN_CUT_COS || !segmentClear(balls, cue, ghost, [0, id]) || !segmentClear(balls, target, pocket, [0, id]))
+      if (cos < MIN_CUT_COS || !segmentClear(balls, cue, ghost, [0, id]) || !segmentClear(balls, target, aim, [0, id]))
         continue
       candidates.push({
         target: id,

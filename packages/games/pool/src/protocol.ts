@@ -13,6 +13,7 @@ export const poolCommandSchema = v.variant('kind', [
   v.object({ kind: v.literal('leave'), tableId }),
   v.object({ kind: v.literal('sit'), tableId }),
   v.object({ kind: v.literal('stand'), tableId }),
+  v.object({ kind: v.literal('playBot'), tableId }),
   v.object({ kind: v.literal('ready'), tableId, ready: v.boolean() }),
   v.object({ kind: v.literal('place'), ...turn, x: finite, y: finite }),
   v.object({ kind: v.literal('shoot'), ...turn, angle: v.pipe(finite, v.minValue(-Math.PI), v.maxValue(Math.PI)), power: v.pipe(finite, v.minValue(0.01), v.maxValue(1)) }),

@@ -53,6 +53,18 @@ describe('casual eight-ball rules', () => {
     expect(evaluateShot(assigned, { firstContact: 1, pocketed: [], railsAfterContact: [0] }).next).toBe(1)
     expect(evaluateShot(assigned, { firstContact: 1, pocketed: [2], railsAfterContact: [] }).next).toBe(0)
   })
+  it.each([[2, 9], [9, 2]])('passes the turn, without a foul, when an own ball and an opponent ball drop together (%i then %i)', (first, second) => {
+    expect(evaluateShot(assigned, { firstContact: 1, pocketed: [first, second], railsAfterContact: [] }))
+      .toMatchObject({ next: 1, foul: null })
+  })
+  it('passes the turn when only an opponent ball drops', () => {
+    expect(evaluateShot(assigned, { firstContact: 1, pocketed: [9], railsAfterContact: [] }))
+      .toMatchObject({ next: 1, foul: null })
+  })
+  it('keeps the turn on a mixed pot on the break and on an open table', () => {
+    expect(evaluateShot({ ...open, breaking: true }, { firstContact: 1, pocketed: [2, 9], railsAfterContact: [] }).next).toBe(0)
+    expect(evaluateShot(open, { firstContact: 1, pocketed: [2, 9], railsAfterContact: [] }).next).toBe(0)
+  })
   it('requires four distinct object balls at cushions on an unpotted break', () => {
     const context = { ...open, breaking: true }
     expect(evaluateShot(context, { firstContact: 1, pocketed: [], railsAfterContact: [1, 2, 3] }).foul).not.toBeNull()

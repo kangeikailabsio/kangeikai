@@ -2,7 +2,7 @@
 export const TABLE_WIDTH = 800
 export const TABLE_HEIGHT = 400
 export const BALL_RADIUS = 10
-export const POCKET_RADIUS = BALL_RADIUS * 2
+export const POCKET_RADIUS = BALL_RADIUS * 1.45
 export const MAX_SHOT_SPEED = 1600
 export const FIXED_STEP = 1 / 120
 export const POCKETS = [

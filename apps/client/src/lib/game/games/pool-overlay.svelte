@@ -158,6 +158,9 @@
       {#if snapshot && !active}
         {#if seat < 0}
           <button class='primary' disabled={!session.connected || snapshot.players.every(Boolean)} onclick={() => session.send({ kind: 'sit', tableId: snapshot.tableId })}>Jogar</button>
+          {#if snapshot.players.every(player => player === null)}
+            <button disabled={!session.connected} onclick={() => session.send({ kind: 'playBot', tableId: snapshot.tableId })}>Jogar contra o bot</button>
+          {/if}
         {:else}
           <button class='primary' disabled={!session.connected} onclick={() => session.send({ kind: 'ready', tableId: snapshot.tableId, ready: !snapshot.players[seat]?.ready })}>{snapshot.players[seat]?.ready ? 'Cancelar pronto' : 'Pronto'}</button>
           <button disabled={!session.connected} onclick={() => session.send({ kind: 'stand', tableId: snapshot.tableId })}>Liberar vaga</button>

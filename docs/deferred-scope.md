@@ -56,3 +56,9 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   adversário passa a vez, mesmo junto com uma bola sua) não é falta e não mostra mensagem: o
   jogador só percebe pela vez mudando. Também ficou de fora uma variante com bola na mão para o
   adversário. O comportamento está em `evaluateShot` (`packages/games/pool/src/core.ts`).
+- **Bot de sinuca sem estratégia de posição** — o bot de [#190](https://github.com/kangeikailabsio/kangeikai/issues/190)
+  (`packages/games/pool/src/bot.ts`) escolhe a tacada pela bola fantasma e simula só as 5 melhores
+  candidatas; não planeja onde a branca vai parar, não faz tacadas de segurança e só tem um nível
+  ("médio", constantes no topo do arquivo, afinadas jogando). Ficaram de fora: níveis de dificuldade
+  selecionáveis, mais de um bot, afinação automática da dificuldade (ex.: bot contra bot medindo
+  taxa de encaçapadas) e um aviso de falta específico do bot.

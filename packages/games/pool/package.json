@@ -5,6 +5,7 @@
   "private": true,
   "exports": {
     "./aim": "./src/aim.ts",
+    "./bot": "./src/bot.ts",
     "./core": "./src/core.ts",
     "./floor": "./src/floor.ts",
     "./predict": "./src/predict.ts",

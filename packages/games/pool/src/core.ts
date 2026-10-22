@@ -51,12 +51,10 @@ export interface ShotOutcome {
   respotEight: boolean
 }
 
-export function evaluateShot(context: ShotContext, report: ShotReport): ShotOutcome {
-  const { shooter, breaking, eligibleForEight } = context
-  const opponent: Seat = shooter === 0 ? 1 : 0
-  const groups: ShotOutcome['groups'] = [...context.groups]
-  let foul: string | null = null
+function findFoul(context: ShotContext, report: ShotReport): string | null {
+  const { shooter, groups, breaking, eligibleForEight } = context
   const objectPotted = report.pocketed.some(id => id !== 0)
+  let foul: string | null = null
   if (report.firstContact === null)
     foul = 'The cue ball did not hit any ball.'
   else if (!breaking && (groups[shooter] === null ? report.firstContact === 8 : eligibleForEight ? report.firstContact !== 8 : groupOf(report.firstContact) !== groups[shooter]))
@@ -67,21 +65,40 @@ export function evaluateShot(context: ShotContext, report: ShotReport): ShotOutc
     foul = 'No ball was pocketed and none hit a rail after contact.'
   if (report.pocketed.includes(0))
     foul = 'The cue ball was pocketed.'
+  return foul
+}
 
+/** The first group potted on an open table becomes the shooter's; the opponent gets the other. */
+function assignGroups(context: ShotContext, report: ShotReport): ShotOutcome['groups'] {
+  const { shooter } = context
+  const opponent: Seat = shooter === 0 ? 1 : 0
+  const groups: ShotOutcome['groups'] = [...context.groups]
+  const first = report.pocketed.map(groupOf).find(group => group !== null)
+  if (first && groups[shooter] === null) {
+    groups[shooter] = first
+    groups[opponent] = first === 'solids' ? 'stripes' : 'solids'
+  }
+  return groups
+}
+
+function keepsTurn(context: ShotContext, report: ShotReport, groups: ShotOutcome['groups']): boolean {
+  const { shooter, breaking } = context
+  const opponent: Seat = shooter === 0 ? 1 : 0
+  // House rule: potting any opponent ball ends the turn, even alongside an own-group pot (not a foul). Uses the pre-shot groups so an open table still assigns on a mixed pot.
+  const pottedOpponent = !breaking && report.pocketed.some(id => groupOf(id) !== null && groupOf(id) === context.groups[opponent])
+  return !pottedOpponent && report.pocketed.some(id => breaking ? id !== 0 : groupOf(id) !== null && groupOf(id) === groups[shooter])
+}
+
+export function evaluateShot(context: ShotContext, report: ShotReport): ShotOutcome {
+  const { shooter, breaking, eligibleForEight } = context
+  const opponent: Seat = shooter === 0 ? 1 : 0
+  const foul = findFoul(context, report)
   let winner: Seat | null = null
   if (!breaking && report.pocketed.includes(8))
     winner = eligibleForEight && !foul ? shooter : opponent
-  if (!breaking && !foul && groups[shooter] === null) {
-    const first = report.pocketed.map(groupOf).find(group => group !== null)
-    if (first) {
-      groups[shooter] = first
-      groups[opponent] = first === 'solids' ? 'stripes' : 'solids'
-    }
-  }
-  // House rule: potting any opponent ball ends the turn, even alongside an own-group pot (not a foul). Uses the pre-shot groups so an open table still assigns on a mixed pot.
-  const pottedOpponent = !breaking && report.pocketed.some(id => groupOf(id) !== null && groupOf(id) === context.groups[opponent])
-  const keepsTurn = !foul && !pottedOpponent && report.pocketed.some(id => breaking ? id !== 0 : groupOf(id) !== null && groupOf(id) === groups[shooter])
-  return { groups, next: keepsTurn ? shooter : opponent, foul, winner, respotEight: breaking && report.pocketed.includes(8) }
+  const groups = !breaking && !foul ? assignGroups(context, report) : [...context.groups] as ShotOutcome['groups']
+  const retained = !foul && keepsTurn(context, report, groups)
+  return { groups, next: retained ? shooter : opponent, foul, winner, respotEight: breaking && report.pocketed.includes(8) }
 }
 
 export function hasClearedGroup(balls: Ball[], group: Group | null): boolean {

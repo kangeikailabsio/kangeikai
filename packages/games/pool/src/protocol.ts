@@ -1,7 +1,7 @@
-import type { GameMode, Group, Phase, Seat, Team } from '@kangeikai/game-pool/core'
+import type { GameFormat, GameMode, Group, Phase, Seat, Team } from '@kangeikai/game-pool/core'
 import type { Ball } from '@kangeikai/game-pool/physics'
 import type { AvatarSpriteType } from '@kangeikai/shared'
-import { GAME_MODES } from '@kangeikai/game-pool/core'
+import { GAME_FORMATS, GAME_MODES } from '@kangeikai/game-pool/core'
 import * as v from 'valibot'
 
 const finite = v.pipe(v.number(), v.finite())
@@ -12,10 +12,12 @@ const turn = { tableId, matchId: sequence, turnId: sequence }
 export const poolCommandSchema = v.variant('kind', [
   v.object({ kind: v.literal('open'), tableId }),
   v.object({ kind: v.literal('leave'), tableId }),
-  v.object({ kind: v.literal('sit'), tableId }),
+  /** `team` (0 = A, 1 = B) is required in 2v2 and ignored in 1v1; sent while seated it asks to switch teams. */
+  v.object({ kind: v.literal('sit'), tableId, team: v.optional(v.picklist([0, 1])) }),
   v.object({ kind: v.literal('stand'), tableId }),
   v.object({ kind: v.literal('playBot'), tableId }),
   v.object({ kind: v.literal('setMode'), tableId, mode: v.picklist(GAME_MODES) }),
+  v.object({ kind: v.literal('setFormat'), tableId, format: v.picklist(GAME_FORMATS) }),
   v.object({ kind: v.literal('ready'), tableId, ready: v.boolean() }),
   v.object({ kind: v.literal('place'), ...turn, x: finite, y: finite }),
   v.object({ kind: v.literal('shoot'), ...turn, angle: v.pipe(finite, v.minValue(-Math.PI), v.maxValue(Math.PI)), power: v.pipe(finite, v.minValue(0.01), v.maxValue(1)) }),
@@ -40,6 +42,9 @@ export interface PoolSnapshot {
   serverTime: number
   phase: Phase
   mode: GameMode
+  format: GameFormat
+  /** Seats in the order they shoot (drawn when a match starts). */
+  order: Seat[]
   /** Seat allowed to change the mode before the match, or null when nobody is seated. */
   ownerSeat: Seat | null
   /** One entry per seat; a seat's team is `teamOfSeat(index, players.length)`. */

@@ -59,6 +59,21 @@ export function ballBodyCss(id: number): string {
 export const GAME_MODES = ['8-ball', 'regional'] as const
 export type GameMode = typeof GAME_MODES[number]
 
+/** 1v1 has two seats; 2v2 has four, two per team (seats 0-1 are Team A, 2-3 Team B). */
+export const GAME_FORMATS = ['1v1', '2v2'] as const
+export type GameFormat = typeof GAME_FORMATS[number]
+
+export const GAME_FORMAT_LABEL: Record<GameFormat, string> = { '1v1': '1 vs 1', '2v2': '2 vs 2' }
+
+export function seatCountOf(format: GameFormat): number {
+  return format === '2v2' ? 4 : 2
+}
+
+/** The seats that belong to a team, in seat order. */
+export function seatsOfTeam(team: Team, seatCount: number): Seat[] {
+  return Array.from({ length: seatCount }, (_, seat) => seat).filter(seat => teamOfSeat(seat, seatCount) === team)
+}
+
 export const GAME_MODE_INFO: Record<GameMode, { label: string, description: string }> = {
   '8-ball': {
     label: '8-ball',

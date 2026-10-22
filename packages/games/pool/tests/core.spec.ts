@@ -1,5 +1,5 @@
 import type { ShotContext } from '@kangeikai/game-pool/core'
-import { BALL_HUES, ballBodyCss, ballHue, ballHueCss, evaluateShot, hasClearedGroup, toCssHex } from '@kangeikai/game-pool/core'
+import { BALL_HUES, ballBodyCss, ballHue, ballHueCss, evaluateShot, hasClearedGroup, lowestBall, toCssHex } from '@kangeikai/game-pool/core'
 import { createRack } from '@kangeikai/game-pool/physics'
 import { describe, expect, it } from 'vitest'
 
@@ -23,7 +23,7 @@ describe('ball palette', () => {
   })
 })
 
-const open: ShotContext = { shooter: 0, groups: [null, null], breaking: false, eligibleForEight: false }
+const open: ShotContext = { mode: '8-ball', shooter: 0, groups: [null, null], breaking: false, eligibleForEight: false }
 const assigned: ShotContext = { ...open, groups: ['solids', 'stripes'] }
 
 describe('casual eight-ball rules', () => {
@@ -90,5 +90,88 @@ describe('casual eight-ball rules', () => {
     })
     expect(hasClearedGroup(balls, 'solids')).toBe(true)
     expect(hasClearedGroup(balls, 'stripes')).toBe(false)
+  })
+})
+
+describe('regional mode', () => {
+  const regional: ShotContext = { ...assigned, mode: 'regional' }
+  const wrongContact = { firstContact: 9, pocketed: [], railsAfterContact: [9] }
+
+  it('costs a wrong first contact only the turn and pockets the opponent ball, unlike 8-ball', () => {
+    expect(evaluateShot(regional, wrongContact)).toMatchObject({ next: 1, ballInHand: false, dropsOpponentBall: true })
+    expect(evaluateShot(regional, wrongContact).foul).not.toBeNull()
+    expect(evaluateShot(assigned, wrongContact)).toMatchObject({ next: 1, ballInHand: true, dropsOpponentBall: false })
+  })
+  it('still passes the turn when the shooter also pots an own ball after a wrong first contact', () => {
+    expect(evaluateShot(regional, { firstContact: 9, pocketed: [1], railsAfterContact: [9] })).toMatchObject({ next: 1, dropsOpponentBall: true })
+  })
+  it('treats a scratch as the same penalty with the cue ball returning to the start, never ball in hand', () => {
+    const scratch = { firstContact: 1, pocketed: [0], railsAfterContact: [1] }
+    expect(evaluateShot(regional, scratch)).toMatchObject({ next: 1, ballInHand: false, respotCue: true, dropsOpponentBall: true })
+    expect(evaluateShot(assigned, scratch)).toMatchObject({ ballInHand: true, respotCue: false, dropsOpponentBall: false })
+  })
+  it('pockets only one ball when a scratch comes with a wrong or missing first contact', () => {
+    for (const firstContact of [9, null])
+      expect(evaluateShot(regional, { firstContact, pocketed: [0], railsAfterContact: [] })).toMatchObject({ next: 1, ballInHand: false, respotCue: true, dropsOpponentBall: true })
+  })
+  it('applies the penalty when the cue ball touches nothing', () => {
+    expect(evaluateShot(regional, { firstContact: null, pocketed: [], railsAfterContact: [] })).toMatchObject({ next: 1, ballInHand: false, respotCue: false, dropsOpponentBall: true })
+    expect(evaluateShot(assigned, { firstContact: null, pocketed: [], railsAfterContact: [] })).toMatchObject({ ballInHand: true, dropsOpponentBall: false })
+  })
+  it('also pockets the opponent\'s lowest ball when an opponent ball is pocketed, even after a legal first contact', () => {
+    const potted = { firstContact: 1, pocketed: [9], railsAfterContact: [] }
+    expect(evaluateShot(regional, potted)).toMatchObject({ next: 1, foul: null, ballInHand: false, respotCue: false, dropsOpponentBall: true })
+    expect(evaluateShot(assigned, potted)).toMatchObject({ next: 1, dropsOpponentBall: false })
+    expect(evaluateShot(regional, { firstContact: 1, pocketed: [2, 9], railsAfterContact: [] })).toMatchObject({ next: 1, dropsOpponentBall: true })
+  })
+  it('stays a single penalty ball when several causes combine', () => {
+    expect(evaluateShot(regional, { firstContact: 9, pocketed: [0, 9, 10], railsAfterContact: [] })).toMatchObject({ next: 1, dropsOpponentBall: true, respotCue: true })
+  })
+  it('does not penalize a mixed pot on an open table or on the break', () => {
+    expect(evaluateShot({ ...open, mode: 'regional' }, { firstContact: 1, pocketed: [2, 9], railsAfterContact: [] })).toMatchObject({ next: 0, dropsOpponentBall: false })
+    expect(evaluateShot({ ...regional, breaking: true }, { firstContact: 1, pocketed: [2, 9], railsAfterContact: [] })).toMatchObject({ dropsOpponentBall: false })
+  })
+  it('keeps the turn only when the first contact is legal and an own ball drops', () => {
+    expect(evaluateShot(regional, { firstContact: 1, pocketed: [2], railsAfterContact: [] })).toMatchObject({ next: 0, foul: null, dropsOpponentBall: false })
+    expect(evaluateShot(regional, { firstContact: 1, pocketed: [], railsAfterContact: [] })).toMatchObject({ next: 1, foul: null, dropsOpponentBall: false })
+  })
+  it('has no ball to drop on an open table or on the break, but a scratch still returns the cue ball', () => {
+    const scratch = { firstContact: 9, pocketed: [0], railsAfterContact: [9] }
+    expect(evaluateShot({ ...open, mode: 'regional' }, scratch)).toMatchObject({ dropsOpponentBall: false, respotCue: true, ballInHand: false })
+    expect(evaluateShot({ ...regional, breaking: true }, { firstContact: 1, pocketed: [0], railsAfterContact: [] })).toMatchObject({ dropsOpponentBall: false, respotCue: true })
+  })
+  it('keeps the ordinary ball-in-hand foul for a first contact on the eight on an open table', () => {
+    expect(evaluateShot({ ...open, mode: 'regional' }, { firstContact: 8, pocketed: [], railsAfterContact: [8] })).toMatchObject({ ballInHand: true, dropsOpponentBall: false })
+  })
+  it('applies the same penalty when the shooter is on the eight and hits an opponent ball', () => {
+    expect(evaluateShot({ ...regional, eligibleForEight: true }, wrongContact)).toMatchObject({ next: 1, ballInHand: false, dropsOpponentBall: true })
+  })
+  it('penalizes hitting the eight first while the shooter still has group balls', () => {
+    expect(evaluateShot(regional, { firstContact: 8, pocketed: [], railsAfterContact: [8] })).toMatchObject({ next: 1, ballInHand: false, dropsOpponentBall: true })
+  })
+  it('does not require a rail after contact, but 8-ball does', () => {
+    const soft = { firstContact: 1, pocketed: [], railsAfterContact: [] }
+    expect(evaluateShot(regional, soft)).toMatchObject({ foul: null, next: 1, ballInHand: false })
+    expect(evaluateShot(assigned, soft).foul).not.toBeNull()
+  })
+  it('keeps the break rule in both modes', () => {
+    const weak = { firstContact: 1, pocketed: [], railsAfterContact: [1, 2] }
+    expect(evaluateShot({ ...regional, groups: [null, null], breaking: true }, weak).foul).not.toBeNull()
+  })
+  it('loses the match when the eight drops after a wrong first contact', () => {
+    expect(evaluateShot({ ...regional, eligibleForEight: true }, { firstContact: 9, pocketed: [8], railsAfterContact: [9] }).winner).toBe(1)
+  })
+})
+
+describe('lowestBall', () => {
+  const ball = (id: number, pocketed = false) => ({ id, x: 0, y: 0, vx: 0, vy: 0, pocketed })
+  it('picks the lowest remaining ball of the group and ignores the eight', () => {
+    const balls = [ball(0), ball(9, true), ball(11), ball(10), ball(8), ball(3)]
+    expect(lowestBall(balls, 'stripes')).toBe(10)
+    expect(lowestBall(balls, 'solids')).toBe(3)
+  })
+  it('is null when only the eight, or nothing, is left', () => {
+    expect(lowestBall([ball(8), ball(1, true)], 'solids')).toBeNull()
+    expect(lowestBall([ball(8)], null)).toBeNull()
   })
 })

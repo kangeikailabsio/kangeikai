@@ -1,6 +1,7 @@
-import type { Group, Phase, Seat } from '@kangeikai/game-pool/core'
+import type { GameMode, Group, Phase, Seat } from '@kangeikai/game-pool/core'
 import type { Ball } from '@kangeikai/game-pool/physics'
 import type { AvatarSpriteType } from '@kangeikai/shared'
+import { GAME_MODES } from '@kangeikai/game-pool/core'
 import * as v from 'valibot'
 
 const finite = v.pipe(v.number(), v.finite())
@@ -14,6 +15,7 @@ export const poolCommandSchema = v.variant('kind', [
   v.object({ kind: v.literal('sit'), tableId }),
   v.object({ kind: v.literal('stand'), tableId }),
   v.object({ kind: v.literal('playBot'), tableId }),
+  v.object({ kind: v.literal('setMode'), tableId, mode: v.picklist(GAME_MODES) }),
   v.object({ kind: v.literal('ready'), tableId, ready: v.boolean() }),
   v.object({ kind: v.literal('place'), ...turn, x: finite, y: finite }),
   v.object({ kind: v.literal('shoot'), ...turn, angle: v.pipe(finite, v.minValue(-Math.PI), v.maxValue(Math.PI)), power: v.pipe(finite, v.minValue(0.01), v.maxValue(1)) }),
@@ -37,6 +39,9 @@ export interface PoolSnapshot {
   revision: number
   serverTime: number
   phase: Phase
+  mode: GameMode
+  /** Seat allowed to change the mode before the match, or null when nobody is seated. */
+  ownerSeat: Seat | null
   players: [PoolPlayer | null, PoolPlayer | null]
   spectators: number
   balls: Ball[]

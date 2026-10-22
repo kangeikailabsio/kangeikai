@@ -35,7 +35,26 @@ export function ballBodyCss(id: number): string {
   return toCssHex(ballBodyHue(id))
 }
 
+/**
+ * Rule sets. Not to be confused with an "open table" (groups not assigned yet): these are the
+ * variants players pick before a match.
+ */
+export const GAME_MODES = ['8-ball', 'regional'] as const
+export type GameMode = typeof GAME_MODES[number]
+
+export const GAME_MODE_INFO: Record<GameMode, { label: string, description: string }> = {
+  '8-ball': {
+    label: '8-ball',
+    description: 'Standard rules. Your first contact must be one of your own balls. A wrong first contact or a scratch gives your opponent ball in hand. After contact, a ball must be pocketed or hit a rail.',
+  },
+  'regional': {
+    label: 'Regional',
+    description: 'Stricter house rules. Your first contact must be one of your own balls. If you hit an opponent\'s ball first, hit nothing, pocket the cue ball, or pocket an opponent\'s ball, you lose your turn and your opponent\'s lowest-numbered remaining ball is pocketed for them (one extra ball per shot). After a scratch the cue ball returns to the starting spot; otherwise it stays where it stopped. There is no ball in hand. Soft safety plays are allowed: no rail is required after contact.',
+  },
+}
+
 export interface ShotContext {
+  mode: GameMode
   shooter: Seat
   groups: [Group | null, Group | null]
   breaking: boolean
@@ -49,39 +68,93 @@ export interface ShotOutcome {
   foul: string | null
   winner: Seat | null
   respotEight: boolean
+  /** The opponent gets the cue ball in hand. Never in Regional, where a wrong first contact only costs the turn. */
+  ballInHand: boolean
+  /** Regional scratch: the cue ball goes back to the starting spot instead of ball in hand. */
+  respotCue: boolean
+  /** Regional penalty: the opponent's lowest remaining group ball is pocketed for them. */
+  dropsOpponentBall: boolean
+}
+
+/** `penalized`: the Regional penalty for a first contact that was not one of the shooter's own balls. */
+interface Foul { message: string, ballInHand: boolean, penalized?: boolean }
+
+function ballInHandFoul(message: string): Foul {
+  return { message, ballInHand: true }
+}
+
+function findFoul(context: ShotContext, report: ShotReport): Foul | null {
+  const { shooter, groups, breaking, eligibleForEight, mode } = context
+  const regional = mode === 'regional'
+  const objectPotted = report.pocketed.some(id => id !== 0)
+  // Regional only penalizes once groups exist; before that a bad first contact is an ordinary foul.
+  const penalizable = regional && !breaking && groups[shooter] !== null
+  let foul: Foul | null = null
+  if (report.firstContact === null) {
+    foul = penalizable
+      ? { message: 'The cue ball did not hit any ball.', ballInHand: false, penalized: true }
+      : ballInHandFoul('The cue ball did not hit any ball.')
+  }
+  else if (!breaking && (groups[shooter] === null ? report.firstContact === 8 : eligibleForEight ? report.firstContact !== 8 : groupOf(report.firstContact) !== groups[shooter])) {
+    foul = penalizable
+      ? { message: 'The first ball hit was not one of your balls.', ballInHand: false, penalized: true }
+      : ballInHandFoul('The first ball hit was not a valid target.')
+  }
+  else if (breaking && !objectPotted && report.railsAfterContact.filter(id => id !== 0).length < 4) {
+    foul = ballInHandFoul('Invalid break: pocket a ball or drive four balls to a rail.')
+  }
+  else if (!regional && !objectPotted && report.railsAfterContact.length === 0) {
+    foul = ballInHandFoul('No ball was pocketed and none hit a rail after contact.')
+  }
+  if (report.pocketed.includes(0))
+    foul = regional ? { message: 'The cue ball was pocketed.', ballInHand: false, penalized: foul?.penalized } : ballInHandFoul('The cue ball was pocketed.')
+  return foul
+}
+
+/** The first group potted on an open table becomes the shooter's; the opponent gets the other. */
+function assignGroups(context: ShotContext, report: ShotReport): ShotOutcome['groups'] {
+  const { shooter } = context
+  const opponent: Seat = shooter === 0 ? 1 : 0
+  const groups: ShotOutcome['groups'] = [...context.groups]
+  const first = report.pocketed.map(groupOf).find(group => group !== null)
+  if (first && groups[shooter] === null) {
+    groups[shooter] = first
+    groups[opponent] = first === 'solids' ? 'stripes' : 'solids'
+  }
+  return groups
+}
+
+/** Uses the pre-shot groups, so an open table still assigns on a mixed pot. */
+function pottedOpponentBall(context: ShotContext, report: ShotReport): boolean {
+  const opponent: Seat = context.shooter === 0 ? 1 : 0
+  return !context.breaking && report.pocketed.some(id => groupOf(id) !== null && groupOf(id) === context.groups[opponent])
+}
+
+function keepsTurn(context: ShotContext, report: ShotReport, groups: ShotOutcome['groups']): boolean {
+  const { shooter, breaking } = context
+  // House rule: potting any opponent ball ends the turn, even alongside an own-group pot (not a foul).
+  return !pottedOpponentBall(context, report) && report.pocketed.some(id => breaking ? id !== 0 : groupOf(id) !== null && groupOf(id) === groups[shooter])
 }
 
 export function evaluateShot(context: ShotContext, report: ShotReport): ShotOutcome {
   const { shooter, breaking, eligibleForEight } = context
   const opponent: Seat = shooter === 0 ? 1 : 0
-  const groups: ShotOutcome['groups'] = [...context.groups]
-  let foul: string | null = null
-  const objectPotted = report.pocketed.some(id => id !== 0)
-  if (report.firstContact === null)
-    foul = 'The cue ball did not hit any ball.'
-  else if (!breaking && (groups[shooter] === null ? report.firstContact === 8 : eligibleForEight ? report.firstContact !== 8 : groupOf(report.firstContact) !== groups[shooter]))
-    foul = 'The first ball hit was not a valid target.'
-  else if (breaking && !objectPotted && report.railsAfterContact.filter(id => id !== 0).length < 4)
-    foul = 'Invalid break: pocket a ball or drive four balls to a rail.'
-  else if (!objectPotted && report.railsAfterContact.length === 0)
-    foul = 'No ball was pocketed and none hit a rail after contact.'
-  if (report.pocketed.includes(0))
-    foul = 'The cue ball was pocketed.'
-
+  const found = findFoul(context, report)
+  const foul = found?.message ?? null
   let winner: Seat | null = null
   if (!breaking && report.pocketed.includes(8))
     winner = eligibleForEight && !foul ? shooter : opponent
-  if (!breaking && !foul && groups[shooter] === null) {
-    const first = report.pocketed.map(groupOf).find(group => group !== null)
-    if (first) {
-      groups[shooter] = first
-      groups[opponent] = first === 'solids' ? 'stripes' : 'solids'
-    }
-  }
-  // House rule: potting any opponent ball ends the turn, even alongside an own-group pot (not a foul). Uses the pre-shot groups so an open table still assigns on a mixed pot.
-  const pottedOpponent = !breaking && report.pocketed.some(id => groupOf(id) !== null && groupOf(id) === context.groups[opponent])
-  const keepsTurn = !foul && !pottedOpponent && report.pocketed.some(id => breaking ? id !== 0 : groupOf(id) !== null && groupOf(id) === groups[shooter])
-  return { groups, next: keepsTurn ? shooter : opponent, foul, winner, respotEight: breaking && report.pocketed.includes(8) }
+  const groups = !breaking && !foul ? assignGroups(context, report) : [...context.groups] as ShotOutcome['groups']
+  const retained = !foul && keepsTurn(context, report, groups)
+  const scratched = report.pocketed.includes(0)
+  const dropsOpponentBall = context.mode === 'regional' && !breaking && context.groups[shooter] !== null && Boolean(found?.penalized || scratched || pottedOpponentBall(context, report))
+  return { groups, next: retained ? shooter : opponent, foul, winner, respotEight: breaking && report.pocketed.includes(8), ballInHand: found?.ballInHand ?? false, respotCue: context.mode === 'regional' && scratched, dropsOpponentBall }
+}
+
+/** Lowest-numbered ball of `group` still on the table (the eight is never part of a group). */
+export function lowestBall(balls: Ball[], group: Group | null): number | null {
+  const ids = balls.filter(ball => !ball.pocketed && group !== null && groupOf(ball.id) === group).map(ball => ball.id)
+  return ids.length > 0 ? Math.min(...ids) : null
 }
 
 export function hasClearedGroup(balls: Ball[], group: Group | null): boolean {

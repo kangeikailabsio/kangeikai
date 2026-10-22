@@ -4,7 +4,7 @@
   import AvatarPortrait from '$lib/people/avatar-portrait.svelte'
   import { attentionModalState } from '$lib/ui/attention-modal-state.svelte'
   import { createPoolRenderer } from '@kangeikai/game-pool/client'
-  import { ballBodyCss, ballHueCss, groupOf, hasClearedGroup, toCssHex } from '@kangeikai/game-pool/core'
+  import { ballBodyCss, ballHueCss, GAME_MODE_INFO, GAME_MODES, groupOf, hasClearedGroup, toCssHex } from '@kangeikai/game-pool/core'
   import { FLOOR_EDGE } from '@kangeikai/game-pool/floor'
   import { onMount } from 'svelte'
 
@@ -14,6 +14,7 @@
   let power = $state(0.5)
   let reposition = $state(false)
   let confirmExit = $state(false)
+  let showRules = $state(false)
   let now = $state(Date.now())
   const snapshot = $derived(session.snapshot)
   const seat = $derived(snapshot?.players.findIndex(player => player?.sessionId === session.sessionId) ?? -1)
@@ -118,9 +119,16 @@
        window would otherwise mis-map pointer coordinates until the next poll. -->
   <div class='pool-window' role='dialog' tabindex='-1' aria-label='Pool table' bind:this={window_} onscroll={() => renderer?.refreshScale()}>
     <header>
-      <div><h1>Pool <span>• {session.tableId}</span></h1><p>{seat < 0 ? 'You are watching' : 'Casual 8-ball'} · {snapshot?.spectators ?? 0} {snapshot?.spectators === 1 ? 'spectator' : 'spectators'}</p></div>
-      <button onclick={close} disabled={session.closing} aria-label='Close pool'>Close ×</button>
+      <div><h1>Pool <span>• {session.tableId}</span></h1><p>{snapshot ? GAME_MODE_INFO[snapshot.mode].label : ''}{seat < 0 ? ' · You are watching' : ''} · {snapshot?.spectators ?? 0} {snapshot?.spectators === 1 ? 'spectator' : 'spectators'}</p></div>
+      <div class='actions'>
+        <button onclick={() => (showRules = !showRules)} aria-expanded={showRules} disabled={!snapshot}>Rules</button>
+        <button onclick={close} disabled={session.closing} aria-label='Close pool'>Close ×</button>
+      </div>
     </header>
+    {#if showRules && snapshot}
+      <!-- A popover on purpose: a panel that pushed the canvas down would leave the ScaleManager with a stale offset. -->
+      <aside class='rules' aria-label='Rules'><strong>{GAME_MODE_INFO[snapshot.mode].label}</strong><p>{GAME_MODE_INFO[snapshot.mode].description}</p></aside>
+    {/if}
     <!-- Ends on the canvas scene's own flat edge colour, so the seam between DOM and canvas is
          invisible whatever height the panels end up at. -->
     <div class='stage-top' style:background='linear-gradient(#15241f, {toCssHex(FLOOR_EDGE)})'>
@@ -154,6 +162,17 @@
       {:else}<p class='status'>Opening table…</p>{/if}
     </div>
     <div class='canvas' bind:this={host}></div>
+    {#if snapshot && !active && seat >= 0}
+      <fieldset class='modes' disabled={!session.connected || seat !== snapshot.ownerSeat}>
+        <legend>Game mode{seat === snapshot.ownerSeat ? '' : ' (chosen by the table owner)'}</legend>
+        {#each GAME_MODES as mode (mode)}
+          <label class='mode' class:selected={snapshot.mode === mode}>
+            <input type='radio' name='game-mode' value={mode} checked={snapshot.mode === mode} onchange={() => session.send({ kind: 'setMode', tableId: snapshot.tableId, mode })} />
+            <span><strong>{GAME_MODE_INFO[mode].label}</strong><small>{GAME_MODE_INFO[mode].description}</small></span>
+          </label>
+        {/each}
+      </fieldset>
+    {/if}
     <footer>
       {#if snapshot && !active}
         {#if seat < 0}
@@ -204,6 +223,17 @@
      Scale.FIT letterbox inside the element and the floor stops touching its edges.
      touch-action: none — .pool-window scrolls, so without it a touch drag pans the panel. */
   .canvas { width: 100%; aspect-ratio: 3 / 2; max-height: 64vh; position: relative; touch-action: none; }
+  .actions { display: flex; gap: 8px; }
+  .rules { position: absolute; top: 64px; right: 18px; z-index: 2; width: min(360px, calc(100% - 36px)); padding: 12px 14px; border: 1px solid #486357; border-radius: 10px; background: #20332b; box-shadow: 0 10px 30px #0008; }
+  .rules p { margin: 6px 0 0; color: #f3f5ec; font-size: 13px; }
+  .modes { display: flex; gap: 10px; margin: 12px 0 0; padding: 0; border: 0; min-width: 0; }
+  .modes legend { padding: 0; margin-bottom: 6px; font-size: 12px; color: #b5c8bc; }
+  .modes:disabled { opacity: 0.75; }
+  .mode { flex: 1; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid #3b5147; border-radius: 10px; background: rgb(21 36 31 / 55%); cursor: pointer; }
+  .mode.selected { border-color: #edce67; background: #34412a; }
+  .mode input { width: auto; margin-top: 3px; }
+  .mode span { display: grid; gap: 4px; } .mode small { font-size: 12px; line-height: 1.35; }
+  @media (max-width: 640px) { .modes { flex-direction: column; } }
   footer { flex-wrap: wrap; justify-content: flex-start; margin-top: 8px; } footer small { margin-left: auto; font-size: 12px; }
   label { display: flex; align-items: center; gap: 8px; } input { accent-color: #edce67; width: 150px; }
   button { cursor: pointer; color: #f5f5ec; background: #344d40; border: 1px solid #607267; border-radius: 8px; padding: 9px 14px; font: inherit; }

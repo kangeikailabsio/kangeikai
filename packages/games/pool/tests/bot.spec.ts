@@ -1,5 +1,6 @@
+import type { GameMode } from '@kangeikai/game-pool/core'
 import type { Ball } from '@kangeikai/game-pool/physics'
-import { BotBrain, chooseCuePosition, generateCandidates, legalTargets, planShot, simulateShot } from '@kangeikai/game-pool/bot'
+import { BotBrain, chooseCuePosition, generateCandidates, legalTargets, planShot, scoreShot, simulateShot } from '@kangeikai/game-pool/bot'
 import { groupOf } from '@kangeikai/game-pool/core'
 import { canPlaceBall, createRack } from '@kangeikai/game-pool/physics'
 import { describe, expect, it } from 'vitest'
@@ -10,8 +11,8 @@ const steady = () => 0.25
 function ball(id: number, x: number, y: number, pocketed = false): Ball {
   return { id, x, y, vx: 0, vy: 0, pocketed }
 }
-function view(balls: Ball[], groups: ['solids' | 'stripes' | null, 'solids' | 'stripes' | null] = [null, null], breaking = false) {
-  return { seat: 1 as const, groups, breaking, balls }
+function view(balls: Ball[], groups: ['solids' | 'stripes' | null, 'solids' | 'stripes' | null] = [null, null], breaking = false, mode: GameMode = '8-ball') {
+  return { mode, seat: 1 as const, groups, breaking, balls }
 }
 
 describe('bot target selection', () => {
@@ -57,6 +58,20 @@ describe('bot shot planning', () => {
     expect(Math.abs(shot.angle)).toBeLessThanOrEqual(Math.PI)
     expect(shot.power).toBeGreaterThanOrEqual(0.01)
     expect(shot.power).toBeLessThanOrEqual(1)
+  })
+})
+
+describe('bot scoring', () => {
+  const balls = [ball(0, 100, 100), ball(1, 300, 100), ball(9, 600, 300)]
+  const groups: ['solids' | 'stripes' | null, 'solids' | 'stripes' | null] = ['stripes', 'solids']
+  it('scores a Regional wrong first contact below a legal miss', () => {
+    const legalMiss = scoreShot(view(balls, groups, false, 'regional'), { firstContact: 1, pocketed: [], railsAfterContact: [1] })
+    const wrongContact = scoreShot(view(balls, groups, false, 'regional'), { firstContact: 9, pocketed: [], railsAfterContact: [9] })
+    expect(wrongContact).toBeLessThan(legalMiss)
+  })
+  it('does not punish a soft shot without a rail in Regional, unlike 8-ball', () => {
+    const soft = { firstContact: 1, pocketed: [], railsAfterContact: [] }
+    expect(scoreShot(view(balls, groups, false, 'regional'), soft)).toBeGreaterThan(scoreShot(view(balls, groups, false, '8-ball'), soft))
   })
 })
 

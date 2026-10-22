@@ -5,6 +5,8 @@ export const BALL_RADIUS = 10
 export const POCKET_RADIUS = BALL_RADIUS * 1.75
 export const MAX_SHOT_SPEED = 1600
 export const FIXED_STEP = 1 / 120
+/** Where the cue ball starts a match, and where Regional returns it after a scratch. */
+export const CUE_START = { x: 200, y: 200 }
 export const POCKETS = [
   { x: 0, y: 0 },
   { x: 400, y: 0 },
@@ -34,7 +36,7 @@ export function emptyReport(): ShotReport {
 }
 
 export function createRack(): Ball[] {
-  const balls: Ball[] = [{ id: 0, x: 200, y: 200, vx: 0, vy: 0, pocketed: false }]
+  const balls: Ball[] = [{ id: 0, ...CUE_START, vx: 0, vy: 0, pocketed: false }]
   // Eight in the middle, opposite groups in the back corners.
   const ids = [1, 9, 2, 10, 8, 3, 4, 11, 5, 12, 6, 13, 7, 14, 15]
   let index = 0
@@ -161,6 +163,23 @@ export function canPlaceBall(balls: Ball[], id: number, x: number, y: number): b
     && y >= BALL_RADIUS && y <= TABLE_HEIGHT - BALL_RADIUS
     && POCKETS.every(p => Math.hypot(p.x - x, p.y - y) > POCKET_RADIUS + 1)
     && balls.every(b => b.id === id || b.pocketed || Math.hypot(b.x - x, b.y - y) >= BALL_RADIUS * 2 + 0.1)
+}
+
+/** Puts the cue ball back on the starting spot, or the nearest free point when a ball is on it. */
+export function respotCue(balls: Ball[]): void {
+  const cue = balls.find(b => b.id === 0)!
+  for (let radius = 0; radius <= TABLE_WIDTH; radius += 1) {
+    const steps = Math.max(1, Math.round(radius * 2))
+    for (let step = 0; step < steps; step++) {
+      const angle = (2 * Math.PI * step) / steps
+      const x = CUE_START.x + Math.cos(angle) * radius
+      const y = CUE_START.y + Math.sin(angle) * radius
+      if (canPlaceBall(balls, 0, x, y)) {
+        Object.assign(cue, { x, y, vx: 0, vy: 0, pocketed: false })
+        return
+      }
+    }
+  }
 }
 
 export function respotEight(balls: Ball[]): void {

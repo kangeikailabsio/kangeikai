@@ -1,5 +1,5 @@
 import type { Ball } from '@kangeikai/game-pool/physics'
-import { BALL_RADIUS, canPlaceBall, createRack, emptyReport, MAX_SHOT_SPEED, POCKET_RADIUS, respotEight, stepPhysics } from '@kangeikai/game-pool/physics'
+import { BALL_RADIUS, canPlaceBall, createRack, CUE_START, emptyReport, MAX_SHOT_SPEED, POCKET_RADIUS, respotCue, respotEight, stepPhysics } from '@kangeikai/game-pool/physics'
 import { describe, expect, it } from 'vitest'
 
 function ball(id: number, x: number, y: number, vx = 0, vy = 0): Ball {
@@ -97,6 +97,18 @@ describe('continuous pool physics', () => {
       expect(canPlaceBall(balls, 0, x, y)).toBe(false)
   })
 
+  it('respots the cue ball on the start spot, or the nearest free point when it is taken', () => {
+    const balls = [ball(0, 0, 0), ball(1, 600, 100)]
+    balls[0].pocketed = true
+    respotCue(balls)
+    expect(balls[0]).toMatchObject({ ...CUE_START, pocketed: false })
+    const blocked = [ball(0, 0, 0), ball(1, CUE_START.x + 5, CUE_START.y)]
+    blocked[0].pocketed = true
+    respotCue(blocked)
+    expect(blocked[0].pocketed).toBe(false)
+    expect(canPlaceBall(blocked, 0, blocked[0].x, blocked[0].y)).toBe(true)
+    expect(Math.hypot(blocked[0].x - CUE_START.x, blocked[0].y - CUE_START.y)).toBeLessThan(40)
+  })
   it('respots the eight at the first free point toward the foot cushion', () => {
     const balls = [ball(8, 0, 0), ball(1, 595, 200)]
     balls[0].pocketed = true

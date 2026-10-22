@@ -166,7 +166,7 @@
         </div>
       {:else}<p class='status'>Opening table…</p>{/if}
     </div>
-    <div class='canvas-area'><div class='canvas' bind:this={host}></div></div>
+    <div class='canvas' bind:this={host}></div>
     {#if snapshot && !active && seat >= 0}
       <fieldset class='modes' disabled={!session.connected || seat !== snapshot.ownerSeat} title={seat === snapshot.ownerSeat ? undefined : 'Chosen by the table owner'}>
         <legend>Mode</legend>
@@ -212,9 +212,7 @@
   /* Nearly opaque: the office scene stops rendering while this is open, so there is no dimmed map
      left behind it to show through — only the canvas it cleared. */
   .backdrop { position: fixed; inset: 0; z-index: 22; background: rgb(3 6 8 / 94%); display: flex; justify-content: center; align-items: center; padding: 16px 16px 68px; pointer-events: auto; }
-  /* A column that is as tall as the screen allows: everything but the canvas keeps its natural size and
-     the canvas takes what is left, so the footer buttons never fall out of view. */
-  .pool-window { position: relative; display: flex; flex-direction: column; width: min(1050px, 100%); height: min(100%, 1000px); max-height: 100%; overflow: auto; border: 1px solid #486357; border-radius: 18px; background: #15241f; color: #f3f5ec; box-shadow: 0 20px 80px #0008; padding: 18px; }
+  .pool-window { --chrome: 450px; position: relative; width: min(1050px, 100%); max-height: 100%; overflow: auto; border: 1px solid #486357; border-radius: 18px; background: #15241f; color: #f3f5ec; box-shadow: 0 20px 80px #0008; padding: 18px; }
   header, footer, .players, .status { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   h1 { margin: 0; font-size: 22px; } h1 span, p, small { color: #b5c8bc; } h1 span { font-size: 14px; } p { margin: 5px 0; }
   .stage-top { margin: 16px -18px 0; padding: 0 18px; }
@@ -229,14 +227,13 @@
   .glyph .band { position: absolute; inset: 4px 0; }
   .glyph span { position: relative; width: 10px; height: 10px; border-radius: 50%; background: #fffdf4; color: #17212b; font-size: 8px; font-weight: 700; line-height: 10px; text-align: center; }
   .glyph.eight { outline: 1px solid #edce67; outline-offset: 1px; }
-  /* aspect-ratio must stay exactly the renderer's logical 900x600 ratio: any mismatch makes
-     Scale.FIT letterbox inside the element and the floor stops touching its edges.
+  /* The canvas is the largest 3:2 box that fits the screen height once the other panels (--chrome,
+     an estimate of their combined height) are taken out. It must keep exactly the renderer's logical
+     900x600 ratio: any mismatch makes Scale.FIT letterbox inside the element and the floor stops
+     touching its edges. Below 480px wide it stops shrinking and the window scrolls instead; the footer
+     is sticky, so the main actions stay reachable even then.
      touch-action: none — .pool-window scrolls, so without it a touch drag pans the panel. */
-  /* The wrapper is a size container so the canvas can be the largest 3:2 box that fits it. The 320px
-     minimum height is the 480px minimum width at 3:2: only below that does the window scroll. */
-  .canvas-area { flex: 1 1 auto; min-height: 320px; container-type: size; display: flex; align-items: center; justify-content: center; margin-top: 8px; }
-  .canvas { width: min(100%, calc(100cqh * 1.5)); min-width: min(480px, 100%); aspect-ratio: 3 / 2; position: relative; touch-action: none; }
-  header, .stage-top, footer, .modes { flex: none; }
+  .canvas { width: min(100%, calc((100vh - var(--chrome)) * 1.5), calc((100dvh - var(--chrome)) * 1.5)); min-width: min(480px, 100%); margin: 8px auto 0; aspect-ratio: 3 / 2; position: relative; touch-action: none; }
   .actions { display: flex; gap: 8px; }
   .rules { position: absolute; top: 64px; right: 18px; z-index: 2; width: min(360px, calc(100% - 36px)); padding: 12px 14px; border: 1px solid #486357; border-radius: 10px; background: #20332b; box-shadow: 0 10px 30px #0008; }
   .rules p { margin: 6px 0 0; color: #f3f5ec; font-size: 13px; }
@@ -253,21 +250,20 @@
   /* Short screens: trim the chrome around the canvas so the actions stay in view. */
   @media (max-height: 720px) {
     .backdrop { padding: 8px 8px 60px; }
-    .pool-window { padding: 8px 14px; border-radius: 12px; }
+    .pool-window { --chrome: 340px; padding: 8px 14px; border-radius: 12px; }
     h1 { font-size: 18px; } h1 span { font-size: 12px; } header p { margin: 1px 0 0; font-size: 12px; }
     .stage-top { margin: 6px -14px 0; padding: 0 14px; }
-    .players > div { min-height: 48px; padding: 5px 10px; align-items: center; }
     .players small { display: none; }
     .glyphs { min-height: 14px; } .glyph { width: 14px; height: 14px; } .glyph span { width: 8px; height: 8px; font-size: 6px; line-height: 8px; }
     .status { min-height: 22px; font-size: 13px; }
-    .canvas-area { margin-top: 4px; }
+    .canvas { margin-top: 4px; }
     .modes { margin-top: 4px; }
     .segment, button { padding-top: 6px; padding-bottom: 6px; }
-    footer { margin-top: 4px; } footer small { display: none; }
+    .pool-window footer { margin: 4px -14px 0; padding: 6px 14px; } footer small { display: none; }
   }
   /* Very short screens: only the buttons; the description is one click away under "Rules". */
   @media (max-height: 640px) { .mode-description { display: none; } }
-  footer { flex-wrap: wrap; justify-content: flex-start; margin-top: 8px; } footer small { margin-left: auto; font-size: 12px; }
+  footer { flex-wrap: wrap; justify-content: flex-start; position: sticky; bottom: 0; z-index: 1; margin: 8px -18px 0; padding: 8px 18px; background: #15241f; } footer small { margin-left: auto; font-size: 12px; }
   label { display: flex; align-items: center; gap: 8px; } input { accent-color: #edce67; width: 150px; }
   button { cursor: pointer; color: #f5f5ec; background: #344d40; border: 1px solid #607267; border-radius: 8px; padding: 9px 14px; font: inherit; }
   button:disabled { opacity: 0.45; cursor: not-allowed; } button:focus-visible { outline: 2px solid #edce67; outline-offset: 3px; } .primary { background: #edce67; color: #17241e; font-weight: 700; }

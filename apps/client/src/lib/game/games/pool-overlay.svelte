@@ -276,8 +276,10 @@
   .teams { display: flex; gap: 12px; }
   .team { flex: 1; display: grid; gap: 4px; min-width: 0; padding: 6px 10px; border: 1px solid #3b5147; border-radius: 10px; background: rgb(21 36 31 / 55%); }
   .team-head { display: flex; align-items: center; gap: 10px; font-size: 13px; } .team-head span { color: #b5c8bc; font-size: 12px; } .team-head .glyphs { margin: 0 0 0 auto; }
-  /* The portrait is a 32x64 sprite frame drawn 1:1 to stay crisp, so it is cropped rather than scaled: only the top shows. */
-  .portrait { flex: none; width: 32px; height: 32px; overflow: hidden; }
+  /* The portrait is a 32x64 sprite frame drawn 1:1 to stay crisp, so it is cropped rather than scaled. The
+     character fills rows 14-63 of the frame (the top 14 are transparent), so shifting up 14px shows head and torso. */
+  .portrait { flex: none; width: 32px; height: 36px; overflow: hidden; }
+  .portrait :global(.icon) { margin-top: -14px; }
   .member { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 2px 8px; border: 1px solid transparent; border-radius: 8px; } .member small { color: #b5c8bc; font-size: 12px; }
   .member.current { border-color: #edce67; background: #34412a; }
   .position { display: grid; place-items: center; flex: none; width: 18px; height: 18px; border-radius: 50%; background: #edce67; color: #17241e; font-size: 11px; font-weight: 700; }

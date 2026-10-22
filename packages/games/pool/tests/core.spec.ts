@@ -1,5 +1,5 @@
 import type { ShotContext } from '@kangeikai/game-pool/core'
-import { BALL_HUES, ballBodyCss, ballHue, ballHueCss, evaluateShot, hasClearedGroup, lowestBall, toCssHex } from '@kangeikai/game-pool/core'
+import { BALL_HUES, ballBodyCss, ballHue, ballHueCss, evaluateShot, hasClearedGroup, lowestBall, nextSeat, otherTeam, teamOfSeat, toCssHex } from '@kangeikai/game-pool/core'
 import { createRack } from '@kangeikai/game-pool/physics'
 import { describe, expect, it } from 'vitest'
 
@@ -173,5 +173,22 @@ describe('lowestBall', () => {
   it('is null when only the eight, or nothing, is left', () => {
     expect(lowestBall([ball(8), ball(1, true)], 'solids')).toBeNull()
     expect(lowestBall([ball(8)], null)).toBeNull()
+  })
+})
+
+describe('teams and rotation', () => {
+  it('maps each seat to a team, one seat per team in 1v1 and half and half with four seats', () => {
+    expect([0, 1].map(seat => teamOfSeat(seat, 2))).toEqual([0, 1])
+    expect([0, 1, 2, 3].map(seat => teamOfSeat(seat, 4))).toEqual([0, 0, 1, 1])
+  })
+  it('flips the team', () => {
+    expect(otherTeam(0)).toBe(1)
+    expect(otherTeam(1)).toBe(0)
+  })
+  it('moves to the next seat in the rotation and wraps around', () => {
+    expect(nextSeat([0, 1], 0)).toBe(1)
+    expect(nextSeat([0, 1], 1)).toBe(0)
+    expect(nextSeat([0, 2, 1, 3], 2)).toBe(1)
+    expect(nextSeat([0, 2, 1, 3], 3)).toBe(0)
   })
 })

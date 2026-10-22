@@ -12,7 +12,7 @@ function ball(id: number, x: number, y: number, pocketed = false): Ball {
   return { id, x, y, vx: 0, vy: 0, pocketed }
 }
 function view(balls: Ball[], groups: ['solids' | 'stripes' | null, 'solids' | 'stripes' | null] = [null, null], breaking = false, mode: GameMode = '8-ball') {
-  return { mode, seat: 1 as const, groups, breaking, balls }
+  return { mode, team: 1 as const, groups, breaking, balls }
 }
 
 describe('bot target selection', () => {

@@ -4,7 +4,7 @@ import type { PoolCommand, PoolEvent, PoolSnapshot } from '@kangeikai/game-pool/
 import type { AvatarSpriteType, GameTable } from '@kangeikai/shared'
 import { BotBrain } from '@kangeikai/game-pool/bot'
 import { evaluateShot, hasClearedGroup, lowestBall } from '@kangeikai/game-pool/core'
-import { canPlaceBall, createRack, emptyReport, FIXED_STEP, respotEight, stepPhysics, strikeCue } from '@kangeikai/game-pool/physics'
+import { canPlaceBall, createRack, emptyReport, FIXED_STEP, respotCue, respotEight, stepPhysics, strikeCue } from '@kangeikai/game-pool/physics'
 import { poolCommandSchema, SHOT_TIME_MS, SNAPSHOT_INTERVAL_MS } from '@kangeikai/game-pool/protocol'
 import { distanceToTable, GAME_INTERACTION_DISTANCE } from '@kangeikai/shared'
 import * as v from 'valibot'
@@ -328,12 +328,14 @@ export class PoolManager {
     }
     else {
       const dropped = outcome.dropsOpponentBall ? this.dropOpponentBall(table, outcome.groups[table.context!.shooter === 0 ? 1 : 0]) : null
+      if (outcome.respotCue)
+        respotCue(s.balls)
       s.turn = outcome.next
       s.breaking = false
       s.ballInHand = outcome.ballInHand
       s.cuePlaced = !s.ballInHand
       s.notice = outcome.foul
-        ? `${outcome.foul} ${outcome.ballInHand ? 'Ball in hand for the opponent.' : 'Turn lost.'}${dropped !== null ? ` The opponent's ball ${dropped} was pocketed.` : ''}`
+        ? [outcome.foul, outcome.ballInHand ? 'Ball in hand for the opponent.' : 'Turn lost.', dropped !== null && `The opponent's ball ${dropped} was pocketed.`, outcome.respotCue && 'The cue ball returns to the starting spot.'].filter(Boolean).join(' ')
         : 'Your turn to aim.'
       this.nextTurn(table)
     }

@@ -339,6 +339,25 @@ describe('game modes', () => {
     expect(after.balls.find(b => b.id === 10)?.pocketed).toBe(false)
     expect(after.notice).toContain('returns to the starting spot')
   })
+  it('pockets the next lowest opponent ball after a legal first contact that also pockets an opponent ball', () => {
+    seat('a')
+    seat('b')
+    setMode('a', 'regional')
+    for (const id of ['a', 'b']) manager.handle(id, { kind: 'ready', tableId: 'one', ready: true })
+    const ball = (id: number, x: number, y: number, vx = 0, vy = 0) => ({ id, x, y, vx, vy, pocketed: false })
+    Object.assign(session().state, { groups: ['solids', 'stripes'], breaking: false, balls: [ball(0, 200, 200), ball(1, 400, 200), ball(9, 60, 60, -300, -300), ball(10, 650, 100), ball(11, 700, 350)] })
+    shot()
+    for (let i = 0; i < 1500 && snapshots.get('a')!.phase === 'moving'; i++) {
+      now += 20
+      manager.tick(20)
+    }
+    const after = snapshots.get('a')!
+    expect(after).toMatchObject({ turn: 1, ballInHand: false })
+    expect(after.balls.find(b => b.id === 9)?.pocketed).toBe(true)
+    expect(after.balls.find(b => b.id === 10)?.pocketed).toBe(true)
+    expect(after.balls.find(b => b.id === 11)?.pocketed).toBe(false)
+    expect(after.notice).toContain('ball 10 was pocketed')
+  })
   it('gives ball in hand and pockets nothing on the same 8-ball shot', () => {
     const state = wrongFirstContact('8-ball')
     expect(state).toMatchObject({ turn: 1, ballInHand: true })

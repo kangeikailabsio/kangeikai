@@ -49,7 +49,7 @@ export const GAME_MODE_INFO: Record<GameMode, { label: string, description: stri
   },
   'regional': {
     label: 'Regional',
-    description: 'Stricter house rules. Your first contact must be one of your own balls. If you hit an opponent\'s ball first, hit nothing, or pocket the cue ball, you lose your turn and your opponent\'s lowest-numbered ball is pocketed for them (one per shot). After a scratch the cue ball returns to the starting spot; otherwise it stays where it stopped. There is no ball in hand. Soft safety plays are allowed: no rail is required after contact.',
+    description: 'Stricter house rules. Your first contact must be one of your own balls. If you hit an opponent\'s ball first, hit nothing, pocket the cue ball, or pocket an opponent\'s ball, you lose your turn and your opponent\'s lowest-numbered remaining ball is pocketed for them (one extra ball per shot). After a scratch the cue ball returns to the starting spot; otherwise it stays where it stopped. There is no ball in hand. Soft safety plays are allowed: no rail is required after contact.',
   },
 }
 
@@ -124,12 +124,16 @@ function assignGroups(context: ShotContext, report: ShotReport): ShotOutcome['gr
   return groups
 }
 
+/** Uses the pre-shot groups, so an open table still assigns on a mixed pot. */
+function pottedOpponentBall(context: ShotContext, report: ShotReport): boolean {
+  const opponent: Seat = context.shooter === 0 ? 1 : 0
+  return !context.breaking && report.pocketed.some(id => groupOf(id) !== null && groupOf(id) === context.groups[opponent])
+}
+
 function keepsTurn(context: ShotContext, report: ShotReport, groups: ShotOutcome['groups']): boolean {
   const { shooter, breaking } = context
-  const opponent: Seat = shooter === 0 ? 1 : 0
-  // House rule: potting any opponent ball ends the turn, even alongside an own-group pot (not a foul). Uses the pre-shot groups so an open table still assigns on a mixed pot.
-  const pottedOpponent = !breaking && report.pocketed.some(id => groupOf(id) !== null && groupOf(id) === context.groups[opponent])
-  return !pottedOpponent && report.pocketed.some(id => breaking ? id !== 0 : groupOf(id) !== null && groupOf(id) === groups[shooter])
+  // House rule: potting any opponent ball ends the turn, even alongside an own-group pot (not a foul).
+  return !pottedOpponentBall(context, report) && report.pocketed.some(id => breaking ? id !== 0 : groupOf(id) !== null && groupOf(id) === groups[shooter])
 }
 
 export function evaluateShot(context: ShotContext, report: ShotReport): ShotOutcome {
@@ -143,7 +147,7 @@ export function evaluateShot(context: ShotContext, report: ShotReport): ShotOutc
   const groups = !breaking && !foul ? assignGroups(context, report) : [...context.groups] as ShotOutcome['groups']
   const retained = !foul && keepsTurn(context, report, groups)
   const scratched = report.pocketed.includes(0)
-  const dropsOpponentBall = context.mode === 'regional' && !breaking && context.groups[shooter] !== null && Boolean(found?.penalized || scratched)
+  const dropsOpponentBall = context.mode === 'regional' && !breaking && context.groups[shooter] !== null && Boolean(found?.penalized || scratched || pottedOpponentBall(context, report))
   return { groups, next: retained ? shooter : opponent, foul, winner, respotEight: breaking && report.pocketed.includes(8), ballInHand: found?.ballInHand ?? false, respotCue: context.mode === 'regional' && scratched, dropsOpponentBall }
 }
 

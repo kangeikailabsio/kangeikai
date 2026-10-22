@@ -118,6 +118,19 @@ describe('regional mode', () => {
     expect(evaluateShot(regional, { firstContact: null, pocketed: [], railsAfterContact: [] })).toMatchObject({ next: 1, ballInHand: false, respotCue: false, dropsOpponentBall: true })
     expect(evaluateShot(assigned, { firstContact: null, pocketed: [], railsAfterContact: [] })).toMatchObject({ ballInHand: true, dropsOpponentBall: false })
   })
+  it('also pockets the opponent\'s lowest ball when an opponent ball is pocketed, even after a legal first contact', () => {
+    const potted = { firstContact: 1, pocketed: [9], railsAfterContact: [] }
+    expect(evaluateShot(regional, potted)).toMatchObject({ next: 1, foul: null, ballInHand: false, respotCue: false, dropsOpponentBall: true })
+    expect(evaluateShot(assigned, potted)).toMatchObject({ next: 1, dropsOpponentBall: false })
+    expect(evaluateShot(regional, { firstContact: 1, pocketed: [2, 9], railsAfterContact: [] })).toMatchObject({ next: 1, dropsOpponentBall: true })
+  })
+  it('stays a single penalty ball when several causes combine', () => {
+    expect(evaluateShot(regional, { firstContact: 9, pocketed: [0, 9, 10], railsAfterContact: [] })).toMatchObject({ next: 1, dropsOpponentBall: true, respotCue: true })
+  })
+  it('does not penalize a mixed pot on an open table or on the break', () => {
+    expect(evaluateShot({ ...open, mode: 'regional' }, { firstContact: 1, pocketed: [2, 9], railsAfterContact: [] })).toMatchObject({ next: 0, dropsOpponentBall: false })
+    expect(evaluateShot({ ...regional, breaking: true }, { firstContact: 1, pocketed: [2, 9], railsAfterContact: [] })).toMatchObject({ dropsOpponentBall: false })
+  })
   it('keeps the turn only when the first contact is legal and an own ball drops', () => {
     expect(evaluateShot(regional, { firstContact: 1, pocketed: [2], railsAfterContact: [] })).toMatchObject({ next: 0, foul: null, dropsOpponentBall: false })
     expect(evaluateShot(regional, { firstContact: 1, pocketed: [], railsAfterContact: [] })).toMatchObject({ next: 1, foul: null, dropsOpponentBall: false })

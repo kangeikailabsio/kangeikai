@@ -336,7 +336,9 @@ export class PoolManager {
       s.cuePlaced = !s.ballInHand
       s.notice = outcome.foul
         ? [outcome.foul, outcome.ballInHand ? 'Ball in hand for the opponent.' : 'Turn lost.', dropped !== null && `The opponent's ball ${dropped} was pocketed.`, outcome.respotCue && 'The cue ball returns to the starting spot.'].filter(Boolean).join(' ')
-        : 'Your turn to aim.'
+        : dropped !== null
+          ? `An opponent's ball was pocketed: turn lost. The opponent's ball ${dropped} was pocketed too.`
+          : 'Your turn to aim.'
       this.nextTurn(table)
     }
     table.context = null

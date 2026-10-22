@@ -63,7 +63,12 @@
     const timer = setInterval(() => {
       now = Date.now()
     }, 100)
+    // The ScaleManager only polls its parent every 500ms: a layout change (the mode selector
+    // appearing, a resized window) would leave clicks mis-mapped until then.
+    const resize = new ResizeObserver(() => renderer?.refreshScale())
+    resize.observe(host)
     return () => {
+      resize.disconnect()
       renderer?.destroy()
       clearInterval(timer)
     }
@@ -161,16 +166,19 @@
         </div>
       {:else}<p class='status'>Opening table…</p>{/if}
     </div>
-    <div class='canvas' bind:this={host}></div>
+    <div class='canvas-area'><div class='canvas' bind:this={host}></div></div>
     {#if snapshot && !active && seat >= 0}
-      <fieldset class='modes' disabled={!session.connected || seat !== snapshot.ownerSeat}>
-        <legend>Game mode{seat === snapshot.ownerSeat ? '' : ' (chosen by the table owner)'}</legend>
-        {#each GAME_MODES as mode (mode)}
-          <label class='mode' class:selected={snapshot.mode === mode}>
-            <input type='radio' name='game-mode' value={mode} checked={snapshot.mode === mode} onchange={() => session.send({ kind: 'setMode', tableId: snapshot.tableId, mode })} />
-            <span><strong>{GAME_MODE_INFO[mode].label}</strong><small>{GAME_MODE_INFO[mode].description}</small></span>
-          </label>
-        {/each}
+      <fieldset class='modes' disabled={!session.connected || seat !== snapshot.ownerSeat} title={seat === snapshot.ownerSeat ? undefined : 'Chosen by the table owner'}>
+        <legend>Mode</legend>
+        <div class='segments' role='radiogroup' aria-label='Game mode'>
+          {#each GAME_MODES as mode (mode)}
+            <label class='segment' class:selected={snapshot.mode === mode} title={GAME_MODE_INFO[mode].description}>
+              <input class='visually-hidden' type='radio' name='game-mode' value={mode} checked={snapshot.mode === mode} onchange={() => session.send({ kind: 'setMode', tableId: snapshot.tableId, mode })} />
+              {GAME_MODE_INFO[mode].label}
+            </label>
+          {/each}
+        </div>
+        <p class='mode-description'>{GAME_MODE_INFO[snapshot.mode].description}{seat === snapshot.ownerSeat ? '' : ' (Chosen by the table owner.)'}</p>
       </fieldset>
     {/if}
     <footer>
@@ -203,8 +211,10 @@
 <style>
   /* Nearly opaque: the office scene stops rendering while this is open, so there is no dimmed map
      left behind it to show through — only the canvas it cleared. */
-  .backdrop { position: fixed; inset: 0; z-index: 22; background: rgb(3 6 8 / 94%); display: flex; justify-content: center; align-items: center; padding: 16px 16px 80px; pointer-events: auto; }
-  .pool-window { position: relative; width: min(1050px, 100%); max-height: 100%; overflow: auto; border: 1px solid #486357; border-radius: 18px; background: #15241f; color: #f3f5ec; box-shadow: 0 20px 80px #0008; padding: 18px; }
+  .backdrop { position: fixed; inset: 0; z-index: 22; background: rgb(3 6 8 / 94%); display: flex; justify-content: center; align-items: center; padding: 16px 16px 68px; pointer-events: auto; }
+  /* A column that is as tall as the screen allows: everything but the canvas keeps its natural size and
+     the canvas takes what is left, so the footer buttons never fall out of view. */
+  .pool-window { position: relative; display: flex; flex-direction: column; width: min(1050px, 100%); height: min(100%, 1000px); max-height: 100%; overflow: auto; border: 1px solid #486357; border-radius: 18px; background: #15241f; color: #f3f5ec; box-shadow: 0 20px 80px #0008; padding: 18px; }
   header, footer, .players, .status { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   h1 { margin: 0; font-size: 22px; } h1 span, p, small { color: #b5c8bc; } h1 span { font-size: 14px; } p { margin: 5px 0; }
   .stage-top { margin: 16px -18px 0; padding: 0 18px; }
@@ -222,18 +232,41 @@
   /* aspect-ratio must stay exactly the renderer's logical 900x600 ratio: any mismatch makes
      Scale.FIT letterbox inside the element and the floor stops touching its edges.
      touch-action: none — .pool-window scrolls, so without it a touch drag pans the panel. */
-  .canvas { width: 100%; aspect-ratio: 3 / 2; max-height: 64vh; position: relative; touch-action: none; }
+  /* The wrapper is a size container so the canvas can be the largest 3:2 box that fits it. The 320px
+     minimum height is the 480px minimum width at 3:2: only below that does the window scroll. */
+  .canvas-area { flex: 1 1 auto; min-height: 320px; container-type: size; display: flex; align-items: center; justify-content: center; margin-top: 8px; }
+  .canvas { width: min(100%, calc(100cqh * 1.5)); min-width: min(480px, 100%); aspect-ratio: 3 / 2; position: relative; touch-action: none; }
+  header, .stage-top, footer, .modes { flex: none; }
   .actions { display: flex; gap: 8px; }
   .rules { position: absolute; top: 64px; right: 18px; z-index: 2; width: min(360px, calc(100% - 36px)); padding: 12px 14px; border: 1px solid #486357; border-radius: 10px; background: #20332b; box-shadow: 0 10px 30px #0008; }
   .rules p { margin: 6px 0 0; color: #f3f5ec; font-size: 13px; }
-  .modes { display: flex; gap: 10px; margin: 12px 0 0; padding: 0; border: 0; min-width: 0; }
-  .modes legend { padding: 0; margin-bottom: 6px; font-size: 12px; color: #b5c8bc; }
+  .modes { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin: 8px 0 0; padding: 0; border: 0; min-width: 0; }
+  .modes legend { float: left; padding: 0; margin-right: 12px; font-size: 12px; color: #b5c8bc; }
   .modes:disabled { opacity: 0.75; }
-  .mode { flex: 1; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid #3b5147; border-radius: 10px; background: rgb(21 36 31 / 55%); cursor: pointer; }
-  .mode.selected { border-color: #edce67; background: #34412a; }
-  .mode input { width: auto; margin-top: 3px; }
-  .mode span { display: grid; gap: 4px; } .mode small { font-size: 12px; line-height: 1.35; }
-  @media (max-width: 640px) { .modes { flex-direction: column; } }
+  .segments { display: flex; border: 1px solid #607267; border-radius: 8px; overflow: hidden; }
+  .segment { padding: 7px 14px; cursor: pointer; background: #344d40; }
+  .segment + .segment { border-left: 1px solid #607267; }
+  .segment.selected { background: #edce67; color: #17241e; font-weight: 700; }
+  .segment:has(input:focus-visible) { outline: 2px solid #edce67; outline-offset: -2px; }
+  .mode-description { flex: 1 1 260px; margin: 0; font-size: 12px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  /* Short screens: trim the chrome around the canvas so the actions stay in view. */
+  @media (max-height: 720px) {
+    .backdrop { padding: 8px 8px 60px; }
+    .pool-window { padding: 8px 14px; border-radius: 12px; }
+    h1 { font-size: 18px; } h1 span { font-size: 12px; } header p { margin: 1px 0 0; font-size: 12px; }
+    .stage-top { margin: 6px -14px 0; padding: 0 14px; }
+    .players > div { min-height: 48px; padding: 5px 10px; align-items: center; }
+    .players small { display: none; }
+    .glyphs { min-height: 14px; } .glyph { width: 14px; height: 14px; } .glyph span { width: 8px; height: 8px; font-size: 6px; line-height: 8px; }
+    .status { min-height: 22px; font-size: 13px; }
+    .canvas-area { margin-top: 4px; }
+    .modes { margin-top: 4px; }
+    .segment, button { padding-top: 6px; padding-bottom: 6px; }
+    footer { margin-top: 4px; } footer small { display: none; }
+  }
+  /* Very short screens: only the buttons; the description is one click away under "Rules". */
+  @media (max-height: 640px) { .mode-description { display: none; } }
   footer { flex-wrap: wrap; justify-content: flex-start; margin-top: 8px; } footer small { margin-left: auto; font-size: 12px; }
   label { display: flex; align-items: center; gap: 8px; } input { accent-color: #edce67; width: 150px; }
   button { cursor: pointer; color: #f5f5ec; background: #344d40; border: 1px solid #607267; border-radius: 8px; padding: 9px 14px; font: inherit; }

@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.11.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.10.0...v0.11.0) (2026-10-22)
+
+
+### Features
+
+* **pool:** add a server-side bot opponent ([#190](https://github.com/kangeikailabsio/kangeikai/issues/190)) ([#191](https://github.com/kangeikailabsio/kangeikai/issues/191)) ([776a490](https://github.com/kangeikailabsio/kangeikai/commit/776a4906dd27941a05fd97464c4ff5c5a5c5bfec))
+* **pool:** add the 2v2 format ([#200](https://github.com/kangeikailabsio/kangeikai/issues/200)) ([#202](https://github.com/kangeikailabsio/kangeikai/issues/202)) ([833f27a](https://github.com/kangeikailabsio/kangeikai/commit/833f27acb106a90eefc9b22c72c04afb7c4505e6))
+* **pool:** add the Regional game mode ([#194](https://github.com/kangeikailabsio/kangeikai/issues/194)) ([#196](https://github.com/kangeikailabsio/kangeikai/issues/196)) ([8e3a43e](https://github.com/kangeikailabsio/kangeikai/commit/8e3a43e78e3d1076d1bead288c0cca4ed4873e1b))
+
+
+### Fixes
+
+* **pool:** fit the overlay to small screens without scrolling ([#197](https://github.com/kangeikailabsio/kangeikai/issues/197)) ([#198](https://github.com/kangeikailabsio/kangeikai/issues/198)) ([81eb8f8](https://github.com/kangeikailabsio/kangeikai/commit/81eb8f8c2b40054ecf42ea333be27fb486646574))
+* **pool:** pass the turn when an opponent ball is potted ([#188](https://github.com/kangeikailabsio/kangeikai/issues/188)) ([#189](https://github.com/kangeikailabsio/kangeikai/issues/189)) ([8d1ee05](https://github.com/kangeikailabsio/kangeikai/commit/8d1ee05869267c0997a541e3aab2004ae05ed542))
+* **pool:** size pockets at 1.75x the ball radius ([#186](https://github.com/kangeikailabsio/kangeikai/issues/186)) ([#187](https://github.com/kangeikailabsio/kangeikai/issues/187)) ([08a0cba](https://github.com/kangeikailabsio/kangeikai/commit/08a0cba9667a216549c6a01eadb4f147a0ec968f))
+* **pool:** translate player-facing text to English ([#193](https://github.com/kangeikailabsio/kangeikai/issues/193)) ([#195](https://github.com/kangeikailabsio/kangeikai/issues/195)) ([850eea6](https://github.com/kangeikailabsio/kangeikai/commit/850eea677815541758621e9052e4c0b94e90b450))
+
+
+### Improvements
+
+* **pool:** generalize seats to players and teams ([#199](https://github.com/kangeikailabsio/kangeikai/issues/199)) ([#201](https://github.com/kangeikailabsio/kangeikai/issues/201)) ([2477826](https://github.com/kangeikailabsio/kangeikai/commit/2477826db00649d4692dadf0754f28f11b676bac))
+
 ## [0.10.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.9.1...v0.10.0) (2026-10-16)
 
 

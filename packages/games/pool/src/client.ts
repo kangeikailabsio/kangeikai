@@ -1,7 +1,7 @@
 import type { Point } from '@kangeikai/game-pool/aim'
 import type { Phase } from '@kangeikai/game-pool/core'
 import type { PoolSnapshot } from '@kangeikai/game-pool/protocol'
-import { aimAngle, aimDistance, chargeFromDrag, MIN_POWER, MIN_PULL, pullDistance } from '@kangeikai/game-pool/aim'
+import { aimAngle, aimDistance, aimGuide, chargeFromDrag, MIN_POWER, MIN_PULL, pullDistance } from '@kangeikai/game-pool/aim'
 import { FLOOR_EDGE } from '@kangeikai/game-pool/floor'
 import { BALL_RADIUS, canPlaceBall } from '@kangeikai/game-pool/physics'
 import { createPrediction } from '@kangeikai/game-pool/predict'
@@ -144,6 +144,17 @@ export function createPoolRenderer(parent: HTMLElement, options: PoolRendererOpt
     fire(shot, shot.angle, chargeFromDrag(shot.anchor, shot.point, shot.angle), performance.now())
   }
 
+  /** Draws an aim in canvas space; the geometry itself comes from `aimGuide`. */
+  function drawGuide(graphics: Phaser.GameObjects.Graphics, guide: ReturnType<typeof aimGuide>, committed: boolean): void {
+    const at = (point: Point): Point => ({ x: point.x + ORIGIN.x, y: point.y + ORIGIN.y })
+    graphics.lineStyle(committed ? 2.5 : 1.5, committed ? 0xFFE278 : 0xFFFFFF, committed ? 0.9 : 0.55)
+    for (const [from, to] of guide.dashes)
+      graphics.lineBetween(at(from).x, at(from).y, at(to).x, at(to).y)
+    graphics.strokeCircle(at(guide.contact).x, at(guide.contact).y, BALL_RADIUS)
+    graphics.lineStyle(5, 0xD8B078).lineBetween(at(guide.cue[0]).x, at(guide.cue[0]).y, at(guide.cue[1]).x, at(guide.cue[1]).y)
+    graphics.lineStyle(3, 0xC5EEEC).lineBetween(at(guide.tip[0]).x, at(guide.tip[0]).y, at(guide.tip[1]).x, at(guide.tip[1]).y)
+  }
+
   class PoolScene extends Phaser.Scene {
     private drawing!: Phaser.GameObjects.Graphics
     private balls = new Map<number, Phaser.GameObjects.Image>()
@@ -232,22 +243,11 @@ export function createPoolRenderer(parent: HTMLElement, options: PoolRendererOpt
       // the thumb cannot jitter between two sub-step values.
       if (charge && Math.abs(power - options.getPower()) >= POWER_EPSILON)
         options.setPower(Math.round(power * 100) / 100)
-      const dx = Math.cos(angle)
-      const dy = Math.sin(angle)
-      const length = aimDistance(balls, cue.x, cue.y, angle)
-      const x = cue.x + ORIGIN.x
-      const y = cue.y + ORIGIN.y
       // Amber and a deeper recoil both signal the locked aim — a player who has pulled back only a
       // few units still needs to see that the direction is already frozen.
       const committed = Boolean(charge || locked)
-      graphics.lineStyle(committed ? 2.5 : 1.5, committed ? 0xFFE278 : 0xFFFFFF, committed ? 0.9 : 0.55)
-      for (let d = 15; d < length; d += 14)
-        graphics.lineBetween(x + dx * d, y + dy * d, x + dx * Math.min(d + 6, length), y + dy * Math.min(d + 6, length))
-      graphics.strokeCircle(x + dx * length, y + dy * length, BALL_RADIUS)
       const strike = locked ? 1 - Math.min(1, (performance.now() - locked.at) / FOLLOW_THROUGH_MS) : 1
-      const pull = (18 + power * 55) * strike
-      graphics.lineStyle(5, 0xD8B078).lineBetween(x - dx * pull, y - dy * pull, x - dx * (pull + 90), y - dy * (pull + 90))
-      graphics.lineStyle(3, 0xC5EEEC).lineBetween(x - dx * pull, y - dy * pull, x - dx * (pull + 7), y - dy * (pull + 7))
+      drawGuide(graphics, aimGuide(cue, angle, aimDistance(balls, cue.x, cue.y, angle), power, strike), committed)
     }
   }
 

@@ -61,3 +61,28 @@ export function aimDistance(balls: Ball[], x: number, y: number, angle: number):
   }
   return Math.max(0, distance)
 }
+
+/** Everything drawn for an aim, in table coordinates: the dashed line, the contact circle and the cue. */
+export interface AimGuide {
+  dashes: [Point, Point][]
+  /** Centre of the circle marking where the cue ball first touches something. */
+  contact: Point
+  /** The cue stick's body and its lighter tip. */
+  cue: [Point, Point]
+  tip: [Point, Point]
+}
+
+/**
+ * `length` is the first-contact distance from {@link aimDistance}. `strike` runs from 1 (cue pulled back
+ * by the power) to 0 (cue touching the ball), so the follow-through after release is just a smaller value.
+ */
+export function aimGuide(cue: Point, angle: number, length: number, power: number, strike = 1): AimGuide {
+  const dx = Math.cos(angle)
+  const dy = Math.sin(angle)
+  const along = (distance: number): Point => ({ x: cue.x + dx * distance, y: cue.y + dy * distance })
+  const dashes: AimGuide['dashes'] = []
+  for (let d = 15; d < length; d += 14)
+    dashes.push([along(d), along(Math.min(d + 6, length))])
+  const pull = (18 + power * 55) * strike
+  return { dashes, contact: along(length), cue: [along(-pull), along(-(pull + 90))], tip: [along(-pull), along(-(pull + 7))] }
+}

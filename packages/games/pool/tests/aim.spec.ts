@@ -1,5 +1,5 @@
 import type { Ball } from '@kangeikai/game-pool/physics'
-import { aimAngle, aimDistance, chargeFromDrag, MAX_POWER, MAX_PULL, MIN_POWER, MIN_PULL, pullDistance } from '@kangeikai/game-pool/aim'
+import { aimAngle, aimDistance, aimGuide, chargeFromDrag, MAX_POWER, MAX_PULL, MIN_POWER, MIN_PULL, pullDistance } from '@kangeikai/game-pool/aim'
 import { BALL_RADIUS, TABLE_WIDTH } from '@kangeikai/game-pool/physics'
 import { describe, expect, it } from 'vitest'
 
@@ -125,5 +125,35 @@ describe('first-contact guide distance', () => {
 
   it('never returns a negative distance for a ball already in contact', () => {
     expect(aimDistance([ball(0, 100, 200), ball(1, 115, 200)], 100, 200, 0)).toBeGreaterThanOrEqual(0)
+  })
+})
+
+describe('aim guide geometry', () => {
+  const cue = { x: 100, y: 100 }
+  it('lays dashes of 6 units every 14, starting 15 units out and stopping at the contact point', () => {
+    const guide = aimGuide(cue, 0, 60, 0.5)
+    expect(guide.dashes[0]).toEqual([{ x: 115, y: 100 }, { x: 121, y: 100 }])
+    expect(guide.dashes[1][0].x).toBeCloseTo(129)
+    expect(guide.dashes.at(-1)![1].x).toBeLessThanOrEqual(160)
+    expect(guide.contact).toEqual({ x: 160, y: 100 })
+  })
+  it('has no dashes when the first contact is closer than the first dash', () => {
+    expect(aimGuide(cue, 0, 10, 0.5).dashes).toEqual([])
+  })
+  it('draws the cue behind the cue ball, pulled back further with more power', () => {
+    const soft = aimGuide(cue, 0, 100, 0)
+    const hard = aimGuide(cue, 0, 100, 1)
+    expect(soft.cue[0].x).toBeCloseTo(100 - 18)
+    expect(hard.cue[0].x).toBeCloseTo(100 - 73)
+    expect(hard.cue[1].x).toBeCloseTo(100 - 73 - 90)
+    expect(hard.tip[1].x).toBeCloseTo(100 - 73 - 7)
+  })
+  it('brings the cue to the ball as the strike progresses', () => {
+    expect(aimGuide(cue, 0, 100, 1, 0).cue[0]).toEqual({ x: 100, y: 100 })
+  })
+  it('follows the angle', () => {
+    const guide = aimGuide(cue, Math.PI / 2, 60, 0.5)
+    expect(guide.contact.x).toBeCloseTo(100)
+    expect(guide.contact.y).toBeCloseTo(160)
   })
 })

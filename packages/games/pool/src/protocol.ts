@@ -1,4 +1,4 @@
-import type { GameMode, Group, Phase, Seat } from '@kangeikai/game-pool/core'
+import type { GameMode, Group, Phase, Seat, Team } from '@kangeikai/game-pool/core'
 import type { Ball } from '@kangeikai/game-pool/physics'
 import type { AvatarSpriteType } from '@kangeikai/shared'
 import { GAME_MODES } from '@kangeikai/game-pool/core'
@@ -42,9 +42,11 @@ export interface PoolSnapshot {
   mode: GameMode
   /** Seat allowed to change the mode before the match, or null when nobody is seated. */
   ownerSeat: Seat | null
-  players: [PoolPlayer | null, PoolPlayer | null]
+  /** One entry per seat; a seat's team is `teamOfSeat(index, players.length)`. */
+  players: (PoolPlayer | null)[]
   spectators: number
   balls: Ball[]
+  /** Indexed by team, not by seat. */
   groups: [Group | null, Group | null]
   turn: Seat
   breaking: boolean
@@ -53,7 +55,7 @@ export interface PoolSnapshot {
   deadline: number | null
   paused: boolean
   remainingMs: number
-  winner: Seat | null
+  winner: Team | null
   notice: string
 }
 

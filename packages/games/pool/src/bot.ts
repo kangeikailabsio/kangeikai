@@ -6,9 +6,9 @@
  * the real physics, and scores the outcome with the real rules. It then misses on purpose: angle and
  * power noise, plus the occasional second-best choice. It does not plan cue-ball position.
  */
-import type { GameMode, Group, Seat, ShotContext } from '@kangeikai/game-pool/core'
+import type { GameMode, Group, ShotContext, Team } from '@kangeikai/game-pool/core'
 import type { Ball, ShotReport } from '@kangeikai/game-pool/physics'
-import { evaluateShot, groupOf, hasClearedGroup } from '@kangeikai/game-pool/core'
+import { evaluateShot, groupOf, hasClearedGroup, otherTeam } from '@kangeikai/game-pool/core'
 import { BALL_RADIUS, canPlaceBall, emptyReport, MAX_SHOT_SPEED, POCKETS, stepPhysics, strikeCue, TABLE_HEIGHT, TABLE_WIDTH } from '@kangeikai/game-pool/physics'
 
 export const BOT_THINK_MS = 1500
@@ -33,7 +33,7 @@ const PLACEMENT_MARGIN = 30
 
 export interface BotView {
   mode: GameMode
-  seat: Seat
+  team: Team
   groups: [Group | null, Group | null]
   breaking: boolean
   balls: Ball[]
@@ -61,7 +61,7 @@ export type BotAction = { kind: 'place', x: number, y: number } | ({ kind: 'shoo
 interface Point { x: number, y: number }
 
 export function legalTargets(view: BotView): number[] {
-  const own = view.groups[view.seat]
+  const own = view.groups[view.team]
   const remaining = view.balls.filter(ball => ball.id !== 0 && !ball.pocketed)
   if (view.breaking || own === null)
     return remaining.filter(ball => groupOf(ball.id) !== null).map(ball => ball.id)
@@ -146,11 +146,11 @@ export function simulateShot(balls: Ball[], angle: number, power: number): { bal
 
 /** Higher is better. Uses the real rules, so fouls and early eights are punished exactly as the server would. */
 export function scoreShot(view: BotView, report: ShotReport): number {
-  const context: ShotContext = { mode: view.mode, shooter: view.seat, groups: [...view.groups], breaking: view.breaking, eligibleForEight: hasClearedGroup(view.balls, view.groups[view.seat]) }
+  const context: ShotContext = { mode: view.mode, shooter: view.team, groups: [...view.groups], breaking: view.breaking, eligibleForEight: hasClearedGroup(view.balls, view.groups[view.team]) }
   const outcome = evaluateShot(context, report)
-  const opponent: Seat = view.seat === 0 ? 1 : 0
+  const opponent = otherTeam(view.team)
   let score = 0
-  if (outcome.winner === view.seat)
+  if (outcome.winner === view.team)
     score += 1000
   else if (outcome.winner === opponent)
     score -= 1000
@@ -158,9 +158,9 @@ export function scoreShot(view: BotView, report: ShotReport): number {
     score -= 300
   if (outcome.dropsOpponentBall)
     score -= 60
-  else if (outcome.next === view.seat)
+  else if (outcome.next === view.team)
     score += 100
-  const own = outcome.groups[view.seat]
+  const own = outcome.groups[view.team]
   for (const id of report.pocketed) {
     const group = groupOf(id)
     if (group === null)

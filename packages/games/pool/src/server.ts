@@ -1,9 +1,9 @@
-import type { Seat, ShotContext } from '@kangeikai/game-pool/core'
+import type { Seat, ShotContext, Team } from '@kangeikai/game-pool/core'
 import type { ShotReport } from '@kangeikai/game-pool/physics'
 import type { PoolCommand, PoolEvent, PoolSnapshot } from '@kangeikai/game-pool/protocol'
 import type { AvatarSpriteType, GameTable } from '@kangeikai/shared'
 import { BotBrain } from '@kangeikai/game-pool/bot'
-import { evaluateShot, hasClearedGroup, lowestBall } from '@kangeikai/game-pool/core'
+import { evaluateShot, hasClearedGroup, lowestBall, nextSeat, otherTeam, teamOfSeat } from '@kangeikai/game-pool/core'
 import { canPlaceBall, createRack, emptyReport, FIXED_STEP, respotCue, respotEight, stepPhysics, strikeCue } from '@kangeikai/game-pool/physics'
 import { poolCommandSchema, SHOT_TIME_MS, SNAPSHOT_INTERVAL_MS } from '@kangeikai/game-pool/protocol'
 import { distanceToTable, GAME_INTERACTION_DISTANCE } from '@kangeikai/shared'
@@ -17,7 +17,9 @@ interface TableSession {
   context: ShotContext | null
   accumulator: number
   lastBroadcast: number
-  nextBreaker: Seat
+  /** Seats in the order they shoot; the turn moves to the next one when it is lost. */
+  order: Seat[]
+  nextBreaker: Team
   /** Session that may pick the mode before a match; falls to the other seated player when it leaves. */
   owner: string | null
   /** Set on tables where the second seat is the server-side bot. */
@@ -110,7 +112,7 @@ export class PoolManager {
     }
     else if (command.kind === 'stand') {
       if (index >= 0) {
-        this.forfeit(table, index as Seat)
+        this.forfeit(table, index)
         s.players[index] = null
         this.removeBot(table)
         this.syncOwner(table)
@@ -207,6 +209,7 @@ export class PoolManager {
         context: null,
         accumulator: 0,
         lastBroadcast: 0,
+        order: [0, 1],
         nextBreaker: this.random() < 0.5 ? 0 : 1,
         bot: null,
         owner: null,
@@ -225,7 +228,7 @@ export class PoolManager {
       turnId: 1,
       balls: createRack(),
       groups: [null, null],
-      turn: table.nextBreaker,
+      turn: this.breaker(table),
       phase: 'aiming',
       breaking: true,
       ballInHand: false,
@@ -238,7 +241,7 @@ export class PoolManager {
     })
     // Against the bot the human always breaks, so the alternation is skipped.
     if (!table.bot)
-      table.nextBreaker = table.nextBreaker === 0 ? 1 : 0
+      table.nextBreaker = otherTeam(table.nextBreaker)
     table.accumulator = 0
     table.context = null
     this.resetReady(table)
@@ -259,7 +262,16 @@ export class PoolManager {
     if (seat < 0)
       seat = s.players.findIndex((player, index) => player !== null && table.bot?.seat !== index)
     table.owner = seat >= 0 ? s.players[seat]!.sessionId : null
-    s.ownerSeat = seat >= 0 ? seat as Seat : null
+    s.ownerSeat = seat >= 0 ? seat : null
+  }
+
+  private teamOf(table: TableSession, seat: Seat): Team {
+    return teamOfSeat(seat, table.state.players.length)
+  }
+
+  /** The first seat in the rotation that belongs to the team opening the match. */
+  private breaker(table: TableSession): Seat {
+    return table.order.find(seat => this.teamOf(table, seat) === table.nextBreaker) ?? 0
   }
 
   private removeBot(table: TableSession): void {
@@ -271,7 +283,8 @@ export class PoolManager {
 
   private shoot(table: TableSession, command: Extract<PoolCommand, { kind: 'shoot' }>): void {
     const s = table.state
-    table.context = { mode: s.mode, shooter: s.turn, groups: [...s.groups], breaking: s.breaking, eligibleForEight: hasClearedGroup(s.balls, s.groups[s.turn]) }
+    const shooter = this.teamOf(table, s.turn)
+    table.context = { mode: s.mode, shooter, groups: [...s.groups], breaking: s.breaking, eligibleForEight: hasClearedGroup(s.balls, s.groups[shooter]) }
     table.report = emptyReport()
     table.accumulator = 0
     strikeCue(s.balls, command.angle, command.power)
@@ -308,7 +321,7 @@ export class PoolManager {
   /** Gives the bot one slice of work; it plans over several ticks and acts through the same rules as a human. */
   private driveBot(table: TableSession, bot: NonNullable<TableSession['bot']>, now: number): void {
     const s = table.state
-    const action = bot.brain.update({ mode: s.mode, seat: bot.seat, groups: s.groups, breaking: s.breaking, balls: s.balls, matchId: s.matchId, turnId: s.turnId, ballInHand: s.ballInHand, cuePlaced: s.cuePlaced }, now)
+    const action = bot.brain.update({ mode: s.mode, team: this.teamOf(table, bot.seat), groups: s.groups, breaking: s.breaking, balls: s.balls, matchId: s.matchId, turnId: s.turnId, ballInHand: s.ballInHand, cuePlaced: s.cuePlaced }, now)
     if (!action)
       return
     const turn = { tableId: s.tableId, matchId: s.matchId, turnId: s.turnId }
@@ -327,10 +340,11 @@ export class PoolManager {
       this.finish(table, outcome.winner, 'Match ended by the 8 ball.')
     }
     else {
-      const dropped = outcome.dropsOpponentBall ? this.dropOpponentBall(table, outcome.groups[table.context!.shooter === 0 ? 1 : 0]) : null
+      const shooter = table.context!.shooter
+      const dropped = outcome.dropsOpponentBall ? this.dropOpponentBall(table, outcome.groups[otherTeam(shooter)]) : null
       if (outcome.respotCue)
         respotCue(s.balls)
-      s.turn = outcome.next
+      s.turn = outcome.next === shooter ? s.turn : nextSeat(table.order, s.turn)
       s.breaking = false
       s.ballInHand = outcome.ballInHand
       s.cuePlaced = !s.ballInHand
@@ -366,7 +380,7 @@ export class PoolManager {
 
   private timeout(table: TableSession): void {
     const s = table.state
-    s.turn = s.turn === 0 ? 1 : 0
+    s.turn = nextSeat(table.order, s.turn)
     s.breaking = false
     s.ballInHand = true
     s.cuePlaced = false
@@ -375,7 +389,7 @@ export class PoolManager {
     this.broadcast(table)
   }
 
-  private finish(table: TableSession, winner: Seat | null, notice: string): void {
+  private finish(table: TableSession, winner: Team | null, notice: string): void {
     const s = table.state
     Object.assign(s, { phase: 'finished', winner, notice, deadline: null, paused: false })
     s.balls.forEach((ball) => {
@@ -388,8 +402,8 @@ export class PoolManager {
     const s = table.state
     if (s.phase !== 'aiming' && s.phase !== 'moving')
       return
-    const opponent: Seat = seat === 0 ? 1 : 0
-    const winner = s.players[opponent]?.connected ? opponent : null
+    const opponent = otherTeam(this.teamOf(table, seat))
+    const winner = s.players.some((player, index) => player?.connected && this.teamOf(table, index) === opponent) ? opponent : null
     this.finish(table, winner, winner === null ? 'Match cancelled: players disconnected.' : 'Win by opponent forfeit.')
   }
 
@@ -400,7 +414,7 @@ export class PoolManager {
       return
     const index = table.state.players.findIndex(player => player?.sessionId === id)
     if (index >= 0) {
-      this.forfeit(table, index as Seat)
+      this.forfeit(table, index)
       table.state.players[index] = null
       this.removeBot(table)
       this.syncOwner(table)
@@ -459,7 +473,7 @@ export class PoolManager {
     s.revision++
     let spectators = 0
     for (const [id, member] of table.members) {
-      if (member.connected && s.players[0]?.sessionId !== id && s.players[1]?.sessionId !== id)
+      if (member.connected && !s.players.some(player => player?.sessionId === id))
         spectators++
     }
     s.spectators = spectators

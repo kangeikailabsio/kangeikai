@@ -4,7 +4,7 @@
   import AvatarPortrait from '$lib/people/avatar-portrait.svelte'
   import { attentionModalState } from '$lib/ui/attention-modal-state.svelte'
   import { createPoolRenderer } from '@kangeikai/game-pool/client'
-  import { ballBodyCss, ballHueCss, GAME_MODE_INFO, GAME_MODES, groupOf, hasClearedGroup, toCssHex } from '@kangeikai/game-pool/core'
+  import { ballBodyCss, ballHueCss, GAME_MODE_INFO, GAME_MODES, groupOf, hasClearedGroup, teamOfSeat, toCssHex } from '@kangeikai/game-pool/core'
   import { FLOOR_EDGE } from '@kangeikai/game-pool/floor'
   import { onMount } from 'svelte'
 
@@ -18,12 +18,15 @@
   let now = $state(Date.now())
   const snapshot = $derived(session.snapshot)
   const seat = $derived(snapshot?.players.findIndex(player => player?.sessionId === session.sessionId) ?? -1)
+  /** Groups and targets belong to teams; in 1v1 a team is a single seat. */
+  const teamOf = (index: number) => teamOfSeat(index, snapshot?.players.length ?? 2)
+  const winnerNames = $derived(snapshot?.winner == null ? '' : snapshot.players.filter((_, index) => teamOf(index) === snapshot.winner).map(player => player?.name).filter(Boolean).join(' & '))
   const active = $derived(snapshot?.phase === 'aiming' || snapshot?.phase === 'moving')
   const canInteract = $derived(Boolean(snapshot && session.connected && !session.closing && !confirmExit && !screenShareOverlayState.expanded && !attentionModalState.open && !snapshot.paused && snapshot.phase === 'aiming' && seat === snapshot.turn))
   const placing = $derived(Boolean(snapshot?.ballInHand && (!snapshot.cuePlaced || reposition)))
   const remaining = $derived(snapshot?.paused ? Math.ceil(snapshot.remainingMs / 1000) : snapshot?.deadline ? Math.max(0, Math.ceil((snapshot.deadline - snapshot.serverTime - (now - session.receivedAt)) / 1000)) : null)
   /**
-   * Each seat's remaining targets: `null` before the break settles the groups, `[8]` once the group
+   * Each team's remaining targets: `null` before the break settles the groups, `[8]` once the group
    * is cleared. Computed once per snapshot instead of filtering the ball array inline twice.
    */
   const targets = $derived.by<(number[] | null)[]>(() => {
@@ -144,12 +147,12 @@
               <AvatarPortrait spriteType={player?.spriteType} name={player?.name ?? ''} />
               <div class='who'>
                 <strong>{player?.name ?? 'Seat available'} {player?.ready ? '✓ Ready' : ''}</strong>
-                <span>{snapshot.groups[index] === 'solids' ? 'Solids' : snapshot.groups[index] === 'stripes' ? 'Stripes' : 'Open table'}{player && !player.connected ? ' · Reconnecting…' : ''}</span>
-                {#if targets[index]}
+                <span>{snapshot.groups[teamOf(index)] === 'solids' ? 'Solids' : snapshot.groups[teamOf(index)] === 'stripes' ? 'Stripes' : 'Open table'}{player && !player.connected ? ' · Reconnecting…' : ''}</span>
+                {#if targets[teamOf(index)]}
                   <ul class='glyphs' aria-label='Remaining balls'>
-                    {#each targets[index]! as id (id)}{@render ballGlyph(id)}{/each}
+                    {#each targets[teamOf(index)]! as id (id)}{@render ballGlyph(id)}{/each}
                   </ul>
-                  {#if targets[index]!.length === 1 && targets[index]![0] === 8}<small>Now, the 8 ball</small>{/if}
+                  {#if targets[teamOf(index)]!.length === 1 && targets[teamOf(index)]![0] === 8}<small>Now, the 8 ball</small>{/if}
                 {:else}
                   <small>Groups are set after the break</small>
                 {/if}
@@ -160,7 +163,7 @@
         <div class='status' aria-live='polite'>
           {#if !session.connected}Reconnecting to the office…
           {:else if snapshot.paused}Waiting for the player to reconnect…
-          {:else if snapshot.phase === 'finished'}{snapshot.winner !== null ? `${snapshot.players[snapshot.winner]?.name ?? 'Player'} won! ` : ''}{snapshot.notice}
+          {:else if snapshot.phase === 'finished'}{snapshot.winner !== null ? `${winnerNames || 'Player'} won! ` : ''}{snapshot.notice}
           {:else}{snapshot.notice}{/if}
           {#if remaining !== null}<strong>{remaining}s</strong>{/if}
         </div>

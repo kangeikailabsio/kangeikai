@@ -1,7 +1,24 @@
 import type { Ball, ShotReport } from '@kangeikai/game-pool/physics'
 
 export type Group = 'solids' | 'stripes'
-export type Seat = 0 | 1
+/** One of the two sides. In 1v1 a team is a single player. */
+export type Team = 0 | 1
+/** Index of a place at the table. */
+export type Seat = number
+
+export function otherTeam(team: Team): Team {
+  return team === 0 ? 1 : 0
+}
+
+/** The first half of the seats is Team A (0) and the second half Team B (1). */
+export function teamOfSeat(seat: Seat, seatCount: number): Team {
+  return seat < seatCount / 2 ? 0 : 1
+}
+
+/** The seat that shoots after `seat` in the rotation. */
+export function nextSeat(order: readonly Seat[], seat: Seat): Seat {
+  return order[(order.indexOf(seat) + 1) % order.length]
+}
 export type Phase = 'waiting' | 'aiming' | 'moving' | 'finished'
 
 export function groupOf(id: number): Group | null {
@@ -55,7 +72,7 @@ export const GAME_MODE_INFO: Record<GameMode, { label: string, description: stri
 
 export interface ShotContext {
   mode: GameMode
-  shooter: Seat
+  shooter: Team
   groups: [Group | null, Group | null]
   breaking: boolean
   /** Captured before the shot: potting the last group ball and eight together is not legal. */
@@ -64,9 +81,9 @@ export interface ShotContext {
 
 export interface ShotOutcome {
   groups: [Group | null, Group | null]
-  next: Seat
+  next: Team
   foul: string | null
-  winner: Seat | null
+  winner: Team | null
   respotEight: boolean
   /** The opponent gets the cue ball in hand. Never in Regional, where a wrong first contact only costs the turn. */
   ballInHand: boolean
@@ -114,7 +131,7 @@ function findFoul(context: ShotContext, report: ShotReport): Foul | null {
 /** The first group potted on an open table becomes the shooter's; the opponent gets the other. */
 function assignGroups(context: ShotContext, report: ShotReport): ShotOutcome['groups'] {
   const { shooter } = context
-  const opponent: Seat = shooter === 0 ? 1 : 0
+  const opponent = otherTeam(shooter)
   const groups: ShotOutcome['groups'] = [...context.groups]
   const first = report.pocketed.map(groupOf).find(group => group !== null)
   if (first && groups[shooter] === null) {
@@ -126,7 +143,7 @@ function assignGroups(context: ShotContext, report: ShotReport): ShotOutcome['gr
 
 /** Uses the pre-shot groups, so an open table still assigns on a mixed pot. */
 function pottedOpponentBall(context: ShotContext, report: ShotReport): boolean {
-  const opponent: Seat = context.shooter === 0 ? 1 : 0
+  const opponent = otherTeam(context.shooter)
   return !context.breaking && report.pocketed.some(id => groupOf(id) !== null && groupOf(id) === context.groups[opponent])
 }
 
@@ -138,10 +155,10 @@ function keepsTurn(context: ShotContext, report: ShotReport, groups: ShotOutcome
 
 export function evaluateShot(context: ShotContext, report: ShotReport): ShotOutcome {
   const { shooter, breaking, eligibleForEight } = context
-  const opponent: Seat = shooter === 0 ? 1 : 0
+  const opponent = otherTeam(shooter)
   const found = findFoul(context, report)
   const foul = found?.message ?? null
-  let winner: Seat | null = null
+  let winner: Team | null = null
   if (!breaking && report.pocketed.includes(8))
     winner = eligibleForEight && !foul ? shooter : opponent
   const groups = !breaking && !foul ? assignGroups(context, report) : [...context.groups] as ShotOutcome['groups']

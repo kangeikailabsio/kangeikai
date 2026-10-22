@@ -82,3 +82,9 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   escolhidos pelos jogadores. A ordem dentro de cada time é sorteada a cada partida
   (`drawOrder` em `packages/games/pool/src/server.ts`) e quem sai no meio faz o time inteiro
   perder (sem substituição nem continuação com o parceiro).
+- **Espectadores não veem mira na vez do bot** — a mira compartilhada de
+  [#203](https://github.com/kangeikailabsio/kangeikai/issues/203) é enviada pelo cliente de quem
+  está na vez e repassada só a espectadores e ao parceiro de time (evento `aim`, separado do
+  snapshot). O bot atira direto, sem mira visível, então os espectadores não veem nada durante a
+  vez dele. Também não há como impedir que um espectador conte a mira ao adversário por voz ou
+  vídeo de proximidade no escritório: o servidor só garante que o adversário não **recebe** os dados.

@@ -1,11 +1,11 @@
 import type { GameFormat, Seat, ShotContext, Team } from '@kangeikai/game-pool/core'
 import type { ShotReport } from '@kangeikai/game-pool/physics'
-import type { PoolCommand, PoolEvent, PoolSnapshot } from '@kangeikai/game-pool/protocol'
+import type { PoolAim, PoolCommand, PoolEvent, PoolSnapshot } from '@kangeikai/game-pool/protocol'
 import type { AvatarSpriteType, GameTable } from '@kangeikai/shared'
 import { BotBrain } from '@kangeikai/game-pool/bot'
 import { evaluateShot, hasClearedGroup, lowestBall, nextSeat, otherTeam, seatCountOf, seatsOfTeam, teamOfSeat } from '@kangeikai/game-pool/core'
 import { canPlaceBall, createRack, emptyReport, FIXED_STEP, respotCue, respotEight, stepPhysics, strikeCue } from '@kangeikai/game-pool/physics'
-import { poolCommandSchema, SHOT_TIME_MS, SNAPSHOT_INTERVAL_MS } from '@kangeikai/game-pool/protocol'
+import { AIM_MIN_INTERVAL_MS, poolCommandSchema, SHOT_TIME_MS, SNAPSHOT_INTERVAL_MS } from '@kangeikai/game-pool/protocol'
 import { distanceToTable, GAME_INTERACTION_DISTANCE } from '@kangeikai/shared'
 import * as v from 'valibot'
 
@@ -22,6 +22,9 @@ interface TableSession {
   /** Session ids in the order they sat, used to place players when the format changes. */
   sitOrder: string[]
   nextBreaker: Team
+  /** The shooter's latest live aim; transient, never part of the snapshot. */
+  aim: { seat: Seat, value: PoolAim } | null
+  lastAimAt: number
   /** Session that may pick the mode before a match; falls to the other seated player when it leaves. */
   owner: string | null
   /** Set on tables where the second seat is the server-side bot. */
@@ -165,6 +168,10 @@ export class PoolManager {
       if (s.players.every(player => player?.ready && player.connected))
         this.start(table)
     }
+    else if (command.kind === 'aim') {
+      this.relayAim(table, index, command)
+      return
+    }
     else if (!this.takeTurn(table, index, command, reject)) {
       return
     }
@@ -200,6 +207,46 @@ export class PoolManager {
       this.shoot(table, command)
     }
     return true
+  }
+
+  /**
+   * Sessions that may watch `seat` aim: everyone not seated, and the shooter's teammate. The opposing
+   * team never receives it, which is why it travels as its own event and not in the snapshot.
+   */
+  private aimViewers(table: TableSession, seat: Seat): string[] {
+    const s = table.state
+    const shooterTeam = this.teamOf(table, seat)
+    return [...table.members].filter(([id, member]) => {
+      if (!member.connected)
+        return false
+      const viewerSeat = s.players.findIndex(player => player?.sessionId === id)
+      return viewerSeat < 0 || (viewerSeat !== seat && this.teamOf(table, viewerSeat) === shooterTeam)
+    }).map(([id]) => id)
+  }
+
+  /** Stale or out-of-turn aims are normal (the shot may already be in flight), so they are dropped silently. */
+  private relayAim(table: TableSession, index: number, command: Extract<PoolCommand, { kind: 'aim' }>): void {
+    const s = table.state
+    if (index < 0 || index !== s.turn || s.phase !== 'aiming' || s.paused || command.matchId !== s.matchId || command.turnId !== s.turnId)
+      return
+    const now = this.now()
+    if (now - table.lastAimAt < AIM_MIN_INTERVAL_MS)
+      return
+    table.lastAimAt = now
+    const { angle, power, locked, matchId, turnId } = command
+    const value: PoolAim = { matchId, turnId, angle, power, locked, ...(s.ballInHand && command.placing ? { placing: command.placing } : {}) }
+    table.aim = { seat: index, value }
+    for (const id of this.aimViewers(table, index))
+      this.host.send(id, { kind: 'aim', tableId: s.tableId, aim: value })
+  }
+
+  /** Tells the viewers the aim is gone: the shot was taken, the turn changed or the match ended. */
+  private clearAim(table: TableSession): void {
+    if (!table.aim)
+      return
+    for (const id of this.aimViewers(table, table.aim.seat))
+      this.host.send(id, { kind: 'aim', tableId: table.state.tableId, aim: null })
+    table.aim = null
   }
 
   private open(id: string, tableId: string, reject: (message: string) => void): void {
@@ -250,6 +297,8 @@ export class PoolManager {
         lastBroadcast: 0,
         order: [0, 1],
         sitOrder: [],
+        aim: null,
+        lastAimAt: 0,
         nextBreaker: this.random() < 0.5 ? 0 : 1,
         bot: null,
         owner: null,
@@ -259,6 +308,8 @@ export class PoolManager {
     table.members.set(id, { name: identity.name, spriteType: identity.spriteType, connected: true })
     this.membership.set(id, tableId)
     this.broadcast(table)
+    if (table.aim)
+      this.host.send(id, { kind: 'aim', tableId, aim: table.aim.value })
   }
 
   /** Re-seats everyone for the new format in the order they sat, alternating Team A and Team B; the overflow becomes spectators. */
@@ -355,6 +406,7 @@ export class PoolManager {
     const s = table.state
     const shooter = this.teamOf(table, s.turn)
     table.context = { mode: s.mode, shooter, groups: [...s.groups], breaking: s.breaking, eligibleForEight: hasClearedGroup(s.balls, s.groups[shooter]) }
+    this.clearAim(table)
     table.report = emptyReport()
     table.accumulator = 0
     strikeCue(s.balls, command.angle, command.power)
@@ -450,6 +502,7 @@ export class PoolManager {
 
   private timeout(table: TableSession): void {
     const s = table.state
+    this.clearAim(table)
     s.turn = nextSeat(table.order, s.turn)
     s.breaking = false
     s.ballInHand = true
@@ -461,6 +514,7 @@ export class PoolManager {
 
   private finish(table: TableSession, winner: Team | null, notice: string): void {
     const s = table.state
+    this.clearAim(table)
     Object.assign(s, { phase: 'finished', winner, notice, deadline: null, paused: false })
     s.balls.forEach((ball) => {
       ball.vx = ball.vy = 0
@@ -504,6 +558,8 @@ export class PoolManager {
     if (!table)
       return
     table.members.get(id)!.connected = false
+    if (table.aim && table.state.players[table.aim.seat]?.sessionId === id)
+      this.clearAim(table)
     const player = table.state.players.find(p => p?.sessionId === id)
     if (player) {
       player.connected = false

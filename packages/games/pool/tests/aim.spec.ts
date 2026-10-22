@@ -1,5 +1,5 @@
 import type { Ball } from '@kangeikai/game-pool/physics'
-import { aimAngle, aimDistance, aimGuide, chargeFromDrag, MAX_POWER, MAX_PULL, MIN_POWER, MIN_PULL, pullDistance } from '@kangeikai/game-pool/aim'
+import { AIM_SEND_INTERVAL_MS, aimAngle, aimChanged, aimDistance, aimGuide, chargeFromDrag, MAX_POWER, MAX_PULL, MIN_POWER, MIN_PULL, pullDistance, shouldSendAim, smoothAngle, smoothingFactor, wrapAngle } from '@kangeikai/game-pool/aim'
 import { BALL_RADIUS, TABLE_WIDTH } from '@kangeikai/game-pool/physics'
 import { describe, expect, it } from 'vitest'
 
@@ -155,5 +155,43 @@ describe('aim guide geometry', () => {
     const guide = aimGuide(cue, Math.PI / 2, 60, 0.5)
     expect(guide.contact.x).toBeCloseTo(100)
     expect(guide.contact.y).toBeCloseTo(160)
+  })
+})
+
+describe('sharing the aim', () => {
+  const base = { angle: 1, power: 0.5, locked: false }
+  it('sends the first aim and then only visible changes', () => {
+    expect(aimChanged(null, base)).toBe(true)
+    expect(aimChanged(base, { ...base, angle: 1.0005 })).toBe(false)
+    expect(aimChanged(base, { ...base, angle: 1.01 })).toBe(true)
+    expect(aimChanged(base, { ...base, power: 0.502 })).toBe(false)
+    expect(aimChanged(base, { ...base, power: 0.51 })).toBe(true)
+    expect(aimChanged(base, { ...base, locked: true })).toBe(true)
+  })
+  it('treats angles either side of the wrap as close', () => {
+    expect(aimChanged({ ...base, angle: Math.PI - 0.0005 }, { ...base, angle: -Math.PI + 0.0005 })).toBe(false)
+  })
+  it('tracks the placement preview and its start and end', () => {
+    const placing = { ...base, placing: { x: 100, y: 100 } }
+    expect(aimChanged(base, placing)).toBe(true)
+    expect(aimChanged(placing, { ...placing, placing: { x: 100.2, y: 100 } })).toBe(false)
+    expect(aimChanged(placing, { ...placing, placing: { x: 105, y: 100 } })).toBe(true)
+    expect(aimChanged(placing, base)).toBe(true)
+  })
+  it('throttles to the send interval', () => {
+    expect(shouldSendAim(null, base, 1000, 1000 - AIM_SEND_INTERVAL_MS + 1)).toBe(false)
+    expect(shouldSendAim(null, base, 1000, 1000 - AIM_SEND_INTERVAL_MS)).toBe(true)
+    expect(shouldSendAim(base, base, 5000, 0)).toBe(false)
+  })
+  it('wraps angles and smooths the short way round', () => {
+    expect(wrapAngle(3 * Math.PI)).toBeCloseTo(Math.PI)
+    expect(smoothAngle(0, 1, 0.5)).toBeCloseTo(0.5)
+    expect(smoothAngle(Math.PI - 0.1, -Math.PI + 0.1, 0.5)).toBeCloseTo(Math.PI, 1)
+    expect(smoothAngle(0.3, 1, 1)).toBeCloseTo(1)
+  })
+  it('smooths faster over longer frames and never overshoots', () => {
+    expect(smoothingFactor(0)).toBe(0)
+    expect(smoothingFactor(16)).toBeLessThan(smoothingFactor(100))
+    expect(smoothingFactor(100000)).toBeLessThanOrEqual(1)
   })
 })

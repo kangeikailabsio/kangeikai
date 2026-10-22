@@ -86,3 +86,46 @@ export function aimGuide(cue: Point, angle: number, length: number, power: numbe
   const pull = (18 + power * 55) * strike
   return { dashes, contact: along(length), cue: [along(-pull), along(-(pull + 90))], tip: [along(-pull), along(-(pull + 7))] }
 }
+
+/** The part of an aim that is shared with spectators. */
+export interface AimState {
+  angle: number
+  power: number
+  /** Pulling back, or already committed: drawn amber. */
+  locked: boolean
+  /** Ball in hand: where the player is hovering to place the cue ball. */
+  placing?: Point | null
+}
+
+/** Aim updates go out at most this often, and only when something visible changed. */
+export const AIM_SEND_INTERVAL_MS = 66
+const ANGLE_EPSILON = 0.002
+const POWER_STEP = 0.005
+const PLACEMENT_EPSILON = 0.5
+
+export function aimChanged(previous: AimState | null, next: AimState): boolean {
+  if (!previous || previous.locked !== next.locked || Boolean(previous.placing) !== Boolean(next.placing))
+    return true
+  if (next.placing && previous.placing)
+    return Math.hypot(next.placing.x - previous.placing.x, next.placing.y - previous.placing.y) > PLACEMENT_EPSILON
+  return Math.abs(wrapAngle(next.angle - previous.angle)) > ANGLE_EPSILON || Math.abs(next.power - previous.power) >= POWER_STEP
+}
+
+export function shouldSendAim(previous: AimState | null, next: AimState, now: number, lastSentAt: number): boolean {
+  return now - lastSentAt >= AIM_SEND_INTERVAL_MS && aimChanged(previous, next)
+}
+
+/** Wraps to (-PI, PI]. */
+export function wrapAngle(angle: number): number {
+  return Math.atan2(Math.sin(angle), Math.cos(angle))
+}
+
+/** Moves `current` toward `target` the short way round by `factor` (0 stays, 1 jumps). */
+export function smoothAngle(current: number, target: number, factor: number): number {
+  return wrapAngle(current + wrapAngle(target - current) * factor)
+}
+
+/** Frame-rate independent smoothing factor for an exponential approach with the given time constant. */
+export function smoothingFactor(deltaMs: number, timeConstantMs = 50): number {
+  return 1 - Math.exp(-Math.max(0, deltaMs) / timeConstantMs)
+}

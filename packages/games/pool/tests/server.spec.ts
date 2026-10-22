@@ -241,3 +241,87 @@ describe('bot tables', () => {
     expect(snapshots.get('w')!.players[1]).toMatchObject({ name: 'Bot' })
   })
 })
+
+describe('game modes', () => {
+  interface Session { state: PoolSnapshot & { balls: { id: number, x: number, y: number, vx: number, vy: number, pocketed: boolean }[] } }
+  const session = () => (manager as unknown as { sessions: Map<string, Session> }).sessions.get('one')!
+  function setMode(id: string, mode: string): void {
+    manager.handle(id, { kind: 'setMode', tableId: 'one', mode })
+  }
+  function seat(id: string): void {
+    open(id)
+    manager.handle(id, { kind: 'sit', tableId: 'one' })
+  }
+
+  it('starts on 8-ball and lets only the first player to sit change it before the match', () => {
+    seat('a')
+    seat('b')
+    expect(snapshots.get('a')).toMatchObject({ mode: '8-ball', ownerSeat: 0 })
+    setMode('b', 'regional')
+    expect(events.get('b')?.kind).toBe('error')
+    expect(snapshots.get('a')!.mode).toBe('8-ball')
+    setMode('a', 'regional')
+    expect(snapshots.get('b')!.mode).toBe('regional')
+  })
+  it('clears ready flags when the mode changes, so nobody starts on rules they did not see', () => {
+    seat('a')
+    seat('b')
+    manager.handle('b', { kind: 'ready', tableId: 'one', ready: true })
+    setMode('a', 'regional')
+    expect(snapshots.get('a')!.players[1]?.ready).toBe(false)
+  })
+  it('rejects unknown modes and mode changes during a match, and keeps the mode on rematch', () => {
+    seat('a')
+    seat('b')
+    setMode('a', 'regional')
+    setMode('a', 'nonsense')
+    expect(events.get('a')?.kind).toBe('error')
+    for (const id of ['a', 'b']) manager.handle(id, { kind: 'ready', tableId: 'one', ready: true })
+    setMode('a', '8-ball')
+    expect(snapshots.get('a')!.mode).toBe('regional')
+    ;(manager as unknown as { finish: (table: Session, winner: number, notice: string) => void }).finish(session(), 0, 'done')
+    expect(snapshots.get('a')!.mode).toBe('regional')
+  })
+  it('passes ownership to the remaining player when the owner leaves', () => {
+    seat('a')
+    seat('b')
+    manager.leave('a')
+    expect(snapshots.get('b')).toMatchObject({ ownerSeat: 1 })
+  })
+  it('lets the human pick the mode against the bot', () => {
+    open('a')
+    manager.handle('a', { kind: 'playBot', tableId: 'one' })
+    expect(snapshots.get('a')!.ownerSeat).toBe(0)
+    setMode('a', 'regional')
+    expect(snapshots.get('a')).toMatchObject({ mode: 'regional' })
+    expect(snapshots.get('a')!.players[1]?.ready).toBe(true)
+  })
+
+  function wrongFirstContact(mode: string): PoolSnapshot {
+    seat('a')
+    seat('b')
+    setMode('a', mode)
+    for (const id of ['a', 'b']) manager.handle(id, { kind: 'ready', tableId: 'one', ready: true })
+    const ball = (id: number, x: number, y: number) => ({ id, x, y, vx: 0, vy: 0, pocketed: false })
+    Object.assign(session().state, { groups: ['solids', 'stripes'], breaking: false, balls: [ball(0, 200, 200), ball(9, 300, 200), ball(10, 500, 300), ball(1, 600, 100), ball(2, 650, 120)] })
+    shot()
+    for (let i = 0; i < 1500 && snapshots.get('a')!.phase === 'moving'; i++) {
+      now += 20
+      manager.tick(20)
+    }
+    return snapshots.get('a')!
+  }
+  it('pockets the lowest opponent ball without ball in hand on a Regional wrong first contact', () => {
+    const state = wrongFirstContact('regional')
+    expect(state).toMatchObject({ turn: 1, ballInHand: false })
+    expect(state.balls.find(b => b.id === 9)?.pocketed).toBe(true)
+    expect(state.balls.find(b => b.id === 10)?.pocketed).toBe(false)
+    expect(state.notice).toContain('ball 9 was pocketed')
+    expect(state.notice).toContain('Turn lost')
+  })
+  it('gives ball in hand and pockets nothing on the same 8-ball shot', () => {
+    const state = wrongFirstContact('8-ball')
+    expect(state).toMatchObject({ turn: 1, ballInHand: true })
+    expect(state.balls.find(b => b.id === 9)?.pocketed).toBe(false)
+  })
+})

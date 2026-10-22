@@ -6,7 +6,7 @@
  * the real physics, and scores the outcome with the real rules. It then misses on purpose: angle and
  * power noise, plus the occasional second-best choice. It does not plan cue-ball position.
  */
-import type { Group, Seat, ShotContext } from '@kangeikai/game-pool/core'
+import type { GameMode, Group, Seat, ShotContext } from '@kangeikai/game-pool/core'
 import type { Ball, ShotReport } from '@kangeikai/game-pool/physics'
 import { evaluateShot, groupOf, hasClearedGroup } from '@kangeikai/game-pool/core'
 import { BALL_RADIUS, canPlaceBall, emptyReport, MAX_SHOT_SPEED, POCKETS, stepPhysics, strikeCue, TABLE_HEIGHT, TABLE_WIDTH } from '@kangeikai/game-pool/physics'
@@ -32,6 +32,7 @@ const PLACEMENT_STEP = 50
 const PLACEMENT_MARGIN = 30
 
 export interface BotView {
+  mode: GameMode
   seat: Seat
   groups: [Group | null, Group | null]
   breaking: boolean
@@ -145,7 +146,7 @@ export function simulateShot(balls: Ball[], angle: number, power: number): { bal
 
 /** Higher is better. Uses the real rules, so fouls and early eights are punished exactly as the server would. */
 export function scoreShot(view: BotView, report: ShotReport): number {
-  const context: ShotContext = { shooter: view.seat, groups: [...view.groups], breaking: view.breaking, eligibleForEight: hasClearedGroup(view.balls, view.groups[view.seat]) }
+  const context: ShotContext = { mode: view.mode, shooter: view.seat, groups: [...view.groups], breaking: view.breaking, eligibleForEight: hasClearedGroup(view.balls, view.groups[view.seat]) }
   const outcome = evaluateShot(context, report)
   const opponent: Seat = view.seat === 0 ? 1 : 0
   let score = 0
@@ -155,6 +156,8 @@ export function scoreShot(view: BotView, report: ShotReport): number {
     score -= 1000
   if (outcome.foul)
     score -= 300
+  if (outcome.dropsOpponentBall)
+    score -= 60
   else if (outcome.next === view.seat)
     score += 100
   const own = outcome.groups[view.seat]

@@ -3,7 +3,7 @@ import type { ShotReport } from '@kangeikai/game-pool/physics'
 import type { PoolCommand, PoolEvent, PoolSnapshot } from '@kangeikai/game-pool/protocol'
 import type { AvatarSpriteType, GameTable } from '@kangeikai/shared'
 import { BotBrain } from '@kangeikai/game-pool/bot'
-import { evaluateShot, hasClearedGroup } from '@kangeikai/game-pool/core'
+import { evaluateShot, hasClearedGroup, lowestBall } from '@kangeikai/game-pool/core'
 import { canPlaceBall, createRack, emptyReport, FIXED_STEP, respotEight, stepPhysics, strikeCue } from '@kangeikai/game-pool/physics'
 import { poolCommandSchema, SHOT_TIME_MS, SNAPSHOT_INTERVAL_MS } from '@kangeikai/game-pool/protocol'
 import { distanceToTable, GAME_INTERACTION_DISTANCE } from '@kangeikai/shared'
@@ -18,6 +18,8 @@ interface TableSession {
   accumulator: number
   lastBroadcast: number
   nextBreaker: Seat
+  /** Session that may pick the mode before a match; falls to the other seated player when it leaves. */
+  owner: string | null
   /** Set on tables where the second seat is the server-side bot. */
   bot: { seat: Seat, brain: BotBrain } | null
 }
@@ -82,6 +84,7 @@ export class PoolManager {
       }
       const member = table.members.get(id)!
       s.players[free] = { sessionId: id, name: member.name, spriteType: member.spriteType, ready: false, connected: true }
+      this.syncOwner(table)
     }
     else if (command.kind === 'playBot') {
       if (index >= 0 || s.players.some(Boolean) || s.phase === 'aiming' || s.phase === 'moving') {
@@ -93,12 +96,24 @@ export class PoolManager {
       s.players[1] = { sessionId: `bot:${command.tableId}`, name: BOT_NAME, spriteType: BOT_SPRITE, ready: true, connected: true }
       table.bot = { seat: 1, brain: new BotBrain(this.random) }
       table.nextBreaker = 0
+      this.syncOwner(table)
+    }
+    else if (command.kind === 'setMode') {
+      if (index < 0 || index !== s.ownerSeat || (s.phase !== 'waiting' && s.phase !== 'finished')) {
+        reject('Only the table owner can change the mode, before the match starts.')
+        return
+      }
+      if (command.mode !== s.mode) {
+        s.mode = command.mode
+        this.resetReady(table)
+      }
     }
     else if (command.kind === 'stand') {
       if (index >= 0) {
         this.forfeit(table, index as Seat)
         s.players[index] = null
         this.removeBot(table)
+        this.syncOwner(table)
         this.resetReady(table)
       }
     }
@@ -171,6 +186,8 @@ export class PoolManager {
           revision: 0,
           serverTime: this.now(),
           phase: 'waiting',
+          mode: '8-ball',
+          ownerSeat: null,
           players: [null, null],
           spectators: 0,
           balls: createRack(),
@@ -192,6 +209,7 @@ export class PoolManager {
         lastBroadcast: 0,
         nextBreaker: this.random() < 0.5 ? 0 : 1,
         bot: null,
+        owner: null,
       }
       this.sessions.set(tableId, table)
     }
@@ -234,6 +252,16 @@ export class PoolManager {
     })
   }
 
+  /** Keeps `owner` on a seated human: the previous owner while seated, else whoever sits first. */
+  private syncOwner(table: TableSession): void {
+    const s = table.state
+    let seat = table.owner ? s.players.findIndex(player => player?.sessionId === table.owner) : -1
+    if (seat < 0)
+      seat = s.players.findIndex((player, index) => player !== null && table.bot?.seat !== index)
+    table.owner = seat >= 0 ? s.players[seat]!.sessionId : null
+    s.ownerSeat = seat >= 0 ? seat as Seat : null
+  }
+
   private removeBot(table: TableSession): void {
     if (!table.bot)
       return
@@ -243,7 +271,7 @@ export class PoolManager {
 
   private shoot(table: TableSession, command: Extract<PoolCommand, { kind: 'shoot' }>): void {
     const s = table.state
-    table.context = { shooter: s.turn, groups: [...s.groups], breaking: s.breaking, eligibleForEight: hasClearedGroup(s.balls, s.groups[s.turn]) }
+    table.context = { mode: s.mode, shooter: s.turn, groups: [...s.groups], breaking: s.breaking, eligibleForEight: hasClearedGroup(s.balls, s.groups[s.turn]) }
     table.report = emptyReport()
     table.accumulator = 0
     strikeCue(s.balls, command.angle, command.power)
@@ -280,7 +308,7 @@ export class PoolManager {
   /** Gives the bot one slice of work; it plans over several ticks and acts through the same rules as a human. */
   private driveBot(table: TableSession, bot: NonNullable<TableSession['bot']>, now: number): void {
     const s = table.state
-    const action = bot.brain.update({ seat: bot.seat, groups: s.groups, breaking: s.breaking, balls: s.balls, matchId: s.matchId, turnId: s.turnId, ballInHand: s.ballInHand, cuePlaced: s.cuePlaced }, now)
+    const action = bot.brain.update({ mode: s.mode, seat: bot.seat, groups: s.groups, breaking: s.breaking, balls: s.balls, matchId: s.matchId, turnId: s.turnId, ballInHand: s.ballInHand, cuePlaced: s.cuePlaced }, now)
     if (!action)
       return
     const turn = { tableId: s.tableId, matchId: s.matchId, turnId: s.turnId }
@@ -299,15 +327,28 @@ export class PoolManager {
       this.finish(table, outcome.winner, 'Match ended by the 8 ball.')
     }
     else {
+      const dropped = outcome.dropsOpponentBall ? this.dropOpponentBall(table, outcome.groups[table.context!.shooter === 0 ? 1 : 0]) : null
       s.turn = outcome.next
       s.breaking = false
-      s.ballInHand = Boolean(outcome.foul)
+      s.ballInHand = outcome.ballInHand
       s.cuePlaced = !s.ballInHand
-      s.notice = outcome.foul ? `${outcome.foul} Ball in hand for the opponent.` : 'Your turn to aim.'
+      s.notice = outcome.foul
+        ? `${outcome.foul} ${outcome.ballInHand ? 'Ball in hand for the opponent.' : 'Turn lost.'}${dropped !== null ? ` The opponent's ball ${dropped} was pocketed.` : ''}`
+        : 'Your turn to aim.'
       this.nextTurn(table)
     }
     table.context = null
     this.broadcast(table)
+  }
+
+  /** Regional penalty: pockets the opponent's lowest remaining group ball for them. */
+  private dropOpponentBall(table: TableSession, group: ShotContext['groups'][number]): number | null {
+    const id = lowestBall(table.state.balls, group)
+    const ball = table.state.balls.find(candidate => candidate.id === id)
+    if (!ball)
+      return null
+    Object.assign(ball, { pocketed: true, vx: 0, vy: 0 })
+    return ball.id
   }
 
   private nextTurn(table: TableSession): void {
@@ -358,6 +399,7 @@ export class PoolManager {
       this.forfeit(table, index as Seat)
       table.state.players[index] = null
       this.removeBot(table)
+      this.syncOwner(table)
       this.resetReady(table)
     }
     table.members.delete(id)

@@ -69,3 +69,9 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   (`packages/games/pool/src/server.ts`, `core.ts`) e enviado no snapshot; para traduzir de verdade
   o servidor terá de mandar códigos de mensagem (ex.: `wrong-first-contact` com a bola derrubada) e o
   cliente montar a frase no idioma do jogador.
+- **Modo Regional sem defesa do bot e sem nome oficial** — o modo Regional de
+  [#194](https://github.com/kangeikailabsio/kangeikai/issues/194) não exige tabela depois do
+  contato, então toques leves de defesa são legais, mas o bot (`packages/games/pool/src/bot.ts`)
+  só lê o modo na pontuação e não joga defesa de propósito. Também não há nome oficial/histórico
+  da variante (é uma regra regional sem fonte encontrada) e o modo só pode ser trocado antes de a
+  partida começar, pelo dono da mesa.

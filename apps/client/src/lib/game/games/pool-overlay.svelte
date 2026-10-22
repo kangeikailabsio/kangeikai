@@ -116,10 +116,10 @@
 <div class='backdrop'>
   <!-- The ScaleManager only re-measures its parent every 500ms and never on scroll, so a scrolled
        window would otherwise mis-map pointer coordinates until the next poll. -->
-  <div class='pool-window' role='dialog' tabindex='-1' aria-label='Mesa de sinuca' bind:this={window_} onscroll={() => renderer?.refreshScale()}>
+  <div class='pool-window' role='dialog' tabindex='-1' aria-label='Pool table' bind:this={window_} onscroll={() => renderer?.refreshScale()}>
     <header>
-      <div><h1>Sinuca <span>• {session.tableId}</span></h1><p>{seat < 0 ? 'Você está assistindo' : 'Bola 8 casual'} · {snapshot?.spectators ?? 0} espectador(es)</p></div>
-      <button onclick={close} disabled={session.closing} aria-label='Fechar sinuca'>Fechar ×</button>
+      <div><h1>Pool <span>• {session.tableId}</span></h1><p>{seat < 0 ? 'You are watching' : 'Casual 8-ball'} · {snapshot?.spectators ?? 0} {snapshot?.spectators === 1 ? 'spectator' : 'spectators'}</p></div>
+      <button onclick={close} disabled={session.closing} aria-label='Close pool'>Close ×</button>
     </header>
     <!-- Ends on the canvas scene's own flat edge colour, so the seam between DOM and canvas is
          invisible whatever height the panels end up at. -->
@@ -130,52 +130,52 @@
             <div class:current={active && snapshot.turn === index}>
               <AvatarPortrait spriteType={player?.spriteType} name={player?.name ?? ''} />
               <div class='who'>
-                <strong>{player?.name ?? 'Vaga disponível'} {player?.ready ? '✓ Pronto' : ''}</strong>
-                <span>{snapshot.groups[index] === 'solids' ? 'Lisas' : snapshot.groups[index] === 'stripes' ? 'Listradas' : 'Mesa aberta'}{player && !player.connected ? ' · Reconectando…' : ''}</span>
+                <strong>{player?.name ?? 'Seat available'} {player?.ready ? '✓ Ready' : ''}</strong>
+                <span>{snapshot.groups[index] === 'solids' ? 'Solids' : snapshot.groups[index] === 'stripes' ? 'Stripes' : 'Open table'}{player && !player.connected ? ' · Reconnecting…' : ''}</span>
                 {#if targets[index]}
-                  <ul class='glyphs' aria-label='Bolas restantes'>
+                  <ul class='glyphs' aria-label='Remaining balls'>
                     {#each targets[index]! as id (id)}{@render ballGlyph(id)}{/each}
                   </ul>
-                  {#if targets[index]!.length === 1 && targets[index]![0] === 8}<small>Agora, bola 8</small>{/if}
+                  {#if targets[index]!.length === 1 && targets[index]![0] === 8}<small>Now, the 8 ball</small>{/if}
                 {:else}
-                  <small>Grupos definidos após a saída</small>
+                  <small>Groups are set after the break</small>
                 {/if}
               </div>
             </div>
           {/each}
         </div>
         <div class='status' aria-live='polite'>
-          {#if !session.connected}Reconectando ao escritório…
-          {:else if snapshot.paused}Aguardando reconexão do jogador…
-          {:else if snapshot.phase === 'finished'}{snapshot.winner !== null ? `${snapshot.players[snapshot.winner]?.name ?? 'Jogador'} venceu! ` : ''}{snapshot.notice}
+          {#if !session.connected}Reconnecting to the office…
+          {:else if snapshot.paused}Waiting for the player to reconnect…
+          {:else if snapshot.phase === 'finished'}{snapshot.winner !== null ? `${snapshot.players[snapshot.winner]?.name ?? 'Player'} won! ` : ''}{snapshot.notice}
           {:else}{snapshot.notice}{/if}
           {#if remaining !== null}<strong>{remaining}s</strong>{/if}
         </div>
-      {:else}<p class='status'>Abrindo mesa…</p>{/if}
+      {:else}<p class='status'>Opening table…</p>{/if}
     </div>
     <div class='canvas' bind:this={host}></div>
     <footer>
       {#if snapshot && !active}
         {#if seat < 0}
-          <button class='primary' disabled={!session.connected || snapshot.players.every(Boolean)} onclick={() => session.send({ kind: 'sit', tableId: snapshot.tableId })}>Jogar</button>
+          <button class='primary' disabled={!session.connected || snapshot.players.every(Boolean)} onclick={() => session.send({ kind: 'sit', tableId: snapshot.tableId })}>Play</button>
           {#if snapshot.players.every(player => player === null)}
-            <button disabled={!session.connected} onclick={() => session.send({ kind: 'playBot', tableId: snapshot.tableId })}>Jogar contra o bot</button>
+            <button disabled={!session.connected} onclick={() => session.send({ kind: 'playBot', tableId: snapshot.tableId })}>Play against the bot</button>
           {/if}
         {:else}
-          <button class='primary' disabled={!session.connected} onclick={() => session.send({ kind: 'ready', tableId: snapshot.tableId, ready: !snapshot.players[seat]?.ready })}>{snapshot.players[seat]?.ready ? 'Cancelar pronto' : 'Pronto'}</button>
-          <button disabled={!session.connected} onclick={() => session.send({ kind: 'stand', tableId: snapshot.tableId })}>Liberar vaga</button>
+          <button class='primary' disabled={!session.connected} onclick={() => session.send({ kind: 'ready', tableId: snapshot.tableId, ready: !snapshot.players[seat]?.ready })}>{snapshot.players[seat]?.ready ? 'Cancel ready' : 'Ready'}</button>
+          <button disabled={!session.connected} onclick={() => session.send({ kind: 'stand', tableId: snapshot.tableId })}>Leave seat</button>
         {/if}
       {:else if snapshot && seat >= 0}
-        <label>Força <input type='range' min='0.01' max='1' step='0.01' bind:value={power} disabled={!canInteract} /></label>
-        <button class='primary' disabled={!canInteract || placing || !snapshot.cuePlaced} onclick={() => renderer?.shoot(power)}>Tacada</button>
-        {#if canInteract && snapshot.ballInHand}<button onclick={() => (reposition = !reposition)}>{placing ? 'Clique na mesa para posicionar' : 'Reposicionar branca'}</button>{/if}
+        <label>Power <input type='range' min='0.01' max='1' step='0.01' bind:value={power} disabled={!canInteract} /></label>
+        <button class='primary' disabled={!canInteract || placing || !snapshot.cuePlaced} onclick={() => renderer?.shoot(power)}>Shoot</button>
+        {#if canInteract && snapshot.ballInHand}<button onclick={() => (reposition = !reposition)}>{placing ? 'Click the table to place it' : 'Reposition cue ball'}</button>{/if}
       {/if}
-      <small>{placing ? 'Posicione a branca em uma área livre.' : 'Clique na mesa para travar a mira, arraste para trás para puxar o taco e solte para bater. Ou ajuste a força e clique em Tacada.'}</small>
+      <small>{placing ? 'Place the cue ball in a free area.' : 'Click the table to lock your aim, drag backwards to pull the cue and release to shoot. Or set the power and click Shoot.'}</small>
     </footer>
     {#if session.error}<p class='error' role='alert'>{session.error}</p>{/if}
     {#if confirmExit}
-      <div class='confirmation' role='alertdialog' aria-label='Confirmar desistência' aria-modal='true'>
-        <div><h2>Desistir da partida?</h2><p>O adversário vencerá esta partida.</p><button onclick={() => (confirmExit = false)}>Continuar jogando</button><button class='danger' onclick={resign}>Desistir e sair</button></div>
+      <div class='confirmation' role='alertdialog' aria-label='Confirm resignation' aria-modal='true'>
+        <div><h2>Resign the match?</h2><p>Your opponent will win this match.</p><button onclick={() => (confirmExit = false)}>Keep playing</button><button class='danger' onclick={resign}>Resign and leave</button></div>
       </div>
     {/if}
   </div>

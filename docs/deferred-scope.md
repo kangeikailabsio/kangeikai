@@ -62,3 +62,10 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   ("médio", constantes no topo do arquivo, afinadas jogando). Ficaram de fora: níveis de dificuldade
   selecionáveis, mais de um bot, afinação automática da dificuldade (ex.: bot contra bot medindo
   taxa de encaçapadas) e um aviso de falta específico do bot.
+- **Internacionalização do pool e do resto do app** — [#193](https://github.com/kangeikailabsio/kangeikai/issues/193)
+  traduziu os textos do pool para inglês (o idioma padrão), mas o resto do app (menus, página
+  inicial, painel de avatar etc.) continua em português e não há biblioteca nem catálogo de
+  mensagens. Os avisos e as faltas do pool são texto montado no servidor
+  (`packages/games/pool/src/server.ts`, `core.ts`) e enviado no snapshot; para traduzir de verdade
+  o servidor terá de mandar códigos de mensagem (ex.: `wrong-first-contact` com a bola derrubada) e o
+  cliente montar a frase no idioma do jogador.

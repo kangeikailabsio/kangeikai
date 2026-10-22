@@ -52,7 +52,7 @@ export class PoolManager {
   handle(id: string, input: unknown): void {
     const parsed = v.safeParse(poolCommandSchema, input)
     if (!parsed.success) {
-      this.host.send(id, { kind: 'error', message: 'Comando de sinuca inválido.' })
+      this.host.send(id, { kind: 'error', message: 'Invalid pool command.' })
       return
     }
     const command = parsed.output
@@ -63,7 +63,7 @@ export class PoolManager {
     }
     const table = this.sessions.get(command.tableId)
     if (!table || this.membership.get(id) !== command.tableId || !table.members.get(id)?.connected) {
-      reject('Abra esta mesa antes de interagir.')
+      reject('Open this table before interacting.')
       return
     }
     const s = table.state
@@ -77,7 +77,7 @@ export class PoolManager {
         return
       const free = s.players.findIndex(player => player === null)
       if (free < 0 || s.phase === 'aiming' || s.phase === 'moving') {
-        reject('As duas vagas estão ocupadas.')
+        reject('Both seats are taken.')
         return
       }
       const member = table.members.get(id)!
@@ -85,7 +85,7 @@ export class PoolManager {
     }
     else if (command.kind === 'playBot') {
       if (index >= 0 || s.players.some(Boolean) || s.phase === 'aiming' || s.phase === 'moving') {
-        reject('O bot só joga numa mesa vazia.')
+        reject('The bot only plays on an empty table.')
         return
       }
       const member = table.members.get(id)!
@@ -104,7 +104,7 @@ export class PoolManager {
     }
     else if (command.kind === 'ready') {
       if (index < 0 || (s.phase !== 'waiting' && s.phase !== 'finished')) {
-        reject('Você não pode ficar pronto agora.')
+        reject('You cannot get ready right now.')
         return
       }
       s.players[index]!.ready = command.ready
@@ -121,18 +121,18 @@ export class PoolManager {
   private takeTurn(table: TableSession, index: number, command: Extract<PoolCommand, { kind: 'place' | 'shoot' }>, reject: (message: string) => void): boolean {
     const s = table.state
     if (index !== s.turn || index < 0 || s.phase !== 'aiming' || s.paused || command.matchId !== s.matchId || command.turnId !== s.turnId) {
-      reject('Esta jogada não está disponível.')
+      reject('This move is not available.')
       return false
     }
     if (s.deadline !== null && this.now() >= s.deadline) {
       this.timeout(table)
-      reject('O tempo da jogada terminou.')
+      reject('Your time to shoot is up.')
       return false
     }
     const cue = s.balls.find(ball => ball.id === 0)!
     if (command.kind === 'place') {
       if (!s.ballInHand || !canPlaceBall(s.balls, 0, command.x, command.y)) {
-        reject('Posição inválida para a branca.')
+        reject('Invalid position for the cue ball.')
         return false
       }
       Object.assign(cue, { x: command.x, y: command.y, vx: 0, vy: 0, pocketed: false })
@@ -140,7 +140,7 @@ export class PoolManager {
     }
     else {
       if (!s.cuePlaced || cue.pocketed) {
-        reject('Posicione a branca antes da tacada.')
+        reject('Place the cue ball before shooting.')
         return false
       }
       this.shoot(table, command)
@@ -158,7 +158,7 @@ export class PoolManager {
     const definition = this.tables.find(table => table.id === tableId)
     const identity = this.host.identity(id)
     if (attached || !definition || !identity || !identity.available || distanceToTable(definition, identity.x, identity.y) > GAME_INTERACTION_DISTANCE) {
-      reject('Aproxime-se da mesa e esteja disponível para abrir a sinuca.')
+      reject('Move close to the table and be available to open pool.')
       return
     }
     let table = this.sessions.get(tableId)
@@ -183,7 +183,7 @@ export class PoolManager {
           paused: false,
           remainingMs: SHOT_TIME_MS,
           winner: null,
-          notice: 'Ocupe uma vaga e confirme que está pronto.',
+          notice: 'Take a seat and confirm you are ready.',
         },
         members: new Map(),
         report: emptyReport(),
@@ -213,7 +213,7 @@ export class PoolManager {
       ballInHand: false,
       cuePlaced: true,
       winner: null,
-      notice: 'Saída: encaçape uma bola ou leve quatro bolas às tabelas.',
+      notice: 'Break: pocket a ball or drive four balls to a rail.',
       paused: false,
       remainingMs: SHOT_TIME_MS,
       deadline: this.now() + SHOT_TIME_MS,
@@ -250,7 +250,7 @@ export class PoolManager {
     s.phase = 'moving'
     s.deadline = null
     s.ballInHand = false
-    s.notice = 'Bolas em movimento…'
+    s.notice = 'Balls in motion…'
   }
 
   tick(deltaMs: number): void {
@@ -296,14 +296,14 @@ export class PoolManager {
     if (outcome.respotEight)
       respotEight(s.balls)
     if (outcome.winner !== null) {
-      this.finish(table, outcome.winner, 'Partida encerrada pela bola 8.')
+      this.finish(table, outcome.winner, 'Match ended by the 8 ball.')
     }
     else {
       s.turn = outcome.next
       s.breaking = false
       s.ballInHand = Boolean(outcome.foul)
       s.cuePlaced = !s.ballInHand
-      s.notice = outcome.foul ? `${outcome.foul} Branca na mão para o adversário.` : 'Sua vez de mirar.'
+      s.notice = outcome.foul ? `${outcome.foul} Ball in hand for the opponent.` : 'Your turn to aim.'
       this.nextTurn(table)
     }
     table.context = null
@@ -325,7 +325,7 @@ export class PoolManager {
     s.breaking = false
     s.ballInHand = true
     s.cuePlaced = false
-    s.notice = 'Tempo esgotado. Branca na mão para o adversário.'
+    s.notice = 'Time is up. Ball in hand for the opponent.'
     this.nextTurn(table)
     this.broadcast(table)
   }
@@ -345,7 +345,7 @@ export class PoolManager {
       return
     const opponent: Seat = seat === 0 ? 1 : 0
     const winner = s.players[opponent]?.connected ? opponent : null
-    this.finish(table, winner, winner === null ? 'Partida cancelada: jogadores desconectados.' : 'Vitória por desistência do adversário.')
+    this.finish(table, winner, winner === null ? 'Match cancelled: players disconnected.' : 'Win by opponent forfeit.')
   }
 
   leave(id: string): void {

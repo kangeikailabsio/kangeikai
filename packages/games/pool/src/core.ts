@@ -58,15 +58,15 @@ export function evaluateShot(context: ShotContext, report: ShotReport): ShotOutc
   let foul: string | null = null
   const objectPotted = report.pocketed.some(id => id !== 0)
   if (report.firstContact === null)
-    foul = 'A branca não atingiu nenhuma bola.'
+    foul = 'The cue ball did not hit any ball.'
   else if (!breaking && (groups[shooter] === null ? report.firstContact === 8 : eligibleForEight ? report.firstContact !== 8 : groupOf(report.firstContact) !== groups[shooter]))
-    foul = 'A primeira bola atingida não era um alvo válido.'
+    foul = 'The first ball hit was not a valid target.'
   else if (breaking && !objectPotted && report.railsAfterContact.filter(id => id !== 0).length < 4)
-    foul = 'Saída inválida: encaçape uma bola ou leve quatro bolas às tabelas.'
+    foul = 'Invalid break: pocket a ball or drive four balls to a rail.'
   else if (!objectPotted && report.railsAfterContact.length === 0)
-    foul = 'Nenhuma bola caiu ou tocou uma tabela após o contato.'
+    foul = 'No ball was pocketed and none hit a rail after contact.'
   if (report.pocketed.includes(0))
-    foul = 'A branca foi encaçapada.'
+    foul = 'The cue ball was pocketed.'
 
   let winner: Seat | null = null
   if (!breaking && report.pocketed.includes(8))

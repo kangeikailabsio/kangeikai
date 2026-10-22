@@ -4,7 +4,7 @@
   import AvatarPortrait from '$lib/people/avatar-portrait.svelte'
   import { attentionModalState } from '$lib/ui/attention-modal-state.svelte'
   import { createPoolRenderer } from '@kangeikai/game-pool/client'
-  import { ballBodyCss, ballHueCss, GAME_MODE_INFO, GAME_MODES, groupOf, hasClearedGroup, teamOfSeat, toCssHex } from '@kangeikai/game-pool/core'
+  import { ballBodyCss, ballHueCss, GAME_FORMAT_LABEL, GAME_FORMATS, GAME_MODE_INFO, GAME_MODES, groupOf, hasClearedGroup, seatsOfTeam, teamOfSeat, toCssHex } from '@kangeikai/game-pool/core'
   import { FLOOR_EDGE } from '@kangeikai/game-pool/floor'
   import { onMount } from 'svelte'
 
@@ -20,7 +20,14 @@
   const seat = $derived(snapshot?.players.findIndex(player => player?.sessionId === session.sessionId) ?? -1)
   /** Groups and targets belong to teams; in 1v1 a team is a single seat. */
   const teamOf = (index: number) => teamOfSeat(index, snapshot?.players.length ?? 2)
-  const winnerNames = $derived(snapshot?.winner == null ? '' : snapshot.players.filter((_, index) => teamOf(index) === snapshot.winner).map(player => player?.name).filter(Boolean).join(' & '))
+  const twoVersusTwo = $derived(snapshot?.format === '2v2')
+  const teamSeats = (team: 0 | 1) => seatsOfTeam(team, snapshot?.players.length ?? 2)
+  const otherTeamOf = (index: number): 0 | 1 => (teamOf(index) === 0 ? 1 : 0)
+  const teamName = (team: 0 | 1) => (team === 0 ? 'Team A' : 'Team B')
+  const teamHasRoom = (team: 0 | 1) => teamSeats(team).some(index => snapshot?.players[index] === null)
+  /** Position in the shooting rotation (1 to 4), shown once the order has been drawn at the start of a match. */
+  const queuePosition = (index: number) => (snapshot && snapshot.phase !== 'waiting' ? snapshot.order.indexOf(index) + 1 : 0)
+  const winnerNames = $derived(snapshot?.winner == null ? '' : twoVersusTwo ? teamName(snapshot.winner) : snapshot.players.filter((_, index) => teamOf(index) === snapshot.winner).map(player => player?.name).filter(Boolean).join(' & '))
   const active = $derived(snapshot?.phase === 'aiming' || snapshot?.phase === 'moving')
   const canInteract = $derived(Boolean(snapshot && session.connected && !session.closing && !confirmExit && !screenShareOverlayState.expanded && !attentionModalState.open && !snapshot.paused && snapshot.phase === 'aiming' && seat === snapshot.turn))
   const placing = $derived(Boolean(snapshot?.ballInHand && (!snapshot.cuePlaced || reposition)))
@@ -125,9 +132,9 @@
 <div class='backdrop'>
   <!-- The ScaleManager only re-measures its parent every 500ms and never on scroll, so a scrolled
        window would otherwise mis-map pointer coordinates until the next poll. -->
-  <div class='pool-window' role='dialog' tabindex='-1' aria-label='Pool table' bind:this={window_} onscroll={() => renderer?.refreshScale()}>
+  <div class='pool-window' class:versus={twoVersusTwo} role='dialog' tabindex='-1' aria-label='Pool table' bind:this={window_} onscroll={() => renderer?.refreshScale()}>
     <header>
-      <div><h1>Pool <span>• {session.tableId}</span></h1><p>{snapshot ? GAME_MODE_INFO[snapshot.mode].label : ''}{seat < 0 ? ' · You are watching' : ''} · {snapshot?.spectators ?? 0} {snapshot?.spectators === 1 ? 'spectator' : 'spectators'}</p></div>
+      <div><h1>Pool <span>• {session.tableId}</span></h1><p>{snapshot ? GAME_MODE_INFO[snapshot.mode].label : ''}{twoVersusTwo ? ' · 2 vs 2' : ''}{seat < 0 ? ' · You are watching' : ''} · {snapshot?.spectators ?? 0} {snapshot?.spectators === 1 ? 'spectator' : 'spectators'}</p></div>
       <div class='actions'>
         <button onclick={() => (showRules = !showRules)} aria-expanded={showRules} disabled={!snapshot}>Rules</button>
         <button onclick={close} disabled={session.closing} aria-label='Close pool'>Close ×</button>
@@ -141,25 +148,52 @@
          invisible whatever height the panels end up at. -->
     <div class='stage-top' style:background='linear-gradient(#15241f, {toCssHex(FLOOR_EDGE)})'>
       {#if snapshot}
-        <div class='players'>
-          {#each snapshot.players as player, index}
-            <div class:current={active && snapshot.turn === index}>
-              <AvatarPortrait spriteType={player?.spriteType} name={player?.name ?? ''} />
-              <div class='who'>
-                <strong>{player?.name ?? 'Seat available'} {player?.ready ? '✓ Ready' : ''}</strong>
-                <span>{snapshot.groups[teamOf(index)] === 'solids' ? 'Solids' : snapshot.groups[teamOf(index)] === 'stripes' ? 'Stripes' : 'Open table'}{player && !player.connected ? ' · Reconnecting…' : ''}</span>
-                {#if targets[teamOf(index)]}
-                  <ul class='glyphs' aria-label='Remaining balls'>
-                    {#each targets[teamOf(index)]! as id (id)}{@render ballGlyph(id)}{/each}
-                  </ul>
-                  {#if targets[teamOf(index)]!.length === 1 && targets[teamOf(index)]![0] === 8}<small>Now, the 8 ball</small>{/if}
-                {:else}
-                  <small>Groups are set after the break</small>
-                {/if}
+        {#if twoVersusTwo}
+          <div class='teams'>
+            {#each [0, 1] as const as team (team)}
+              <div class='team'>
+                <div class='team-head'>
+                  <strong>{teamName(team)}</strong>
+                  <span>{snapshot.groups[team] === 'solids' ? 'Solids' : snapshot.groups[team] === 'stripes' ? 'Stripes' : 'Open table'}</span>
+                  {#if targets[team]}
+                    <ul class='glyphs' aria-label='Remaining balls'>
+                      {#each targets[team]! as id (id)}{@render ballGlyph(id)}{/each}
+                    </ul>
+                  {/if}
+                </div>
+                {#each teamSeats(team) as index (index)}
+                  {@const player = snapshot.players[index]}
+                  <div class='member' class:current={active && snapshot.turn === index}>
+                    <div class='portrait'><AvatarPortrait spriteType={player?.spriteType} name={player?.name ?? ''} /></div>
+                    {#if queuePosition(index)}<span class='position' title='Shooting order'>{queuePosition(index)}</span>{/if}
+                    <strong>{player?.name ?? 'Seat available'}</strong>
+                    <small>{player?.ready ? '✓ Ready' : ''}{player && !player.connected ? ' · Reconnecting…' : ''}</small>
+                  </div>
+                {/each}
               </div>
-            </div>
-          {/each}
-        </div>
+            {/each}
+          </div>
+        {:else}
+          <div class='players'>
+            {#each snapshot.players as player, index}
+              <div class:current={active && snapshot.turn === index}>
+                <AvatarPortrait spriteType={player?.spriteType} name={player?.name ?? ''} />
+                <div class='who'>
+                  <strong>{player?.name ?? 'Seat available'} {player?.ready ? '✓ Ready' : ''}</strong>
+                  <span>{snapshot.groups[teamOf(index)] === 'solids' ? 'Solids' : snapshot.groups[teamOf(index)] === 'stripes' ? 'Stripes' : 'Open table'}{player && !player.connected ? ' · Reconnecting…' : ''}</span>
+                  {#if targets[teamOf(index)]}
+                    <ul class='glyphs' aria-label='Remaining balls'>
+                      {#each targets[teamOf(index)]! as id (id)}{@render ballGlyph(id)}{/each}
+                    </ul>
+                    {#if targets[teamOf(index)]!.length === 1 && targets[teamOf(index)]![0] === 8}<small>Now, the 8 ball</small>{/if}
+                  {:else}
+                    <small>Groups are set after the break</small>
+                  {/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
         <div class='status' aria-live='polite'>
           {#if !session.connected}Reconnecting to the office…
           {:else if snapshot.paused}Waiting for the player to reconnect…
@@ -181,18 +215,35 @@
             </label>
           {/each}
         </div>
+        <div class='segments' role='radiogroup' aria-label='Game format'>
+          {#each GAME_FORMATS as format (format)}
+            <label class='segment' class:selected={snapshot.format === format} title={format === '2v2' ? 'Two teams of two players' : 'Two players'}>
+              <input class='visually-hidden' type='radio' name='game-format' value={format} checked={snapshot.format === format} disabled={format !== snapshot.format && Boolean(snapshot.players.some(player => player?.sessionId.startsWith('bot:')))} onchange={() => session.send({ kind: 'setFormat', tableId: snapshot.tableId, format })} />
+              {GAME_FORMAT_LABEL[format]}
+            </label>
+          {/each}
+        </div>
         <p class='mode-description'>{GAME_MODE_INFO[snapshot.mode].description}{seat === snapshot.ownerSeat ? '' : ' (Chosen by the table owner.)'}</p>
       </fieldset>
     {/if}
     <footer>
       {#if snapshot && !active}
         {#if seat < 0}
-          <button class='primary' disabled={!session.connected || snapshot.players.every(Boolean)} onclick={() => session.send({ kind: 'sit', tableId: snapshot.tableId })}>Play</button>
-          {#if snapshot.players.every(player => player === null)}
+          {#if twoVersusTwo}
+            {#each [0, 1] as const as team (team)}
+              <button class='primary' disabled={!session.connected || !teamHasRoom(team)} onclick={() => session.send({ kind: 'sit', tableId: snapshot.tableId, team })}>Join {teamName(team)}</button>
+            {/each}
+          {:else}
+            <button class='primary' disabled={!session.connected || snapshot.players.every(Boolean)} onclick={() => session.send({ kind: 'sit', tableId: snapshot.tableId })}>Play</button>
+          {/if}
+          {#if !twoVersusTwo && snapshot.players.every(player => player === null)}
             <button disabled={!session.connected} onclick={() => session.send({ kind: 'playBot', tableId: snapshot.tableId })}>Play against the bot</button>
           {/if}
         {:else}
           <button class='primary' disabled={!session.connected} onclick={() => session.send({ kind: 'ready', tableId: snapshot.tableId, ready: !snapshot.players[seat]?.ready })}>{snapshot.players[seat]?.ready ? 'Cancel ready' : 'Ready'}</button>
+          {#if twoVersusTwo && teamHasRoom(otherTeamOf(seat))}
+            <button disabled={!session.connected} onclick={() => session.send({ kind: 'sit', tableId: snapshot.tableId, team: otherTeamOf(seat) })}>Switch to {teamName(otherTeamOf(seat))}</button>
+          {/if}
           <button disabled={!session.connected} onclick={() => session.send({ kind: 'stand', tableId: snapshot.tableId })}>Leave seat</button>
         {/if}
       {:else if snapshot && seat >= 0}
@@ -205,7 +256,7 @@
     {#if session.error}<p class='error' role='alert'>{session.error}</p>{/if}
     {#if confirmExit}
       <div class='confirmation' role='alertdialog' aria-label='Confirm resignation' aria-modal='true'>
-        <div><h2>Resign the match?</h2><p>Your opponent will win this match.</p><button onclick={() => (confirmExit = false)}>Keep playing</button><button class='danger' onclick={resign}>Resign and leave</button></div>
+        <div><h2>Resign the match?</h2><p>{twoVersusTwo ? 'Your whole team will lose this match.' : 'Your opponent will win this match.'}</p><button onclick={() => (confirmExit = false)}>Keep playing</button><button class='danger' onclick={resign}>Resign and leave</button></div>
       </div>
     {/if}
   </div>
@@ -214,6 +265,7 @@
 <style>
   /* Nearly opaque: the office scene stops rendering while this is open, so there is no dimmed map
      left behind it to show through — only the canvas it cleared. */
+  .pool-window.versus { --chrome: 490px; }
   .backdrop { position: fixed; inset: 0; z-index: 22; background: rgb(3 6 8 / 94%); display: flex; justify-content: center; align-items: center; padding: 16px 16px 68px; pointer-events: auto; }
   .pool-window { --chrome: 450px; position: relative; width: min(1050px, 100%); max-height: 100%; overflow: auto; border: 1px solid #486357; border-radius: 18px; background: #15241f; color: #f3f5ec; box-shadow: 0 20px 80px #0008; padding: 18px; }
   header, footer, .players, .status { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -221,6 +273,16 @@
   .stage-top { margin: 16px -18px 0; padding: 0 18px; }
   /* A fixed height matters: a panel that grows or shrinks mid-match changes the canvas height, and
      the ScaleManager would keep a stale displayScale for up to 500ms and mis-map every click. */
+  .teams { display: flex; gap: 12px; }
+  .team { flex: 1; display: grid; gap: 4px; min-width: 0; padding: 6px 10px; border: 1px solid #3b5147; border-radius: 10px; background: rgb(21 36 31 / 55%); }
+  .team-head { display: flex; align-items: center; gap: 10px; font-size: 13px; } .team-head span { color: #b5c8bc; font-size: 12px; } .team-head .glyphs { margin: 0 0 0 auto; }
+  /* The portrait is a 32x64 sprite frame drawn 1:1 to stay crisp, so it is cropped rather than scaled. The
+     character fills rows 14-63 of the frame (the top 14 are transparent), so shifting up 14px shows head and torso. */
+  .portrait { flex: none; width: 32px; height: 36px; overflow: hidden; }
+  .portrait :global(.icon) { margin-top: -14px; }
+  .member { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 2px 8px; border: 1px solid transparent; border-radius: 8px; } .member small { color: #b5c8bc; font-size: 12px; }
+  .member.current { border-color: #edce67; background: #34412a; }
+  .position { display: grid; place-items: center; flex: none; width: 18px; height: 18px; border-radius: 50%; background: #edce67; color: #17241e; font-size: 11px; font-weight: 700; }
   .players > div { display: flex; align-items: flex-start; gap: 10px; flex: 1; min-height: 84px; padding: 10px 14px; border: 1px solid #3b5147; border-radius: 10px; background: rgb(21 36 31 / 55%); }
   .players .current { border-color: #edce67; background: #34412a; }
   .who { display: grid; gap: 4px; min-width: 0; }
@@ -254,6 +316,8 @@
   @media (max-height: 720px) {
     .backdrop { padding: 8px 8px 60px; }
     .pool-window { --chrome: 340px; padding: 8px 14px; border-radius: 12px; }
+    .pool-window.versus { --chrome: 372px; }
+    .team { padding: 4px 8px; } .member { min-height: 30px; } .portrait { height: 28px; }
     h1 { font-size: 18px; } h1 span { font-size: 12px; } header p { margin: 1px 0 0; font-size: 12px; }
     .stage-top { margin: 6px -14px 0; padding: 0 14px; }
     .players small { display: none; }

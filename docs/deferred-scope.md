@@ -75,3 +75,10 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   só lê o modo na pontuação e não joga defesa de propósito. Também não há nome oficial/histórico
   da variante (é uma regra regional sem fonte encontrada) e o modo só pode ser trocado antes de a
   partida começar, pelo dono da mesa.
+- **Formato 2×2 sem bot, nomes e cores de time** — o formato 2×2 de
+  [#200](https://github.com/kangeikailabsio/kangeikai/issues/200) é só entre humanos: o botão
+  "Play against the bot" fica restrito ao 1×1 (jogar contra o bot volta a mesa para 1×1) e o
+  bot não completa uma dupla. Os times são fixos ("Team A" e "Team B"), sem nome nem cor
+  escolhidos pelos jogadores. A ordem dentro de cada time é sorteada a cada partida
+  (`drawOrder` em `packages/games/pool/src/server.ts`) e quem sai no meio faz o time inteiro
+  perder (sem substituição nem continuação com o parceiro).

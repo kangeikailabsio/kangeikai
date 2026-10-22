@@ -1,9 +1,9 @@
-import type { Seat, ShotContext, Team } from '@kangeikai/game-pool/core'
+import type { GameFormat, Seat, ShotContext, Team } from '@kangeikai/game-pool/core'
 import type { ShotReport } from '@kangeikai/game-pool/physics'
 import type { PoolCommand, PoolEvent, PoolSnapshot } from '@kangeikai/game-pool/protocol'
 import type { AvatarSpriteType, GameTable } from '@kangeikai/shared'
 import { BotBrain } from '@kangeikai/game-pool/bot'
-import { evaluateShot, hasClearedGroup, lowestBall, nextSeat, otherTeam, teamOfSeat } from '@kangeikai/game-pool/core'
+import { evaluateShot, hasClearedGroup, lowestBall, nextSeat, otherTeam, seatCountOf, seatsOfTeam, teamOfSeat } from '@kangeikai/game-pool/core'
 import { canPlaceBall, createRack, emptyReport, FIXED_STEP, respotCue, respotEight, stepPhysics, strikeCue } from '@kangeikai/game-pool/physics'
 import { poolCommandSchema, SHOT_TIME_MS, SNAPSHOT_INTERVAL_MS } from '@kangeikai/game-pool/protocol'
 import { distanceToTable, GAME_INTERACTION_DISTANCE } from '@kangeikai/shared'
@@ -19,6 +19,8 @@ interface TableSession {
   lastBroadcast: number
   /** Seats in the order they shoot; the turn moves to the next one when it is lost. */
   order: Seat[]
+  /** Session ids in the order they sat, used to place players when the format changes. */
+  sitOrder: string[]
   nextBreaker: Team
   /** Session that may pick the mode before a match; falls to the other seated player when it leaves. */
   owner: string | null
@@ -77,15 +79,37 @@ export class PoolManager {
       return
     }
     if (command.kind === 'sit') {
-      if (index >= 0)
-        return
-      const free = s.players.findIndex(player => player === null)
-      if (free < 0 || s.phase === 'aiming' || s.phase === 'moving') {
-        reject('Both seats are taken.')
+      if (s.phase === 'aiming' || s.phase === 'moving') {
+        reject('You cannot change seats during a match.')
         return
       }
-      const member = table.members.get(id)!
-      s.players[free] = { sessionId: id, name: member.name, spriteType: member.spriteType, ready: false, connected: true }
+      const seatCount = s.players.length
+      const team = seatCount > 2 ? command.team : undefined
+      if (seatCount > 2 && team === undefined) {
+        reject('Choose a team.')
+        return
+      }
+      const free = s.players.findIndex((player, seat) => player === null && (team === undefined || teamOfSeat(seat, seatCount) === team))
+      if (index >= 0) {
+        if (team === undefined || teamOfSeat(index, seatCount) === team)
+          return
+        if (free < 0) {
+          reject('That team is full.')
+          return
+        }
+        s.players[free] = s.players[index]
+        s.players[index] = null
+        this.resetReady(table)
+      }
+      else {
+        if (free < 0) {
+          reject(seatCount > 2 ? 'That team is full.' : 'Both seats are taken.')
+          return
+        }
+        const member = table.members.get(id)!
+        s.players[free] = { sessionId: id, name: member.name, spriteType: member.spriteType, ready: false, connected: true }
+        table.sitOrder = [...table.sitOrder.filter(seated => seated !== id), id]
+      }
       this.syncOwner(table)
     }
     else if (command.kind === 'playBot') {
@@ -93,20 +117,33 @@ export class PoolManager {
         reject('The bot only plays on an empty table.')
         return
       }
+      if (s.format !== '1v1')
+        this.changeFormat(table, '1v1')
       const member = table.members.get(id)!
+      table.sitOrder = [id]
       s.players[0] = { sessionId: id, name: member.name, spriteType: member.spriteType, ready: false, connected: true }
       s.players[1] = { sessionId: `bot:${command.tableId}`, name: BOT_NAME, spriteType: BOT_SPRITE, ready: true, connected: true }
       table.bot = { seat: 1, brain: new BotBrain(this.random) }
       table.nextBreaker = 0
       this.syncOwner(table)
     }
-    else if (command.kind === 'setMode') {
+    else if (command.kind === 'setMode' || command.kind === 'setFormat') {
       if (index < 0 || index !== s.ownerSeat || (s.phase !== 'waiting' && s.phase !== 'finished')) {
-        reject('Only the table owner can change the mode, before the match starts.')
+        reject('Only the table owner can change the rules, before the match starts.')
         return
       }
-      if (command.mode !== s.mode) {
-        s.mode = command.mode
+      if (command.kind === 'setMode') {
+        if (command.mode !== s.mode) {
+          s.mode = command.mode
+          this.resetReady(table)
+        }
+      }
+      else if (command.format !== s.format) {
+        if (table.bot) {
+          reject('The bot only plays 1 vs 1.')
+          return
+        }
+        this.changeFormat(table, command.format)
         this.resetReady(table)
       }
     }
@@ -189,6 +226,8 @@ export class PoolManager {
           serverTime: this.now(),
           phase: 'waiting',
           mode: '8-ball',
+          format: '1v1',
+          order: [0, 1],
           ownerSeat: null,
           players: [null, null],
           spectators: 0,
@@ -210,6 +249,7 @@ export class PoolManager {
         accumulator: 0,
         lastBroadcast: 0,
         order: [0, 1],
+        sitOrder: [],
         nextBreaker: this.random() < 0.5 ? 0 : 1,
         bot: null,
         owner: null,
@@ -221,14 +261,49 @@ export class PoolManager {
     this.broadcast(table)
   }
 
+  /** Re-seats everyone for the new format in the order they sat, alternating Team A and Team B; the overflow becomes spectators. */
+  private changeFormat(table: TableSession, format: GameFormat): void {
+    const s = table.state
+    const seatCount = seatCountOf(format)
+    const seated = table.sitOrder.map(id => s.players.find(player => player?.sessionId === id)).filter(player => player != null)
+    const players: typeof s.players = Array.from({ length: seatCount }, () => null)
+    seated.slice(0, seatCount).forEach((player, position) => {
+      const seat = seatsOfTeam(position % 2 === 0 ? 0 : 1, seatCount).find(candidate => players[candidate] === null)!
+      players[seat] = player
+    })
+    s.players = players
+    s.format = format
+    s.order = Array.from({ length: seatCount }, (_, seat) => seat)
+    table.order = s.order
+    this.syncOwner(table)
+  }
+
+  /** Draws who shoots first inside each team and interleaves the teams, starting with the one that breaks. */
+  private drawOrder(table: TableSession): Seat[] {
+    const seatCount = table.state.players.length
+    const draw = (team: Team) => {
+      const seats = seatsOfTeam(team, seatCount)
+      for (let i = seats.length - 1; i > 0; i--) {
+        const j = Math.floor(this.random() * (i + 1));
+        [seats[i], seats[j]] = [seats[j], seats[i]]
+      }
+      return seats
+    }
+    const first = draw(table.nextBreaker)
+    const second = draw(otherTeam(table.nextBreaker))
+    return first.flatMap((seat, position) => [seat, second[position]])
+  }
+
   private start(table: TableSession): void {
     const s = table.state
+    table.order = this.drawOrder(table)
+    s.order = table.order
     Object.assign(s, {
       matchId: ++this.nextMatchId,
       turnId: 1,
       balls: createRack(),
       groups: [null, null],
-      turn: this.breaker(table),
+      turn: table.order[0],
       phase: 'aiming',
       breaking: true,
       ballInHand: false,
@@ -267,11 +342,6 @@ export class PoolManager {
 
   private teamOf(table: TableSession, seat: Seat): Team {
     return teamOfSeat(seat, table.state.players.length)
-  }
-
-  /** The first seat in the rotation that belongs to the team opening the match. */
-  private breaker(table: TableSession): Seat {
-    return table.order.find(seat => this.teamOf(table, seat) === table.nextBreaker) ?? 0
   }
 
   private removeBot(table: TableSession): void {

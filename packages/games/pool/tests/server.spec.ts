@@ -364,3 +364,115 @@ describe('game modes', () => {
     expect(state.balls.find(b => b.id === 9)?.pocketed).toBe(false)
   })
 })
+
+describe('2v2 format', () => {
+  interface Session { state: PoolSnapshot & { balls: { id: number, x: number, y: number, vx: number, vy: number, pocketed: boolean }[] } }
+  const session = () => (manager as unknown as { sessions: Map<string, Session> }).sessions.get('one')!
+  const send = (id: string, command: Record<string, unknown>) => manager.handle(id, { tableId: 'one', ...command })
+  const state = (id = 'a') => snapshots.get(id)!
+  function sit(id: string, team?: number): void {
+    open(id)
+    send(id, { kind: 'sit', team })
+  }
+  /** a and b sit in 1v1, then a (the owner) switches to 2v2: a goes to Team A (seat 0), b to Team B (seat 2). */
+  function toTwoVersusTwo(): void {
+    sit('a')
+    sit('b')
+    send('a', { kind: 'setFormat', format: '2v2' })
+  }
+  function fillAndStart(): void {
+    toTwoVersusTwo()
+    sit('c', 0)
+    sit('d', 1)
+    for (const id of ['a', 'b', 'c', 'd']) send(id, { kind: 'ready', ready: true })
+  }
+
+  it('lets only the owner change the format, clears ready flags and re-seats players alternating teams', () => {
+    sit('a')
+    sit('b')
+    send('b', { kind: 'setFormat', format: '2v2' })
+    expect(events.get('b')?.kind).toBe('error')
+    send('b', { kind: 'ready', ready: true })
+    send('a', { kind: 'setFormat', format: '2v2' })
+    expect(state()).toMatchObject({ format: '2v2' })
+    expect(state().players).toHaveLength(4)
+    expect(state().players.map(player => player?.sessionId ?? null)).toEqual(['a', null, 'b', null])
+    expect(state().players[2]?.ready).toBe(false)
+  })
+  it('seats players by team, refuses a full team and a missing team, and lets a player switch teams', () => {
+    toTwoVersusTwo()
+    sit('c', 0)
+    expect(state().players.map(player => player?.sessionId ?? null)).toEqual(['a', 'c', 'b', null])
+    sit('e', 0)
+    expect(events.get('e')?.kind).toBe('error')
+    open('f')
+    send('f', { kind: 'sit' })
+    expect(events.get('f')?.kind).toBe('error')
+    send('c', { kind: 'sit', team: 1 })
+    expect(state().players.map(player => player?.sessionId ?? null)).toEqual(['a', null, 'b', 'c'])
+  })
+  it('puts the overflow back on the bench when going from 2v2 to 1v1, keeping the first two who sat', () => {
+    toTwoVersusTwo()
+    sit('c', 0)
+    sit('d', 1)
+    send('a', { kind: 'setFormat', format: '1v1' })
+    expect(state().players.map(player => player?.sessionId ?? null)).toEqual(['a', 'b'])
+    expect(state().spectators).toBe(2)
+  })
+  it('starts only when all four are ready, drawing the order inside each team (reversed by the injected draw)', () => {
+    toTwoVersusTwo()
+    sit('c', 0)
+    sit('d', 1)
+    for (const id of ['a', 'b', 'c']) send(id, { kind: 'ready', ready: true })
+    expect(state().phase).toBe('waiting')
+    send('d', { kind: 'ready', ready: true })
+    expect(state()).toMatchObject({ phase: 'aiming', order: [1, 3, 0, 2], turn: 1 })
+  })
+  it('rotates through the four players when the turn is lost', () => {
+    fillAndStart()
+    const turns: number[] = []
+    for (let i = 0; i < 4; i++) {
+      now += 31_000
+      manager.tick(16)
+      turns.push(state().turn)
+    }
+    expect(turns).toEqual([3, 0, 2, 1])
+  })
+  it('keeps the same player shooting after an own-group pot and moves on after a miss', () => {
+    fillAndStart()
+    const ball = (id: number, x: number, y: number, vx = 0, vy = 0) => ({ id, x, y, vx, vy, pocketed: false })
+    const shoot = (shooterId: string): void => {
+      send(shooterId, { kind: 'shoot', matchId: state().matchId, turnId: state().turnId, angle: 0, power: 0.5 })
+      for (let i = 0; i < 1500 && state().phase === 'moving'; i++) {
+        now += 20
+        manager.tick(20)
+      }
+    }
+    const shooter = state().turn
+    Object.assign(session().state, { groups: ['solids', 'stripes'], breaking: false, balls: [ball(0, 200, 200), ball(2, 400, 200), ball(1, 60, 60, -300, -300), ball(9, 700, 350)] })
+    const shooterId = state().players[shooter]!.sessionId
+    shoot(shooterId)
+    expect(state().turn).toBe(shooter)
+    Object.assign(session().state, { balls: [ball(0, 200, 200), ball(2, 400, 200), ball(9, 700, 350)] })
+    shoot(shooterId)
+    expect(state().turn).toBe(3)
+  })
+  it('ends the match for the whole team when a player leaves, and keeps the other seats', () => {
+    fillAndStart()
+    manager.leave('a')
+    expect(state('b')).toMatchObject({ phase: 'finished', winner: 1 })
+    expect(state('b').players.map(player => player?.sessionId ?? null)).toEqual([null, 'c', 'b', 'd'])
+  })
+  it('returns to 1v1 when playing against the bot, and refuses 2v2 on a bot table', () => {
+    toTwoVersusTwo()
+    send('a', { kind: 'stand' })
+    send('b', { kind: 'stand' })
+    expect(state()).toMatchObject({ format: '2v2' })
+    send('a', { kind: 'playBot' })
+    expect(state()).toMatchObject({ format: '1v1' })
+    expect(state().players).toHaveLength(2)
+    send('a', { kind: 'setFormat', format: '2v2' })
+    expect(events.get('a')?.kind).toBe('error')
+    expect(state().format).toBe('1v1')
+  })
+})

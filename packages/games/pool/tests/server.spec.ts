@@ -6,6 +6,8 @@ let now: number
 let manager: PoolManager
 let snapshots: Map<string, PoolSnapshot>
 let events: Map<string, PoolEvent>
+/** Every event in order, as `[recipient, event]`, for tests that care about who did not receive something. */
+let log: [string, PoolEvent][]
 let far: boolean
 
 beforeEach(() => {
@@ -13,6 +15,7 @@ beforeEach(() => {
   far = false
   snapshots = new Map()
   events = new Map()
+  log = []
   manager = new PoolManager([
     { id: 'one', gameType: 'pool', x: 0, y: 0, width: 100, height: 100 },
     { id: 'two', gameType: 'pool', x: 0, y: 0, width: 100, height: 100 },
@@ -21,6 +24,7 @@ beforeEach(() => {
     random: () => 0,
     identity: id => ({ name: id, spriteType: 'man' as const, x: far ? 1000 : 50, y: 50, available: true }),
     send: (id, event) => {
+      log.push([id, event])
       events.set(id, event)
       if (event.kind === 'snapshot')
         snapshots.set(id, event.state)
@@ -474,5 +478,120 @@ describe('2v2 format', () => {
     send('a', { kind: 'setFormat', format: '2v2' })
     expect(events.get('a')?.kind).toBe('error')
     expect(state().format).toBe('1v1')
+  })
+})
+
+describe('spectator aim', () => {
+  interface Session { state: PoolSnapshot }
+  const session = () => (manager as unknown as { sessions: Map<string, Session> }).sessions.get('one')!
+  const send = (id: string, command: Record<string, unknown>) => manager.handle(id, { tableId: 'one', ...command })
+  const aim = (id: string, extra: Record<string, unknown> = {}) => {
+    const state = snapshots.get(id)!
+    send(id, { kind: 'aim', matchId: state.matchId, turnId: state.turnId, angle: 0.5, power: 0.4, locked: false, ...extra })
+  }
+  const received = (id: string) => log.filter(([to, event]) => to === id && event.kind === 'aim').map(([, event]) => (event as { aim: unknown }).aim)
+  /** a (seat 0) and b (seat 1) play; whoever breaks is the shooter, the other is the opponent. */
+  function startWithWatcher(): { shooter: string, opponent: string } {
+    for (const id of ['a', 'b']) {
+      open(id)
+      send(id, { kind: 'sit' })
+      send(id, { kind: 'ready', ready: true })
+    }
+    open('w')
+    const shooter = snapshots.get('a')!.players[snapshots.get('a')!.turn]!.sessionId
+    return { shooter, opponent: shooter === 'a' ? 'b' : 'a' }
+  }
+
+  it('relays the shooter\'s aim to spectators only, never to the opponent or back to the shooter', () => {
+    const { shooter, opponent } = startWithWatcher()
+    aim(shooter)
+    expect(received('w')).toEqual([expect.objectContaining({ angle: 0.5, power: 0.4, locked: false })])
+    expect(received(opponent)).toEqual([])
+    expect(received(shooter)).toEqual([])
+  })
+  it('does not put the aim in any snapshot', () => {
+    const { shooter } = startWithWatcher()
+    aim(shooter)
+    for (const [, event] of log) {
+      if (event.kind === 'snapshot')
+        expect(JSON.stringify(event.state)).not.toContain('"locked"')
+    }
+  })
+  it('ignores an aim from the player who is not on turn, from a spectator, and with stale ids', () => {
+    const { shooter, opponent } = startWithWatcher()
+    aim(opponent)
+    aim('w')
+    aim(shooter, { turnId: snapshots.get(shooter)!.turnId + 1 })
+    aim(shooter, { matchId: 999 })
+    expect(received('w')).toEqual([])
+    expect(events.get(shooter)?.kind).not.toBe('error')
+  })
+  it('drops aims that arrive faster than the minimum interval', () => {
+    const { shooter } = startWithWatcher()
+    aim(shooter, { angle: 0.1 })
+    now += 10
+    aim(shooter, { angle: 0.2 })
+    now += 50
+    aim(shooter, { angle: 0.3 })
+    expect(received('w').map(value => (value as { angle: number }).angle)).toEqual([0.1, 0.3])
+  })
+  it('clears the aim for spectators when the shot is taken and when the turn times out', () => {
+    const { shooter } = startWithWatcher()
+    aim(shooter)
+    const state = snapshots.get(shooter)!
+    send(shooter, { kind: 'shoot', matchId: state.matchId, turnId: state.turnId, angle: 0, power: 0.5 })
+    expect(received('w').at(-1)).toBeNull()
+    for (let i = 0; i < 1500 && snapshots.get('w')!.phase === 'moving'; i++) {
+      now += 20
+      manager.tick(20)
+    }
+    const next = snapshots.get('w')!.players[snapshots.get('w')!.turn]!.sessionId
+    aim(next)
+    expect(received('w').at(-1)).not.toBeNull()
+    now += 31_000
+    manager.tick(16)
+    expect(received('w').at(-1)).toBeNull()
+  })
+  it('shows a spectator who opens the table mid-aim the current aim', () => {
+    const { shooter } = startWithWatcher()
+    aim(shooter)
+    open('late')
+    expect(received('late')).toEqual([expect.objectContaining({ angle: 0.5 })])
+  })
+  it('keeps the placement preview only while the player has ball in hand', () => {
+    const { shooter } = startWithWatcher()
+    aim(shooter, { placing: { x: 300, y: 200 } })
+    expect(received('w').at(-1)).not.toHaveProperty('placing')
+    Object.assign(session().state, { ballInHand: true, cuePlaced: false })
+    now += 100
+    aim(shooter, { placing: { x: 300, y: 200 } })
+    expect(received('w').at(-1)).toMatchObject({ placing: { x: 300, y: 200 } })
+  })
+  it('rejects out-of-range values as an invalid command', () => {
+    const { shooter } = startWithWatcher()
+    aim(shooter, { power: 5 })
+    expect(events.get(shooter)?.kind).toBe('error')
+    expect(received('w')).toEqual([])
+  })
+  it('in 2v2 lets the shooter\'s teammate and spectators watch, but not the opposing team', () => {
+    for (const id of ['a', 'b', 'c', 'd']) open(id)
+    send('a', { kind: 'sit' })
+    send('b', { kind: 'sit' })
+    send('a', { kind: 'setFormat', format: '2v2' })
+    send('c', { kind: 'sit', team: 0 })
+    send('d', { kind: 'sit', team: 1 })
+    for (const id of ['a', 'b', 'c', 'd']) send(id, { kind: 'ready', ready: true })
+    open('w')
+    const players = snapshots.get('a')!.players
+    const seat = snapshots.get('a')!.turn
+    const shooter = players[seat]!.sessionId
+    const team = (index: number) => (index < 2 ? 0 : 1)
+    const teammate = players.find((player, index) => index !== seat && team(index) === team(seat))!.sessionId
+    const opponents = players.filter((_, index) => team(index) !== team(seat)).map(player => player!.sessionId)
+    aim(shooter)
+    expect(received('w')).toHaveLength(1)
+    expect(received(teammate)).toHaveLength(1)
+    for (const id of opponents)
+      expect(received(id)).toEqual([])
   })
 })

@@ -1,10 +1,12 @@
 import type { RoomConnection } from '$lib/network/room-connection'
-import type { PoolCommand, PoolSnapshot } from '@kangeikai/game-pool/protocol'
+import type { PoolAim, PoolCommand, PoolSnapshot } from '@kangeikai/game-pool/protocol'
 
 /** Shared overlay lifecycle; the office only needs `open` to suppress its own input. */
 export class GameSessionState {
   tableId: string | null = $state(null)
   snapshot: PoolSnapshot | null = $state(null)
+  /** What the player on turn is aiming, only ever received as a spectator or as that player's teammate. */
+  aim: PoolAim | null = $state(null)
   error = $state('')
   connected = $state(false)
   closing = $state(false)
@@ -24,6 +26,9 @@ export class GameSessionState {
         this.snapshot = event.state
         this.receivedAt = Date.now()
         this.error = ''
+      }
+      else if (event.kind === 'aim' && event.tableId === this.tableId) {
+        this.aim = event.aim
       }
       else if (event.kind === 'closed' && event.tableId === this.tableId) {
         this.reset()
@@ -58,6 +63,7 @@ export class GameSessionState {
       return
     this.tableId = tableId
     this.snapshot = null
+    this.aim = null
     this.error = ''
     this.closing = false
     this.connection?.flushPendingState()
@@ -71,6 +77,12 @@ export class GameSessionState {
     }
   }
 
+  /** Aim updates are frequent and best-effort, so they neither clear the error banner nor are queued. */
+  sendAim(command: PoolCommand): void {
+    if (this.connected && !this.closing)
+      this.connection?.sendPool(command)
+  }
+
   close(): void {
     if (!this.tableId)
       return
@@ -82,6 +94,7 @@ export class GameSessionState {
   private reset(): void {
     this.tableId = null
     this.snapshot = null
+    this.aim = null
     this.closing = false
   }
 }

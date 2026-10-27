@@ -89,11 +89,14 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   vez dele. Também não há como impedir que um espectador conte a mira ao adversário por voz ou
   vídeo de proximidade no escritório: o servidor só garante que o adversário não **recebe** os dados.
 - **Scripts de mira e clientes adulterados no pool** — [#206](https://github.com/kangeikailabsio/kangeikai/issues/206)
-  só detecta scripts injetados na página (`requestAnimationFrame` ou métodos do WebGL trocados, e um
-  `<canvas>` flutuante sobre a mesa) e avisa a mesa uma vez por partida, sem punir ninguém. Bloquear a
-  injeção é impossível num cliente web, e o estado do jogo é público (todo cliente recebe as posições
-  das bolas e leva a física no bundle), então ficaram de fora: cliente modificado, bundle copiado e bot
-  externo que calcula a tacada pelos dados da rede. Também ficaram de fora uma mira oficial opcional para
-  todos (decisão de game design) e esconder cores/texturas das bolas (fácil de contornar e ruim para
-  acessibilidade). A detecção pode dar falso positivo com extensões que mexem no `requestAnimationFrame`
-  ou no WebGL (ex.: inspetores de GL), por isso o aviso é neutro.
+  detecta scripts injetados na página (`requestAnimationFrame` ou métodos do WebGL trocados, e um
+  `<canvas>` flutuante sobre a mesa). Com pelo menos dois sinais distintos, o servidor tira o jogador da
+  partida em andamento (1×1, 2×2 e contra o bot), cancela a partida sem vencedor e devolve os outros ao
+  estado de antes, sem avisá-los. Só quem trapaceou vê o alerta. Bloquear a injeção é impossível num
+  cliente web, e o estado do jogo é público (todo cliente recebe as posições das bolas e leva a física no
+  bundle), então ficaram de fora: cliente modificado, bundle copiado e bot externo que calcula a tacada
+  pelos dados da rede. Quem editar o script para não mandar o relatório escapa, porque a denúncia vem do
+  próprio cliente. Também ficaram de fora um bloqueio que persista (o jogador pode voltar à mesa), a
+  punição de espectadores, uma mira oficial opcional para todos (decisão de game design) e esconder
+  cores/texturas das bolas (fácil de contornar e ruim para acessibilidade). Um sinal só nunca pune, para
+  não derrubar quem usa extensões que mexem no `requestAnimationFrame` ou no WebGL.

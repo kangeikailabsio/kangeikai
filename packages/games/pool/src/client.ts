@@ -1,7 +1,7 @@
-import type { Point } from '@kangeikai/game-pool/aim'
+import type { AimState, Point } from '@kangeikai/game-pool/aim'
 import type { Phase } from '@kangeikai/game-pool/core'
-import type { PoolSnapshot } from '@kangeikai/game-pool/protocol'
-import { aimAngle, aimDistance, chargeFromDrag, MIN_POWER, MIN_PULL, pullDistance } from '@kangeikai/game-pool/aim'
+import type { PoolAim, PoolSnapshot } from '@kangeikai/game-pool/protocol'
+import { aimAngle, aimDistance, aimGuide, chargeFromDrag, MIN_POWER, MIN_PULL, pullDistance, shouldSendAim, smoothAngle, smoothingFactor } from '@kangeikai/game-pool/aim'
 import { FLOOR_EDGE } from '@kangeikai/game-pool/floor'
 import { BALL_RADIUS, canPlaceBall } from '@kangeikai/game-pool/physics'
 import { createPrediction } from '@kangeikai/game-pool/predict'
@@ -18,6 +18,10 @@ export interface PoolRendererOptions {
   place: (x: number, y: number) => void
   /** The renderer never decides outcomes — the overlay builds and sends the command. */
   shoot: (angle: number, power: number) => void
+  /** The shooter's live aim, to be relayed to spectators; called at most every `AIM_SEND_INTERVAL_MS`. */
+  sendAim: (aim: AimState) => void
+  /** What someone else on turn is aiming, for spectators and the shooter's teammate; null when nothing is shared. */
+  getRemoteAim: () => PoolAim | null
 }
 
 export interface PoolRenderer {
@@ -68,6 +72,11 @@ export function createPoolRenderer(parent: HTMLElement, options: PoolRendererOpt
   let previousState: PoolSnapshot | null = null
   let scale: Phaser.Scale.ScaleManager | undefined
   const prediction = createPrediction()
+  /** Last aim handed to `sendAim` and when, so unchanged or too frequent aims are not sent. */
+  let lastAimSent: AimState | null = null
+  let lastAimAt = 0
+  /** The remote aim as drawn: eased toward the latest one so the cue does not jump between updates. */
+  let shownRemote: { key: string, angle: number, power: number } | null = null
 
   /**
    * Phaser only binds `mousemove` to the canvas, and the table leaves little margin inside it, so
@@ -144,6 +153,53 @@ export function createPoolRenderer(parent: HTMLElement, options: PoolRendererOpt
     fire(shot, shot.angle, chargeFromDrag(shot.anchor, shot.point, shot.angle), performance.now())
   }
 
+  function shareAim(next: AimState): void {
+    const now = performance.now()
+    if (!shouldSendAim(lastAimSent, next, now, lastAimAt))
+      return
+    lastAimSent = next
+    lastAimAt = now
+    options.sendAim(next)
+  }
+
+  function drawPlacement(graphics: Phaser.GameObjects.Graphics, at: Point, valid: boolean): void {
+    graphics.lineStyle(2, valid ? 0xFFE278 : 0xFF6262).strokeCircle(at.x + ORIGIN.x, at.y + ORIGIN.y, BALL_RADIUS + 2)
+  }
+
+  /** Someone else's aim, seen by a spectator or the shooter's teammate. */
+  function drawRemoteAim(graphics: Phaser.GameObjects.Graphics, delta: number): void {
+    const remote = options.getRemoteAim()
+    if (!remote) {
+      shownRemote = null
+      return
+    }
+    const balls = prediction.simulated()
+    if (remote.placing) {
+      drawPlacement(graphics, remote.placing, canPlaceBall(balls, 0, remote.placing.x, remote.placing.y))
+      return
+    }
+    const cue = balls.find(ball => ball.id === 0)
+    if (!cue || cue.pocketed)
+      return
+    const key = `${remote.matchId}:${remote.turnId}`
+    const factor = smoothingFactor(delta)
+    shownRemote = shownRemote?.key === key
+      ? { key, angle: smoothAngle(shownRemote.angle, remote.angle, factor), power: shownRemote.power + (remote.power - shownRemote.power) * factor }
+      : { key, angle: remote.angle, power: remote.power }
+    drawGuide(graphics, aimGuide(cue, shownRemote.angle, aimDistance(balls, cue.x, cue.y, shownRemote.angle), shownRemote.power), remote.locked)
+  }
+
+  /** Draws an aim in canvas space; the geometry itself comes from `aimGuide`. */
+  function drawGuide(graphics: Phaser.GameObjects.Graphics, guide: ReturnType<typeof aimGuide>, committed: boolean): void {
+    const at = (point: Point): Point => ({ x: point.x + ORIGIN.x, y: point.y + ORIGIN.y })
+    graphics.lineStyle(committed ? 2.5 : 1.5, committed ? 0xFFE278 : 0xFFFFFF, committed ? 0.9 : 0.55)
+    for (const [from, to] of guide.dashes)
+      graphics.lineBetween(at(from).x, at(from).y, at(to).x, at(to).y)
+    graphics.strokeCircle(at(guide.contact).x, at(guide.contact).y, BALL_RADIUS)
+    graphics.lineStyle(5, 0xD8B078).lineBetween(at(guide.cue[0]).x, at(guide.cue[0]).y, at(guide.cue[1]).x, at(guide.cue[1]).y)
+    graphics.lineStyle(3, 0xC5EEEC).lineBetween(at(guide.tip[0]).x, at(guide.tip[0]).y, at(guide.tip[1]).x, at(guide.tip[1]).y)
+  }
+
   class PoolScene extends Phaser.Scene {
     private drawing!: Phaser.GameObjects.Graphics
     private balls = new Map<number, Phaser.GameObjects.Image>()
@@ -208,12 +264,15 @@ export function createPoolRenderer(parent: HTMLElement, options: PoolRendererOpt
       }
 
       const graphics = this.drawing.clear()
-      if (!options.canInteract())
+      if (!options.canInteract()) {
+        lastAimSent = null
+        drawRemoteAim(graphics, delta)
         return
+      }
       const balls = prediction.simulated()
       if (options.isPlacing()) {
-        const valid = canPlaceBall(balls, 0, pointer.x, pointer.y)
-        graphics.lineStyle(2, valid ? 0xFFE278 : 0xFF6262).strokeCircle(pointer.x + ORIGIN.x, pointer.y + ORIGIN.y, BALL_RADIUS + 2)
+        drawPlacement(graphics, pointer, canPlaceBall(balls, 0, pointer.x, pointer.y))
+        shareAim({ angle, power: options.getPower(), locked: false, placing: pointer })
         return
       }
       const cue = balls.find(ball => ball.id === 0)
@@ -232,22 +291,14 @@ export function createPoolRenderer(parent: HTMLElement, options: PoolRendererOpt
       // the thumb cannot jitter between two sub-step values.
       if (charge && Math.abs(power - options.getPower()) >= POWER_EPSILON)
         options.setPower(Math.round(power * 100) / 100)
-      const dx = Math.cos(angle)
-      const dy = Math.sin(angle)
-      const length = aimDistance(balls, cue.x, cue.y, angle)
-      const x = cue.x + ORIGIN.x
-      const y = cue.y + ORIGIN.y
       // Amber and a deeper recoil both signal the locked aim — a player who has pulled back only a
       // few units still needs to see that the direction is already frozen.
       const committed = Boolean(charge || locked)
-      graphics.lineStyle(committed ? 2.5 : 1.5, committed ? 0xFFE278 : 0xFFFFFF, committed ? 0.9 : 0.55)
-      for (let d = 15; d < length; d += 14)
-        graphics.lineBetween(x + dx * d, y + dy * d, x + dx * Math.min(d + 6, length), y + dy * Math.min(d + 6, length))
-      graphics.strokeCircle(x + dx * length, y + dy * length, BALL_RADIUS)
       const strike = locked ? 1 - Math.min(1, (performance.now() - locked.at) / FOLLOW_THROUGH_MS) : 1
-      const pull = (18 + power * 55) * strike
-      graphics.lineStyle(5, 0xD8B078).lineBetween(x - dx * pull, y - dy * pull, x - dx * (pull + 90), y - dy * (pull + 90))
-      graphics.lineStyle(3, 0xC5EEEC).lineBetween(x - dx * pull, y - dy * pull, x - dx * (pull + 7), y - dy * (pull + 7))
+      drawGuide(graphics, aimGuide(cue, angle, aimDistance(balls, cue.x, cue.y, angle), power, strike), committed)
+      // Once the shot is on its way the server clears the shared aim; nothing more to send.
+      if (!locked)
+        shareAim({ angle, power, locked: committed })
     }
   }
 

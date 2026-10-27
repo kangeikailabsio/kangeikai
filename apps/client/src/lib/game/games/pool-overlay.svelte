@@ -29,6 +29,8 @@
   const queuePosition = (index: number) => (snapshot && snapshot.phase !== 'waiting' ? snapshot.order.indexOf(index) + 1 : 0)
   const winnerNames = $derived(snapshot?.winner == null ? '' : twoVersusTwo ? teamName(snapshot.winner) : snapshot.players.filter((_, index) => teamOf(index) === snapshot.winner).map(player => player?.name).filter(Boolean).join(' & '))
   const active = $derived(snapshot?.phase === 'aiming' || snapshot?.phase === 'moving')
+  /** The aim of whoever is on turn, when this view may see it and it belongs to the current turn. */
+  const remoteAim = $derived(snapshot && session.aim && snapshot.phase === 'aiming' && session.aim.matchId === snapshot.matchId && session.aim.turnId === snapshot.turnId ? session.aim : null)
   const canInteract = $derived(Boolean(snapshot && session.connected && !session.closing && !confirmExit && !screenShareOverlayState.expanded && !attentionModalState.open && !snapshot.paused && snapshot.phase === 'aiming' && seat === snapshot.turn))
   const placing = $derived(Boolean(snapshot?.ballInHand && (!snapshot.cuePlaced || reposition)))
   const remaining = $derived(snapshot?.paused ? Math.ceil(snapshot.remainingMs / 1000) : snapshot?.deadline ? Math.max(0, Math.ceil((snapshot.deadline - snapshot.serverTime - (now - session.receivedAt)) / 1000)) : null)
@@ -64,6 +66,11 @@
         session.send({ kind: 'place', tableId: snapshot.tableId, matchId: snapshot.matchId, turnId: snapshot.turnId, x, y })
         reposition = false
       },
+      sendAim: (aim) => {
+        if (snapshot)
+          session.sendAim({ kind: 'aim', tableId: snapshot.tableId, matchId: snapshot.matchId, turnId: snapshot.turnId, angle: aim.angle, power: aim.power, locked: aim.locked, ...(aim.placing ? { placing: aim.placing } : {}) })
+      },
+      getRemoteAim: () => remoteAim,
       shoot: (aimed, charged) => {
         if (!snapshot || !canInteract || placing || !snapshot.cuePlaced)
           return

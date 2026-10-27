@@ -1,5 +1,5 @@
 import type { CanvasInfo, Rect } from '@kangeikai/game-pool/tamper'
-import { detectTampering, floatingOverlays, isNativeFunction, replacedMethods } from '@kangeikai/game-pool/tamper'
+import { detectTampering, floatingOverlays, isNativeFunction, isPunishable, replacedMethods } from '@kangeikai/game-pool/tamper'
 import { describe, expect, it } from 'vitest'
 
 const table: Rect = { left: 100, top: 100, right: 1000, bottom: 700 }
@@ -88,5 +88,15 @@ describe('tamper detection', () => {
     const gl = fakeGl()
     gl.drawElements = () => 0
     expect(detectTampering({ window: { requestAnimationFrame: () => 0 }, gl, table, canvases: [canvas()] })).toEqual(['animation-frame', 'webgl', 'overlay'])
+  })
+})
+
+describe('punishable signals', () => {
+  it('needs two different signals, so one alone only counts as a hint', () => {
+    expect(isPunishable([])).toBe(false)
+    expect(isPunishable(['webgl'])).toBe(false)
+    expect(isPunishable(['webgl', 'webgl'])).toBe(false)
+    expect(isPunishable(['animation-frame', 'webgl'])).toBe(true)
+    expect(isPunishable(['animation-frame', 'webgl', 'overlay'])).toBe(true)
   })
 })

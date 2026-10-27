@@ -1,11 +1,13 @@
 import type { GameFormat, Seat, ShotContext, Team } from '@kangeikai/game-pool/core'
 import type { ShotReport } from '@kangeikai/game-pool/physics'
 import type { PoolAim, PoolCommand, PoolEvent, PoolSnapshot } from '@kangeikai/game-pool/protocol'
+import type { TamperSignal } from '@kangeikai/game-pool/tamper'
 import type { AvatarSpriteType, GameTable } from '@kangeikai/shared'
 import { BotBrain } from '@kangeikai/game-pool/bot'
 import { evaluateShot, hasClearedGroup, lowestBall, nextSeat, otherTeam, seatCountOf, seatsOfTeam, teamOfSeat } from '@kangeikai/game-pool/core'
 import { canPlaceBall, createRack, emptyReport, FIXED_STEP, respotCue, respotEight, stepPhysics, strikeCue } from '@kangeikai/game-pool/physics'
 import { AIM_MIN_INTERVAL_MS, poolCommandSchema, SHOT_TIME_MS, SNAPSHOT_INTERVAL_MS } from '@kangeikai/game-pool/protocol'
+import { isPunishable } from '@kangeikai/game-pool/tamper'
 import { distanceToTable, GAME_INTERACTION_DISTANCE } from '@kangeikai/shared'
 import * as v from 'valibot'
 
@@ -25,8 +27,6 @@ interface TableSession {
   /** The shooter's latest live aim; transient, never part of the snapshot. */
   aim: { seat: Seat, value: PoolAim } | null
   lastAimAt: number
-  /** Match in which each session was last reported as tampering, so the table hears it once per match. */
-  tamperReported: Map<string, number>
   /** Session that may pick the mode before a match; falls to the other seated player when it leaves. */
   owner: string | null
   /** Set on tables where the second seat is the server-side bot. */
@@ -175,7 +175,7 @@ export class PoolManager {
       return
     }
     else if (command.kind === 'tamper') {
-      this.reportTamper(table, id)
+      this.reportTamper(table, id, command.signals)
       return
     }
     else if (!this.takeTurn(table, index, command, reject)) {
@@ -230,17 +230,42 @@ export class PoolManager {
     }).map(([id]) => id)
   }
 
-  /** A report is a hint, not proof (an extension can trip it), so it only informs the table and never penalizes. */
-  private reportTamper(table: TableSession, id: string): void {
-    const { matchId, tableId } = table.state
-    if (table.tamperReported.get(id) === matchId)
+  /**
+   * Removes a player whose client reported enough tampering signals during a match. The match is
+   * cancelled, not forfeited, so nobody wins by it and the others return to the pre-match state,
+   * unaware of why. The report is about the sender only, so nobody can get another player removed.
+   */
+  private reportTamper(table: TableSession, id: string, signals: readonly TamperSignal[]): void {
+    const s = table.state
+    const index = s.players.findIndex(player => player?.sessionId === id)
+    if (index < 0 || (s.phase !== 'aiming' && s.phase !== 'moving') || !isPunishable(signals))
       return
-    table.tamperReported.set(id, matchId)
-    const name = table.members.get(id)!.name
-    for (const [memberId, member] of table.members) {
-      if (member.connected)
-        this.host.send(memberId, { kind: 'tamper', tableId, name })
-    }
+    this.cancelMatch(table)
+    this.host.send(id, { kind: 'kicked', tableId: s.tableId, reason: 'tampering' })
+    this.leave(id)
+  }
+
+  /** Back to the state before the match: same seats, nobody ready, a fresh rack. */
+  private cancelMatch(table: TableSession): void {
+    const s = table.state
+    this.clearAim(table)
+    table.context = null
+    table.report = emptyReport()
+    table.accumulator = 0
+    Object.assign(s, {
+      phase: 'waiting',
+      winner: null,
+      balls: createRack(),
+      groups: [null, null],
+      breaking: true,
+      ballInHand: false,
+      cuePlaced: true,
+      deadline: null,
+      paused: false,
+      remainingMs: SHOT_TIME_MS,
+      notice: 'The match was cancelled. Confirm you are ready to play again.',
+    })
+    this.resetReady(table)
   }
 
   /** Stale or out-of-turn aims are normal (the shot may already be in flight), so they are dropped silently. */
@@ -318,7 +343,6 @@ export class PoolManager {
         sitOrder: [],
         aim: null,
         lastAimAt: 0,
-        tamperReported: new Map(),
         nextBreaker: this.random() < 0.5 ? 0 : 1,
         bot: null,
         owner: null,

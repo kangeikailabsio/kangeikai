@@ -2,6 +2,7 @@ import type { GameFormat, GameMode, Group, Phase, Seat, Team } from '@kangeikai/
 import type { Ball } from '@kangeikai/game-pool/physics'
 import type { AvatarSpriteType } from '@kangeikai/shared'
 import { GAME_FORMATS, GAME_MODES } from '@kangeikai/game-pool/core'
+import { TAMPER_SIGNALS } from '@kangeikai/game-pool/tamper'
 import * as v from 'valibot'
 
 const finite = v.pipe(v.number(), v.finite())
@@ -22,8 +23,8 @@ export const poolCommandSchema = v.variant('kind', [
   v.object({ kind: v.literal('place'), ...turn, x: finite, y: finite }),
   /** The shooter's live aim, relayed only to spectators and the shooter's teammate. */
   v.object({ kind: v.literal('aim'), ...turn, angle: v.pipe(finite, v.minValue(-Math.PI), v.maxValue(Math.PI)), power: v.pipe(finite, v.minValue(0.01), v.maxValue(1)), locked: v.boolean(), placing: v.optional(v.object({ x: finite, y: finite })) }),
-  /** The client noticed the page was altered to read the table (see `tamper.ts`); the table is told once per match. */
-  v.object({ kind: v.literal('tamper'), tableId }),
+  /** The client noticed the page was altered to read the table (see `tamper.ts`); enough signals remove the sender from the match. */
+  v.object({ kind: v.literal('tamper'), tableId, signals: v.pipe(v.array(v.picklist(TAMPER_SIGNALS)), v.minLength(1), v.maxLength(TAMPER_SIGNALS.length)) }),
   v.object({ kind: v.literal('shoot'), ...turn, angle: v.pipe(finite, v.minValue(-Math.PI), v.maxValue(Math.PI)), power: v.pipe(finite, v.minValue(0.01), v.maxValue(1)) }),
 ])
 
@@ -79,7 +80,8 @@ export interface PoolAim {
 
 export type PoolEvent = { kind: 'snapshot', state: PoolSnapshot }
   | { kind: 'aim', tableId: string, aim: PoolAim | null }
-  | { kind: 'tamper', tableId: string, name: string }
+  /** Sent only to the player who was removed, right before `closed`; nobody else at the table hears about it. */
+  | { kind: 'kicked', tableId: string, reason: 'tampering' }
   | { kind: 'closed', tableId: string }
   | { kind: 'error', tableId?: string, message: string }
 

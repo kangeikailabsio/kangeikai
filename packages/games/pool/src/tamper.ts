@@ -66,7 +66,18 @@ export function floatingOverlays(table: Rect, canvases: CanvasInfo[]): CanvasInf
     && overlap(table, canvas.rect) / tableArea >= OVERLAP_SHARE)
 }
 
-export type TamperSignal = 'animation-frame' | 'webgl' | 'overlay'
+export const TAMPER_SIGNALS = ['animation-frame', 'webgl', 'overlay'] as const
+export type TamperSignal = typeof TAMPER_SIGNALS[number]
+
+/**
+ * Signals needed before a player is removed from a match. The known script trips all three, while an
+ * extension that touches the page usually trips one, so a single signal is never enough to punish.
+ */
+export const PUNISHABLE_SIGNALS = 2
+
+export function isPunishable(signals: readonly TamperSignal[]): boolean {
+  return new Set(signals).size >= PUNISHABLE_SIGNALS
+}
 
 export interface TamperProbe {
   /** `window.requestAnimationFrame` and anything else the page-level hook would replace. */

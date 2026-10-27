@@ -595,3 +595,36 @@ describe('spectator aim', () => {
       expect(received(id)).toEqual([])
   })
 })
+
+describe('tamper reports', () => {
+  const tampered = () => log.filter(([, event]) => event.kind === 'tamper')
+
+  it('tells everyone at the table once per match, by name', () => {
+    start()
+    open('c')
+    manager.handle('a', { kind: 'tamper', tableId: 'one' })
+    manager.handle('a', { kind: 'tamper', tableId: 'one' })
+    expect(tampered().map(([id]) => id).sort()).toEqual(['a', 'b', 'c'])
+    expect(tampered().every(([, event]) => event.kind === 'tamper' && event.name === 'a')).toBe(true)
+  })
+
+  it('reports again in the next match and never changes the game', () => {
+    start()
+    const before = JSON.stringify(snapshots.get('a'))
+    manager.handle('a', { kind: 'tamper', tableId: 'one' })
+    expect(JSON.stringify(snapshots.get('a'))).toBe(before)
+    manager.handle('a', { kind: 'stand', tableId: 'one' })
+    manager.handle('a', { kind: 'sit', tableId: 'one' })
+    manager.handle('a', { kind: 'ready', tableId: 'one', ready: true })
+    manager.handle('b', { kind: 'ready', tableId: 'one', ready: true })
+    const count = tampered().length
+    manager.handle('a', { kind: 'tamper', tableId: 'one' })
+    expect(tampered().length).toBeGreaterThan(count)
+  })
+
+  it('ignores reports from sessions that have not opened the table', () => {
+    manager.handle('x', { kind: 'tamper', tableId: 'one' })
+    expect(tampered()).toEqual([])
+    expect(events.get('x')?.kind).toBe('error')
+  })
+})

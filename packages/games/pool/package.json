@@ -10,6 +10,7 @@
     "./floor": "./src/floor.ts",
     "./predict": "./src/predict.ts",
     "./table-art": "./src/table-art.ts",
+    "./tamper": "./src/tamper.ts",
     "./physics": "./src/physics.ts",
     "./protocol": "./src/protocol.ts",
     "./server": "./src/server.ts",

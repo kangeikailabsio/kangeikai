@@ -1,6 +1,8 @@
 import type { RoomConnection } from '$lib/network/room-connection'
 import type { PoolAim, PoolCommand, PoolSnapshot } from '@kangeikai/game-pool/protocol'
 
+const TAMPER_NOTICE_MS = 8000
+
 /** Shared overlay lifecycle; the office only needs `open` to suppress its own input. */
 export class GameSessionState {
   tableId: string | null = $state(null)
@@ -8,11 +10,14 @@ export class GameSessionState {
   /** What the player on turn is aiming, only ever received as a spectator or as that player's teammate. */
   aim: PoolAim | null = $state(null)
   error = $state('')
+  /** Who the table was told is running a modified client; shown briefly, then cleared. */
+  tamperedBy = $state('')
   connected = $state(false)
   closing = $state(false)
   sessionId = $state('')
   receivedAt = $state(0)
   private connection: RoomConnection | null = null
+  private tamperTimer: ReturnType<typeof setTimeout> | undefined
 
   get open(): boolean { return this.tableId !== null }
 
@@ -29,6 +34,13 @@ export class GameSessionState {
       }
       else if (event.kind === 'aim' && event.tableId === this.tableId) {
         this.aim = event.aim
+      }
+      else if (event.kind === 'tamper' && event.tableId === this.tableId) {
+        this.tamperedBy = event.name
+        clearTimeout(this.tamperTimer)
+        this.tamperTimer = setTimeout(() => {
+          this.tamperedBy = ''
+        }, TAMPER_NOTICE_MS)
       }
       else if (event.kind === 'closed' && event.tableId === this.tableId) {
         this.reset()
@@ -92,6 +104,8 @@ export class GameSessionState {
   }
 
   private reset(): void {
+    clearTimeout(this.tamperTimer)
+    this.tamperedBy = ''
     this.tableId = null
     this.snapshot = null
     this.aim = null

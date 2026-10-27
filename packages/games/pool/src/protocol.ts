@@ -22,6 +22,8 @@ export const poolCommandSchema = v.variant('kind', [
   v.object({ kind: v.literal('place'), ...turn, x: finite, y: finite }),
   /** The shooter's live aim, relayed only to spectators and the shooter's teammate. */
   v.object({ kind: v.literal('aim'), ...turn, angle: v.pipe(finite, v.minValue(-Math.PI), v.maxValue(Math.PI)), power: v.pipe(finite, v.minValue(0.01), v.maxValue(1)), locked: v.boolean(), placing: v.optional(v.object({ x: finite, y: finite })) }),
+  /** The client noticed the page was altered to read the table (see `tamper.ts`); the table is told once per match. */
+  v.object({ kind: v.literal('tamper'), tableId }),
   v.object({ kind: v.literal('shoot'), ...turn, angle: v.pipe(finite, v.minValue(-Math.PI), v.maxValue(Math.PI)), power: v.pipe(finite, v.minValue(0.01), v.maxValue(1)) }),
 ])
 
@@ -77,6 +79,7 @@ export interface PoolAim {
 
 export type PoolEvent = { kind: 'snapshot', state: PoolSnapshot }
   | { kind: 'aim', tableId: string, aim: PoolAim | null }
+  | { kind: 'tamper', tableId: string, name: string }
   | { kind: 'closed', tableId: string }
   | { kind: 'error', tableId?: string, message: string }
 

@@ -25,6 +25,8 @@ interface TableSession {
   /** The shooter's latest live aim; transient, never part of the snapshot. */
   aim: { seat: Seat, value: PoolAim } | null
   lastAimAt: number
+  /** Match in which each session was last reported as tampering, so the table hears it once per match. */
+  tamperReported: Map<string, number>
   /** Session that may pick the mode before a match; falls to the other seated player when it leaves. */
   owner: string | null
   /** Set on tables where the second seat is the server-side bot. */
@@ -172,6 +174,10 @@ export class PoolManager {
       this.relayAim(table, index, command)
       return
     }
+    else if (command.kind === 'tamper') {
+      this.reportTamper(table, id)
+      return
+    }
     else if (!this.takeTurn(table, index, command, reject)) {
       return
     }
@@ -222,6 +228,19 @@ export class PoolManager {
       const viewerSeat = s.players.findIndex(player => player?.sessionId === id)
       return viewerSeat < 0 || (viewerSeat !== seat && this.teamOf(table, viewerSeat) === shooterTeam)
     }).map(([id]) => id)
+  }
+
+  /** A report is a hint, not proof (an extension can trip it), so it only informs the table and never penalizes. */
+  private reportTamper(table: TableSession, id: string): void {
+    const { matchId, tableId } = table.state
+    if (table.tamperReported.get(id) === matchId)
+      return
+    table.tamperReported.set(id, matchId)
+    const name = table.members.get(id)!.name
+    for (const [memberId, member] of table.members) {
+      if (member.connected)
+        this.host.send(memberId, { kind: 'tamper', tableId, name })
+    }
   }
 
   /** Stale or out-of-turn aims are normal (the shot may already be in flight), so they are dropped silently. */
@@ -299,6 +318,7 @@ export class PoolManager {
         sitOrder: [],
         aim: null,
         lastAimAt: 0,
+        tamperReported: new Map(),
         nextBreaker: this.random() < 0.5 ? 0 : 1,
         bot: null,
         owner: null,

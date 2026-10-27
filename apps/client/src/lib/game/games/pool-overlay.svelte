@@ -6,10 +6,16 @@
   import { createPoolRenderer } from '@kangeikai/game-pool/client'
   import { ballBodyCss, ballHueCss, GAME_FORMAT_LABEL, GAME_FORMATS, GAME_MODE_INFO, GAME_MODES, groupOf, hasClearedGroup, seatsOfTeam, teamOfSeat, toCssHex } from '@kangeikai/game-pool/core'
   import { FLOOR_EDGE } from '@kangeikai/game-pool/floor'
+  import { inspectPage } from '@kangeikai/game-pool/tamper'
   import { onMount } from 'svelte'
+
+  /** How often the page is checked for scripts that read the table. */
+  const TAMPER_CHECK_MS = 3000
 
   let host: HTMLDivElement
   let window_: HTMLDivElement
+  /** Match for which the table was already told, so a persistent hook is reported once, not every check. */
+  let reportedMatch = -1
   let renderer: ReturnType<typeof createPoolRenderer> | undefined
   let power = $state(0.5)
   let reposition = $state(false)
@@ -80,6 +86,8 @@
     const timer = setInterval(() => {
       now = Date.now()
     }, 100)
+    // An injected script attaches after the table opens, so the page is checked for as long as it is.
+    const tamperCheck = setInterval(reportTampering, TAMPER_CHECK_MS)
     // The ScaleManager only polls its parent every 500ms: a layout change (the mode selector
     // appearing, a resized window) would leave clicks mis-mapped until then.
     const resize = new ResizeObserver(() => renderer?.refreshScale())
@@ -88,8 +96,16 @@
       resize.disconnect()
       renderer?.destroy()
       clearInterval(timer)
+      clearInterval(tamperCheck)
     }
   })
+
+  function reportTampering(): void {
+    if (!snapshot || !session.connected || snapshot.matchId === reportedMatch || inspectPage(host, window_).length === 0)
+      return
+    reportedMatch = snapshot.matchId
+    session.send({ kind: 'tamper', tableId: snapshot.tableId })
+  }
 
   // A rejection that does not advance the turn would otherwise leave the cue locked for the rest of
   // it: the committed-shot lock has to be released whenever the server refuses a shot.
@@ -202,7 +218,9 @@
           </div>
         {/if}
         <div class='status' aria-live='polite'>
-          {#if !session.connected}Reconnecting to the office…
+          <!-- Shown in the status line, not a new row: a panel that changes height would mis-map clicks on the canvas. -->
+          {#if session.tamperedBy}{session.tamperedBy}'s game client looks modified (it may be a false alarm).
+          {:else if !session.connected}Reconnecting to the office…
           {:else if snapshot.paused}Waiting for the player to reconnect…
           {:else if snapshot.phase === 'finished'}{snapshot.winner !== null ? `${winnerNames || 'Player'} won! ` : ''}{snapshot.notice}
           {:else}{snapshot.notice}{/if}

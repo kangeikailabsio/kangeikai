@@ -595,3 +595,107 @@ describe('spectator aim', () => {
       expect(received(id)).toEqual([])
   })
 })
+
+describe('tamper reports', () => {
+  const SIGNALS = ['animation-frame', 'webgl', 'overlay'] as const
+  const report = (id: string, signals: readonly (typeof SIGNALS[number])[] = SIGNALS) => manager.handle(id, { kind: 'tamper', tableId: 'one', signals: [...signals] })
+  const received = (id: string, kind: PoolEvent['kind']) => log.filter(([to, event]) => to === id && event.kind === kind)
+
+  it('removes the reporter from a 1v1 match, cancels it and puts the other player back to pre-match without telling them why', () => {
+    start()
+    report('a')
+    expect(received('a', 'kicked')).toHaveLength(1)
+    expect(received('a', 'closed')).toHaveLength(1)
+    expect(received('b', 'kicked')).toEqual([])
+    expect(snapshots.get('b')).toMatchObject({ phase: 'waiting', winner: null, balls: expect.any(Array) })
+    expect(snapshots.get('b')!.players.map(player => player?.sessionId ?? null)).toEqual([null, 'b'])
+    expect(snapshots.get('b')!.players[1]!.ready).toBe(false)
+    expect(snapshots.get('b')!.notice).not.toMatch(/hack|script|tamper|irregular/i)
+    expect(snapshots.get('b')!.balls.every(ball => !ball.pocketed && ball.vx === 0 && ball.vy === 0)).toBe(true)
+  })
+
+  it('lets the match start again once everyone confirms ready', () => {
+    start()
+    report('a')
+    open('c')
+    manager.handle('c', { kind: 'sit', tableId: 'one' })
+    manager.handle('c', { kind: 'ready', tableId: 'one', ready: true })
+    expect(snapshots.get('b')!.phase).toBe('waiting')
+    manager.handle('b', { kind: 'ready', tableId: 'one', ready: true })
+    expect(snapshots.get('b')!.phase).toBe('aiming')
+  })
+
+  it('also removes the player who is not on turn', () => {
+    start()
+    const turn = snapshots.get('a')!.turn
+    const idle = snapshots.get('a')!.players[turn === 0 ? 1 : 0]!.sessionId
+    report(idle)
+    expect(received(idle, 'kicked')).toHaveLength(1)
+    expect(snapshots.get(turn === 0 ? 'a' : 'b')!.phase).toBe('waiting')
+  })
+
+  it('removes the human from a bot match and leaves an empty table, without a winner', () => {
+    open('a')
+    manager.handle('a', { kind: 'playBot', tableId: 'one' })
+    manager.handle('a', { kind: 'ready', tableId: 'one', ready: true })
+    expect(snapshots.get('a')!.phase).toBe('aiming')
+    report('a')
+    expect(received('a', 'kicked')).toHaveLength(1)
+    open('b')
+    expect(snapshots.get('b')).toMatchObject({ phase: 'waiting', winner: null, players: [null, null] })
+  })
+
+  it('removes the reporter from a 2v2 match and keeps the other three seated and unready', () => {
+    for (const id of ['a', 'b', 'c', 'd'])
+      open(id)
+    manager.handle('a', { kind: 'sit', tableId: 'one' })
+    manager.handle('b', { kind: 'sit', tableId: 'one' })
+    manager.handle('a', { kind: 'setFormat', tableId: 'one', format: '2v2' })
+    manager.handle('c', { kind: 'sit', tableId: 'one', team: 0 })
+    manager.handle('d', { kind: 'sit', tableId: 'one', team: 1 })
+    for (const id of ['a', 'b', 'c', 'd'])
+      manager.handle(id, { kind: 'ready', tableId: 'one', ready: true })
+    expect(snapshots.get('a')!.phase).toBe('aiming')
+    report('c')
+    expect(received('c', 'kicked')).toHaveLength(1)
+    for (const id of ['a', 'b', 'd'])
+      expect(received(id, 'kicked')).toEqual([])
+    const after = snapshots.get('a')!
+    expect(after.phase).toBe('waiting')
+    expect(after.winner).toBeNull()
+    expect(after.players.filter(Boolean).map(player => player!.sessionId).sort()).toEqual(['a', 'b', 'd'])
+    expect(after.players.every(player => !player?.ready)).toBe(true)
+  })
+
+  it('needs at least two distinct signals', () => {
+    start()
+    report('a', ['webgl'])
+    report('a', ['webgl', 'webgl'])
+    expect(received('a', 'kicked')).toEqual([])
+    expect(snapshots.get('a')!.phase).toBe('aiming')
+    expect(snapshots.get('a')!.players[0]?.sessionId).toBe('a')
+  })
+
+  it('ignores reports from spectators and while no match is running', () => {
+    start()
+    open('c')
+    report('c')
+    expect(received('c', 'kicked')).toEqual([])
+    expect(snapshots.get('a')!.phase).toBe('aiming')
+    manager.handle('a', { kind: 'stand', tableId: 'one' })
+    expect(snapshots.get('b')!.phase).toBe('finished')
+    report('b')
+    expect(received('b', 'kicked')).toEqual([])
+  })
+
+  it('rejects malformed reports and reports from sessions that have not opened the table', () => {
+    start()
+    manager.handle('a', { kind: 'tamper', tableId: 'one', signals: [] })
+    manager.handle('a', { kind: 'tamper', tableId: 'one', signals: ['nope'] })
+    manager.handle('a', { kind: 'tamper', tableId: 'one' })
+    expect(received('a', 'kicked')).toEqual([])
+    expect(snapshots.get('a')!.phase).toBe('aiming')
+    manager.handle('stranger', { kind: 'tamper', tableId: 'one', signals: [...SIGNALS] })
+    expect(events.get('stranger')?.kind).toBe('error')
+  })
+})

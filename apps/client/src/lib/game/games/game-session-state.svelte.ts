@@ -8,6 +8,8 @@ export class GameSessionState {
   /** What the player on turn is aiming, only ever received as a spectator or as that player's teammate. */
   aim: PoolAim | null = $state(null)
   error = $state('')
+  /** Why the server removed this player from the table; outlives the overlay so the office can show it. */
+  kickNotice = $state('')
   connected = $state(false)
   closing = $state(false)
   sessionId = $state('')
@@ -29,6 +31,9 @@ export class GameSessionState {
       }
       else if (event.kind === 'aim' && event.tableId === this.tableId) {
         this.aim = event.aim
+      }
+      else if (event.kind === 'kicked' && event.tableId === this.tableId) {
+        this.kickNotice = 'You were removed from the pool match because irregularities were detected in your game client (a script reading the table).'
       }
       else if (event.kind === 'closed' && event.tableId === this.tableId) {
         this.reset()
@@ -56,6 +61,10 @@ export class GameSessionState {
       this.connected = false
       this.reset()
     }
+  }
+
+  dismissKickNotice(): void {
+    this.kickNotice = ''
   }
 
   openTable(tableId: string): void {

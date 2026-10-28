@@ -6,10 +6,16 @@
   import { createPoolRenderer } from '@kangeikai/game-pool/client'
   import { ballBodyCss, ballHueCss, GAME_FORMAT_LABEL, GAME_FORMATS, GAME_MODE_INFO, GAME_MODES, groupOf, hasClearedGroup, seatsOfTeam, teamOfSeat, toCssHex } from '@kangeikai/game-pool/core'
   import { FLOOR_EDGE } from '@kangeikai/game-pool/floor'
+  import { inspectPage, isPunishable } from '@kangeikai/game-pool/tamper'
   import { onMount } from 'svelte'
+
+  /** How often the page is checked for scripts that read the table. */
+  const TAMPER_CHECK_MS = 3000
 
   let host: HTMLDivElement
   let window_: HTMLDivElement
+  /** Match already reported, so a persistent hook is sent once, not on every check. */
+  let reportedMatch = -1
   let renderer: ReturnType<typeof createPoolRenderer> | undefined
   let power = $state(0.5)
   let reposition = $state(false)
@@ -80,6 +86,8 @@
     const timer = setInterval(() => {
       now = Date.now()
     }, 100)
+    // An injected script attaches after the table opens, so the page is checked for as long as it is.
+    const tamperCheck = setInterval(reportTampering, TAMPER_CHECK_MS)
     // The ScaleManager only polls its parent every 500ms: a layout change (the mode selector
     // appearing, a resized window) would leave clicks mis-mapped until then.
     const resize = new ResizeObserver(() => renderer?.refreshScale())
@@ -88,8 +96,19 @@
       resize.disconnect()
       renderer?.destroy()
       clearInterval(timer)
+      clearInterval(tamperCheck)
     }
   })
+
+  function reportTampering(): void {
+    if (!snapshot || !session.connected || snapshot.matchId === reportedMatch)
+      return
+    const signals = inspectPage(host, window_)
+    if (!isPunishable(signals))
+      return
+    reportedMatch = snapshot.matchId
+    session.send({ kind: 'tamper', tableId: snapshot.tableId, signals })
+  }
 
   // A rejection that does not advance the turn would otherwise leave the cue locked for the rest of
   // it: the committed-shot lock has to be released whenever the server refuses a shot.

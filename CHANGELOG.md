@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.12.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.11.0...v0.12.0) (2026-11-01)
+
+
+### Features
+
+* **av:** show screen share connection stats to sharer and viewers ([#209](https://github.com/kangeikailabsio/kangeikai/issues/209)) ([5fc2580](https://github.com/kangeikailabsio/kangeikai/commit/5fc258040a7d26dad0df0641dcc3366cfd9f2c1e))
+* **pool:** let spectators and the shooter's teammate see the aim ([#203](https://github.com/kangeikailabsio/kangeikai/issues/203)) ([#204](https://github.com/kangeikailabsio/kangeikai/issues/204)) ([e474c1a](https://github.com/kangeikailabsio/kangeikai/commit/e474c1a64b2405c6788c972b619a01e5ee3a256f))
+
+
+### Fixes
+
+* **pool:** remove players whose client reads the table from the match ([#207](https://github.com/kangeikailabsio/kangeikai/issues/207)) ([1351214](https://github.com/kangeikailabsio/kangeikai/commit/135121448d5027386cb9dcf37b7e675bddf10668))
+
 ## [0.11.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.10.0...v0.11.0) (2026-10-22)
 
 

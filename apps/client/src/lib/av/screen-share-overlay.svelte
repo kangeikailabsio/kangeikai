@@ -5,6 +5,7 @@
   import StatsBadge from '$lib/av/screen-share-stats-badge.svelte'
   import { startScreenShareStatsPolling } from '$lib/av/screen-share-stats-poller'
   import { screenShareStatsState } from '$lib/av/screen-share-stats-state.svelte'
+  import { untrack } from 'svelte'
 
   function minimize(): void {
     screenShareOverlayState.set(false)
@@ -21,10 +22,12 @@
     if (!screenShareOverlayState.expanded) {
       return
     }
-    const stop = startScreenShareStatsPolling(
+    // `untrack`: the effect must depend on `expanded` only, never on the tile list, which
+    // `OfficeScene` rewrites every frame.
+    const stop = untrack(() => startScreenShareStatsPolling(
       () => screenShareGridState.tiles,
       stats => screenShareStatsState.set(stats),
-    )
+    ))
     return () => {
       stop()
       screenShareStatsState.set({})

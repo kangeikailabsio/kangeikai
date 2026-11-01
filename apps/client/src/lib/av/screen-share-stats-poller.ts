@@ -83,7 +83,11 @@ export function startScreenShareStatsPolling(
     }
   }
 
-  void tick()
+  // Deferred to a microtask so `getTiles()` — which reads reactive state — never runs inside the
+  // caller's synchronous `$effect` body: tracking it there would restart the effect on every
+  // frame (the tile list is rewritten each tick), recreating the tracker and leaving every badge
+  // on "Checking connection…" forever.
+  queueMicrotask(() => void tick())
   const timer = setInterval(() => void tick(), intervalMs)
   return () => {
     stopped = true

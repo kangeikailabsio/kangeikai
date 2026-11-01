@@ -100,3 +100,12 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   punição de espectadores, uma mira oficial opcional para todos (decisão de game design) e esconder
   cores/texturas das bolas (fácil de contornar e ruim para acessibilidade). Um sinal só nunca pune, para
   não derrubar quem usa extensões que mexem no `requestAnimationFrame` ou no WebGL.
+- **Diagnóstico do screen share só observa** — [#208](https://github.com/kangeikailabsio/kangeikai/issues/208)
+  mostra, em cada tile de screen share, métricas de envio (quem compartilha) e de recebimento (quem
+  assiste), UDP ou TCP e uma frase de causa provável, mas não muda nada na publicação. Ficaram de
+  fora: ajustar `contentHint`/`degradationPreference`, simulcast e escolha de codec, TURN e fallback
+  TCP no servidor LiveKit (hoje sem TURN e com UDP restrito a 50000-50100 em produção), mostrar o
+  estado de cada espectador para quem compartilha (exigiria trafegar dados de volta), adaptação
+  automática de qualidade, teste ativo de banda e comparar antes de gravar em
+  `screenShareGridState.set()` (hoje reescrito a cada frame). Os limiares de Boa/Instável/Ruim são
+  fixos e conservadores, para ajustar depois com dados reais.

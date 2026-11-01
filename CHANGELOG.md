@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.12.1...v0.13.0) (2026-11-01)
+
+
+### Features
+
+* **av:** raise screen share bitrate caps and make 720p 30 fps ([#212](https://github.com/kangeikailabsio/kangeikai/issues/212)) ([#213](https://github.com/kangeikailabsio/kangeikai/issues/213)) ([dfaa4b6](https://github.com/kangeikailabsio/kangeikai/commit/dfaa4b6a123841c7ae69ea29c00192e2a267c531))
+
 ## [0.12.1](https://github.com/kangeikailabsio/kangeikai/compare/v0.12.0...v0.12.1) (2026-11-01)
 
 

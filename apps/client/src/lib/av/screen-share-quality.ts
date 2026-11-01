@@ -23,8 +23,8 @@ export const SCREEN_SHARE_QUALITY_LABELS: Record<ScreenShareQualityTier, string>
  * arbitrary resolutions/bitrates).
  */
 const PRESET_BY_TIER: Record<ScreenShareQualityTier, VideoPreset> = {
-  '720p': new VideoPreset(1280, 720, 10_000_000, 30, 'medium'),
-  '1080p': new VideoPreset(1920, 1080, 20_000_000, 30, 'medium'),
+  '720p': new VideoPreset(1280, 720, 15_000_000, 30, 'medium'),
+  '1080p': new VideoPreset(1920, 1080, 25_000_000, 30, 'medium'),
   '2k': new VideoPreset(2560, 1440, 40_000_000, 30, 'medium'),
 }
 
@@ -34,11 +34,22 @@ const PRESET_BY_TIER: Record<ScreenShareQualityTier, VideoPreset> = {
  */
 export function resolveScreenShareQuality(tier: ScreenShareQualityTier, shareAudio = false): {
   captureOptions: ScreenShareCaptureOptions
-  publishOptions: Pick<TrackPublishOptions, 'screenShareEncoding'>
+  publishOptions: Pick<TrackPublishOptions, 'screenShareEncoding' | 'degradationPreference'>
 } {
   const preset = PRESET_BY_TIER[tier]
   return {
-    captureOptions: { resolution: preset.resolution, audio: shareAudio },
-    publishOptions: { screenShareEncoding: preset.encoding },
+    captureOptions: {
+      resolution: preset.resolution,
+      audio: shareAudio,
+      // Frame rate over resolution (#217): the SDK's screen-share default, `maintain-resolution`,
+      // drops frames when the CPU/network is tight (15 fps in a game even with a 30 fps preset).
+      // `maintain-framerate` sheds resolution instead and `motion` tells the browser the capture
+      // is video, not text. Text sharing gets blurrier only while constrained.
+      contentHint: 'motion',
+    },
+    publishOptions: {
+      screenShareEncoding: preset.encoding,
+      degradationPreference: 'maintain-framerate',
+    },
   }
 }

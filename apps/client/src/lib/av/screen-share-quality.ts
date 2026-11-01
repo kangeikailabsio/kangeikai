@@ -29,16 +29,33 @@ const PRESET_BY_TIER: Record<ScreenShareQualityTier, VideoPreset> = {
 }
 
 /**
+ * Tiers that must hold their frame rate (#217): `maintain-framerate` makes the encoder shed
+ * resolution instead of frames under CPU/bandwidth pressure (the SDK's screen-share default,
+ * `maintain-resolution`, does the opposite and showed up as 15 fps in a game), and the `motion`
+ * content hint tells the browser the capture is video, not text. Only 720p, the tier meant for
+ * games; 1080p/2K keep the SDK defaults, which favor legibility.
+ */
+const KEEP_FRAMERATE_TIERS: ReadonlySet<ScreenShareQualityTier> = new Set(['720p'])
+
+/**
  * Pure mapping from a chosen tier (+ whether to also request the shared surface's audio,
  * issue #113) to the LiveKit options `MediaControls` passes through.
  */
 export function resolveScreenShareQuality(tier: ScreenShareQualityTier, shareAudio = false): {
   captureOptions: ScreenShareCaptureOptions
-  publishOptions: Pick<TrackPublishOptions, 'screenShareEncoding'>
+  publishOptions: Pick<TrackPublishOptions, 'screenShareEncoding' | 'degradationPreference'>
 } {
   const preset = PRESET_BY_TIER[tier]
+  const keepFramerate = KEEP_FRAMERATE_TIERS.has(tier)
   return {
-    captureOptions: { resolution: preset.resolution, audio: shareAudio },
-    publishOptions: { screenShareEncoding: preset.encoding },
+    captureOptions: {
+      resolution: preset.resolution,
+      audio: shareAudio,
+      ...(keepFramerate && { contentHint: 'motion' as const }),
+    },
+    publishOptions: {
+      screenShareEncoding: preset.encoding,
+      ...(keepFramerate && { degradationPreference: 'maintain-framerate' as const }),
+    },
   }
 }

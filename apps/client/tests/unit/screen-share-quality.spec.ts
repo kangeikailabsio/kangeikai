@@ -17,6 +17,22 @@ describe('resolveScreenShareQuality', () => {
     expect(cap('2k')).toBe(40_000_000)
   })
 
+  it('720p keeps its frame rate under pressure: motion content hint + maintain-framerate (#217)', () => {
+    const { captureOptions, publishOptions } = resolveScreenShareQuality('720p')
+
+    expect(captureOptions.contentHint).toBe('motion')
+    expect(publishOptions.degradationPreference).toBe('maintain-framerate')
+  })
+
+  it('leaves the SDK defaults (resolution over fps, no hint) for 1080p and 2k', () => {
+    for (const tier of ['1080p', '2k'] as const) {
+      const { captureOptions, publishOptions } = resolveScreenShareQuality(tier)
+
+      expect(captureOptions.contentHint).toBeUndefined()
+      expect(publishOptions.degradationPreference).toBeUndefined()
+    }
+  })
+
   it('1080p resolves to 1920x1080 at 30fps', () => {
     const { captureOptions, publishOptions } = resolveScreenShareQuality('1080p')
 

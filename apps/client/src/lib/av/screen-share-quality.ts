@@ -23,8 +23,8 @@ export const SCREEN_SHARE_QUALITY_LABELS: Record<ScreenShareQualityTier, string>
  * arbitrary resolutions/bitrates).
  */
 const PRESET_BY_TIER: Record<ScreenShareQualityTier, VideoPreset> = {
-  '720p': new VideoPreset(1280, 720, 10_000_000, 30, 'medium'),
-  '1080p': new VideoPreset(1920, 1080, 20_000_000, 30, 'medium'),
+  '720p': new VideoPreset(1280, 720, 15_000_000, 30, 'medium'),
+  '1080p': new VideoPreset(1920, 1080, 25_000_000, 30, 'medium'),
   '2k': new VideoPreset(2560, 1440, 40_000_000, 30, 'medium'),
 }
 

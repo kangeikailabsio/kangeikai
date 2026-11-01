@@ -9,11 +9,11 @@ describe('resolveScreenShareQuality', () => {
     expect(publishOptions.screenShareEncoding?.maxFramerate).toBe(30)
   })
 
-  it('caps the bitrate at 10 / 20 / 40 Mbps for 720p / 1080p / 2k (#212)', () => {
+  it('caps the bitrate at 15 / 25 / 40 Mbps for 720p / 1080p / 2k (#215)', () => {
     const cap = (tier: '720p' | '1080p' | '2k') => resolveScreenShareQuality(tier).publishOptions.screenShareEncoding?.maxBitrate
 
-    expect(cap('720p')).toBe(10_000_000)
-    expect(cap('1080p')).toBe(20_000_000)
+    expect(cap('720p')).toBe(15_000_000)
+    expect(cap('1080p')).toBe(25_000_000)
     expect(cap('2k')).toBe(40_000_000)
   })
 

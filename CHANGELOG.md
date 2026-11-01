@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.13.0...v0.14.0) (2026-11-01)
+
+
+### Features
+
+* **av:** tune screen share bitrate caps and keep the frame rate ([#216](https://github.com/kangeikailabsio/kangeikai/issues/216)) ([e6dafe2](https://github.com/kangeikailabsio/kangeikai/commit/e6dafe236c35fa7910ff6720626d2f72a168a490))
+
 ## [0.13.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.12.1...v0.13.0) (2026-11-01)
 
 

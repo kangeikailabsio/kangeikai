@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.1](https://github.com/kangeikailabsio/kangeikai/compare/v0.14.0...v0.14.1) (2026-11-01)
+
+
+### Fixes
+
+* **av:** publish screen share with H.264 and no backup codec ([#219](https://github.com/kangeikailabsio/kangeikai/issues/219)) ([#220](https://github.com/kangeikailabsio/kangeikai/issues/220)) ([c6a7ba6](https://github.com/kangeikailabsio/kangeikai/commit/c6a7ba6ec7be1990cedd054f7716b36940ac2f0c))
+
 ## [0.14.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.13.0...v0.14.0) (2026-11-01)
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/kangeikailabsio/kangeikai/compare/v0.12.0...v0.12.1) (2026-11-01)
+
+
+### Fixes
+
+* **av:** stop the screen share stats badge from restarting every frame ([#208](https://github.com/kangeikailabsio/kangeikai/issues/208)) ([#210](https://github.com/kangeikailabsio/kangeikai/issues/210)) ([6883d83](https://github.com/kangeikailabsio/kangeikai/commit/6883d83bed8b9f9da8358c9965a3eac16f33ee00))
+
 ## [0.12.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.11.0...v0.12.0) (2026-11-01)
 
 

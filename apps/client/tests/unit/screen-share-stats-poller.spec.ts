@@ -14,6 +14,16 @@ describe('startScreenShareStatsPolling', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
 
+  it('does not read the tile list synchronously on start (it would be tracked by the caller\'s $effect)', async () => {
+    const getTiles = vi.fn(() => [] as PollableTile[])
+    const stop = startScreenShareStatsPolling(getTiles, vi.fn(), 2000)
+
+    expect(getTiles).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(getTiles).toHaveBeenCalledTimes(1)
+    stop()
+  })
+
   it('publishes stats per sessionId, with a bitrate from the second sample on', async () => {
     let bytes = 0
     let time = 1000

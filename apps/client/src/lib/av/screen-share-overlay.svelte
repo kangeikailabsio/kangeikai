@@ -2,10 +2,35 @@
   import { attachVideoTrack } from '$lib/av/attach-video-track'
   import { screenShareGridState } from '$lib/av/screen-share-grid-state.svelte'
   import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
+  import StatsBadge from '$lib/av/screen-share-stats-badge.svelte'
+  import { startScreenShareStatsPolling } from '$lib/av/screen-share-stats-poller'
+  import { screenShareStatsState } from '$lib/av/screen-share-stats-state.svelte'
 
   function minimize(): void {
     screenShareOverlayState.set(false)
   }
+
+  /** `sessionId` of the tile whose stats popover is open — only one at a time (#208). */
+  let openStatsId = $state<string | undefined>(undefined)
+
+  /**
+   * Polls connection stats only while the overlay is open (#208), reading the tile list at each
+   * tick so tiles that come and go are picked up without re-subscribing.
+   */
+  $effect(() => {
+    if (!screenShareOverlayState.expanded) {
+      return
+    }
+    const stop = startScreenShareStatsPolling(
+      () => screenShareGridState.tiles,
+      stats => screenShareStatsState.set(stats),
+    )
+    return () => {
+      stop()
+      screenShareStatsState.set({})
+      openStatsId = undefined
+    }
+  })
 
   /**
    * Whether the grid has actually been populated at least once since this overlay opened.
@@ -57,6 +82,11 @@
               muted={tile.isLocal}
             ></video>
           {/if}
+          <StatsBadge
+            stats={screenShareStatsState.get(tile.sessionId)}
+            open={openStatsId === tile.sessionId}
+            onToggle={() => (openStatsId = openStatsId === tile.sessionId ? undefined : tile.sessionId)}
+          />
           <span class='name-label'>{tile.isLocal ? 'You' : tile.name}</span>
         </div>
       {/each}

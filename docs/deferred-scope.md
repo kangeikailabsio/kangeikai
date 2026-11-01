@@ -109,3 +109,9 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   automática de qualidade, teste ativo de banda e comparar antes de gravar em
   `screenShareGridState.set()` (hoje reescrito a cada frame). Os limiares de Boa/Instável/Ruim são
   fixos e conservadores, para ajustar depois com dados reais.
+- **Fluidez sempre vence a nitidez no screen share** — [#217](https://github.com/kangeikailabsio/kangeikai/issues/217)
+  faz todos os tiers (720p, 1080p e 2K) usarem `maintain-framerate` e `contentHint: 'motion'`: sob
+  pressão de CPU ou rede, o encoder reduz a resolução antes de derrubar frames. Isso favorece jogos,
+  mas deixa texto e código mais borrados enquanto a conexão estiver apertada. Ficou de fora uma
+  opção "Content" no popover de qualidade ("Smooth" para jogos e vídeo, "Sharp" para documentos e
+  código, voltando ao padrão do SDK, que prioriza a resolução). Só vale a pena se alguém reclamar.

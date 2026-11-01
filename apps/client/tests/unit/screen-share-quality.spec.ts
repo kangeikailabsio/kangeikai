@@ -26,6 +26,16 @@ describe('resolveScreenShareQuality', () => {
     }
   })
 
+  it('publishes every tier with H.264 and no backup codec, to use the sharer\'s hardware encoder (#219)', () => {
+    for (const tier of ['720p', '1080p', '2k'] as const) {
+      const { publishOptions } = resolveScreenShareQuality(tier)
+
+      expect(publishOptions.videoCodec).toBe('h264')
+      // The SDK's default backup (VP8) would encode a second stream on the same CPU.
+      expect(publishOptions.backupCodec).toBe(false)
+    }
+  })
+
   it('1080p resolves to 1920x1080 at 30fps', () => {
     const { captureOptions, publishOptions } = resolveScreenShareQuality('1080p')
 

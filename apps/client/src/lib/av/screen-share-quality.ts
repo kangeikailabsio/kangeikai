@@ -34,7 +34,7 @@ const PRESET_BY_TIER: Record<ScreenShareQualityTier, VideoPreset> = {
  */
 export function resolveScreenShareQuality(tier: ScreenShareQualityTier, shareAudio = false): {
   captureOptions: ScreenShareCaptureOptions
-  publishOptions: Pick<TrackPublishOptions, 'screenShareEncoding' | 'degradationPreference'>
+  publishOptions: Pick<TrackPublishOptions, 'screenShareEncoding' | 'degradationPreference' | 'videoCodec' | 'backupCodec'>
 } {
   const preset = PRESET_BY_TIER[tier]
   return {
@@ -50,6 +50,12 @@ export function resolveScreenShareQuality(tier: ScreenShareQualityTier, shareAud
     publishOptions: {
       screenShareEncoding: preset.encoding,
       degradationPreference: 'maintain-framerate',
+      // H.264 instead of the SDK's default VP8 (#219): Chrome encodes VP8 in software on the
+      // CPU the game is using, while H.264 can go to the GPU's hardware encoder (NVENC and
+      // friends) where available. No backup codec: the SDK's default one (VP8) would encode a
+      // second stream on that same CPU.
+      videoCodec: 'h264',
+      backupCodec: false,
     },
   }
 }

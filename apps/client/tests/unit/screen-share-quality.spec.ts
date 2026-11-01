@@ -2,11 +2,19 @@ import { resolveScreenShareQuality } from '$lib/av/screen-share-quality'
 import { describe, expect, it } from 'vitest'
 
 describe('resolveScreenShareQuality', () => {
-  it('720p resolves to 1280x720 at 15fps (light preset, favors fps savings over resolution)', () => {
+  it('720p resolves to 1280x720 at 30fps (smooth enough for games)', () => {
     const { captureOptions, publishOptions } = resolveScreenShareQuality('720p')
 
-    expect(captureOptions.resolution).toMatchObject({ width: 1280, height: 720, frameRate: 15 })
-    expect(publishOptions.screenShareEncoding?.maxFramerate).toBe(15)
+    expect(captureOptions.resolution).toMatchObject({ width: 1280, height: 720, frameRate: 30 })
+    expect(publishOptions.screenShareEncoding?.maxFramerate).toBe(30)
+  })
+
+  it('caps the bitrate at 10 / 20 / 40 Mbps for 720p / 1080p / 2k (#212)', () => {
+    const cap = (tier: '720p' | '1080p' | '2k') => resolveScreenShareQuality(tier).publishOptions.screenShareEncoding?.maxBitrate
+
+    expect(cap('720p')).toBe(10_000_000)
+    expect(cap('1080p')).toBe(20_000_000)
+    expect(cap('2k')).toBe(40_000_000)
   })
 
   it('1080p resolves to 1920x1080 at 30fps', () => {

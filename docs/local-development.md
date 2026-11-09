@@ -47,6 +47,28 @@ test file starts its own throwaway PostgreSQL container (`postgres:17-alpine`, t
 the compose file), applies the migrations, and empties the tables between tests. They only need
 Docker running: no compose stack and no `DATABASE_URL`, and your own database is never touched.
 
+## End-to-end tests
+
+The Playwright suite in `e2e/` drives the real app with several people at once (sign up, the room,
+private calls with fake cameras and microphones). It needs the compose stack running:
+
+```sh
+pnpm dev:infra
+pnpm --filter @kangeikai/e2e install:browsers   # once: downloads Chromium
+pnpm test:e2e
+```
+
+- It starts its own server (port 2667) and client (port 5273), so it does not collide with
+  `pnpm dev:server` / `pnpm dev:client`, and it uses a database of its own (`kangeikai_e2e`),
+  recreated at the start of every run and dropped at the end. Your own database is never touched.
+- The client of the test build is made with `VITE_E2E=true`, which exposes
+  `window.__kangeikaiE2E.teleport(x, y)` so a test can put an avatar in a private zone without
+  walking there. A production build leaves that code out.
+- Assertions are on the DOM and visible state, never on canvas pixels.
+- Failures keep a trace and a video: `pnpm --filter @kangeikai/e2e exec playwright show-report`.
+- `E2E_POSTGRES_URL` overrides the PostgreSQL the suite creates its database on.
+- The suite shares the dev LiveKit server with `pnpm dev:client`; avoid being in the same call at the same time.
+
 ## Changing the auth setup
 
 Auth tables are generated from `apps/server/src/auth/auth-options.ts`:

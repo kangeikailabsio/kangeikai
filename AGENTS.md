@@ -37,8 +37,11 @@ chat. See `docs/mvp-plan.md` for the product plan.
   parsing, and network payloads.
 - **Lint/format**: ESLint via `@antfu/eslint-config`, one root-level `eslint.config.js` for the
   whole workspace. No Prettier.
-- **Testing**: Vitest for pure/deterministic logic (e.g. movement/collision math); no automated
-  canvas-rendering assertions at MVP stage — validate rendered behavior manually in a browser.
+- **Testing**: Vitest for pure/deterministic logic (e.g. movement/collision math). Playwright
+  (`e2e/`, Chromium only) for behavior that needs the real app with several people at once —
+  assert on the DOM and visible state, never on canvas pixels; `pnpm test:e2e` after
+  `pnpm dev:infra`. No automated canvas-rendering assertions: validate how the map looks manually
+  in a browser.
   Tests that need PostgreSQL use Testcontainers (`@testcontainers/postgresql`): a throwaway
   container per test file, tables truncated between tests, nothing but Docker required. Never
   point a test at the developer's own database.

@@ -14,6 +14,11 @@ chat. See `docs/mvp-plan.md` for the product plan.
 - **Monorepo**: pnpm workspaces (`apps/*`, `packages/*`), no Turborepo yet.
 - **Client** (`apps/client`): SvelteKit, running as a static SPA (`adapter-static`,
   `ssr = false` globally in `src/routes/+layout.ts`) — no Node runtime needed to serve it.
+  The one exception is the landing page at `/`: `src/routes/+page.ts` sets `prerender = true`
+  and `ssr = true` so it is rendered to static HTML at build time (search engines and link
+  previews need real content). Because that HTML is `index.html`, the SPA fallback is
+  `200.html` (see `vite.config.ts`) — the static host must serve `200.html` for any path that
+  is not a file.
 - **Rendering**: Phaser.js for the 2D map/avatar canvas.
 - **Map authoring**: Tiled, exported as JSON and loaded via Phaser's Tiled loader.
 - **Realtime sync**: Colyseus (in-memory room state, no database).

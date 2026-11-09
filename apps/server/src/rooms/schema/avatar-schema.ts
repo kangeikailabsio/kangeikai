@@ -1,4 +1,5 @@
 import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType } from '@kangeikai/shared'
+import type { MovementBudget } from '../../movement/movement-guard'
 import { Schema, type } from '@colyseus/schema'
 
 /** Colyseus state-sync mirror of packages/shared/src/avatar.ts's AvatarState. */
@@ -22,4 +23,11 @@ export class AvatarSchema extends Schema {
    * one-avatar-per-account rule (issue #232), never synced to any client.
    */
   userId = ''
+
+  /**
+   * Also not synced: the distance this person may still cover (issue #255), and when a rejected
+   * movement was last logged, so a client that keeps sending one does not flood the log.
+   */
+  movement: MovementBudget | undefined
+  lastRejectLoggedAt = 0
 }

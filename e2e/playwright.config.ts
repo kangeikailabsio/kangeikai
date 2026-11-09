@@ -43,6 +43,8 @@ export default defineConfig({
         LIVEKIT_URL: 'ws://localhost:7880',
         LIVEKIT_API_KEY: 'devkey',
         LIVEKIT_API_SECRET: 'secret',
+        // The specs place the avatar with a teleport hook, which the server's movement checks would refuse (issue #255).
+        E2E_ALLOW_TELEPORT: process.env.E2E_VALIDATE_MOVEMENT === 'true' ? 'false' : 'true',
       },
     },
     {

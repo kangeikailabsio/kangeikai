@@ -9,6 +9,15 @@ import {
 
 const baseJoinOptions = { ticket: '42.1700000060000.signature' }
 
+describe('updateStatePayloadSchema numbers (issue #255)', () => {
+  it('refuses NaN and Infinity as positions', () => {
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(v.safeParse(updateStatePayloadSchema, { x: bad, y: 1, direction: 'up', motionState: 'idle' }).success).toBe(false)
+      expect(v.safeParse(updateStatePayloadSchema, { x: 1, y: bad, direction: 'up', motionState: 'idle' }).success).toBe(false)
+    }
+  })
+})
+
 describe('officeJoinOptionsSchema', () => {
   it('requires a non-empty ticket', () => {
     expect(v.safeParse(officeJoinOptionsSchema, {}).success).toBe(false)

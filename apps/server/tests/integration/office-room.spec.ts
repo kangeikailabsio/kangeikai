@@ -76,6 +76,15 @@ function waitFor(client: SDKRoom, predicate: () => boolean, timeoutMs = 2000): P
   })
 }
 
+/**
+ * A position a person who is standing at `avatar` can move to: the same place, rounded to whole
+ * pixels so it survives the state sync exactly. The server only takes positions it can reach from
+ * the last one (issue #255), so tests move from the real spawn instead of jumping to made-up points.
+ */
+function nearby(avatar: { x: number, y: number }): { x: number, y: number } {
+  return { x: Math.round(avatar.x), y: Math.round(avatar.y) }
+}
+
 describe('officeRoom', () => {
   it('propagates identity and movement state between two connected clients', async () => {
     const room = await colyseus.createRoom('office', joinAs('Alice', 'man'))
@@ -87,14 +96,15 @@ describe('officeRoom', () => {
     await nextStateChange(clientB)
 
     // Joining can produce another unrelated patch before the movement is processed.
-    const nextChange = waitFor(clientB, () => clientB.state.players.get(clientA.sessionId)?.x === 42)
-    clientA.send('updateState', { x: 42, y: 84, direction: 'right', motionState: 'walking' })
+    const target = nearby(room.state.players.get(clientA.sessionId)!)
+    const nextChange = waitFor(clientB, () => clientB.state.players.get(clientA.sessionId)?.direction === 'right')
+    clientA.send('updateState', { ...target, direction: 'right', motionState: 'walking' })
     await nextChange
 
     const aFromB = clientB.state.players.get(clientA.sessionId)
     expect(aFromB?.displayName).toBe('Alice')
-    expect(aFromB?.x).toBe(42)
-    expect(aFromB?.y).toBe(84)
+    expect(aFromB?.x).toBe(target.x)
+    expect(aFromB?.y).toBe(target.y)
     expect(aFromB?.direction).toBe('right')
     expect(aFromB?.motionState).toBe('walking')
   })
@@ -195,9 +205,10 @@ describe('officeRoom', () => {
     await waitFor(clientA, () => clientA.state.players.get(clientB.sessionId)?.presence === 'busy')
     const spawn = { x: room.state.players.get(clientB.sessionId)!.x, y: room.state.players.get(clientB.sessionId)!.y }
 
-    clientB.send('updateState', { x: 42, y: 84, direction: 'right', motionState: 'walking' })
-    clientA.send('updateState', { x: 10, y: 20, direction: 'up', motionState: 'walking' })
-    await waitFor(clientA, () => clientA.state.players.get(clientA.sessionId)?.x === 10)
+    const movedA = nearby(room.state.players.get(clientA.sessionId)!)
+    clientB.send('updateState', { ...spawn, direction: 'right', motionState: 'walking' })
+    clientA.send('updateState', { ...movedA, direction: 'up', motionState: 'walking' })
+    await waitFor(clientA, () => clientA.state.players.get(clientA.sessionId)?.direction === 'up')
 
     const busy = clientA.state.players.get(clientB.sessionId)
     expect(busy?.x).toBeCloseTo(spawn.x, 2)
@@ -213,19 +224,21 @@ describe('officeRoom', () => {
     await waitFor(clientA, () => clientA.state.players.has(clientB.sessionId))
     await waitFor(clientB, () => Boolean(clientB.state.players?.has(clientA.sessionId)))
 
-    clientA.send('updateState', { x: 42, y: 84, direction: 'right', motionState: 'walking' })
-    await waitFor(clientB, () => clientB.state.players.get(clientA.sessionId)?.x === 42)
+    const posA = nearby(room.state.players.get(clientA.sessionId)!)
+    const posB = nearby(room.state.players.get(clientB.sessionId)!)
+    clientA.send('updateState', { ...posA, direction: 'right', motionState: 'walking' })
+    await waitFor(clientB, () => clientB.state.players.get(clientA.sessionId)?.direction === 'right')
 
     clientA.send('setPresence', { presence: 'busy' })
     await waitFor(clientB, () => clientB.state.players.get(clientA.sessionId)?.presence === 'busy')
 
-    clientA.send('updateState', { x: 99, y: 99, direction: 'left', motionState: 'sprinting' })
-    clientB.send('updateState', { x: 10, y: 20, direction: 'up', motionState: 'walking' })
-    await waitFor(clientB, () => clientB.state.players.get(clientB.sessionId)?.x === 10)
+    clientA.send('updateState', { ...posA, direction: 'left', motionState: 'sprinting' })
+    clientB.send('updateState', { ...posB, direction: 'up', motionState: 'walking' })
+    await waitFor(clientB, () => clientB.state.players.get(clientB.sessionId)?.direction === 'up')
 
     const frozen = clientB.state.players.get(clientA.sessionId)
-    expect(frozen?.x).toBe(42)
-    expect(frozen?.y).toBe(84)
+    expect(frozen?.x).toBe(posA.x)
+    expect(frozen?.y).toBe(posA.y)
     expect(frozen?.direction).toBe('right')
     expect(frozen?.motionState).toBe('walking')
   })
@@ -243,11 +256,13 @@ describe('officeRoom', () => {
     clientA.send('setPresence', { presence: 'available' })
     await waitFor(clientB, () => clientB.state.players.get(clientA.sessionId)?.presence === 'available')
 
-    clientA.send('updateState', { x: 42, y: 84, direction: 'right', motionState: 'walking' })
-    await waitFor(clientB, () => clientB.state.players.get(clientA.sessionId)?.x === 42)
+    const target = nearby(room.state.players.get(clientA.sessionId)!)
+    clientA.send('updateState', { ...target, direction: 'right', motionState: 'walking' })
+    await waitFor(clientB, () => clientB.state.players.get(clientA.sessionId)?.direction === 'right')
 
     const moved = clientB.state.players.get(clientA.sessionId)
-    expect(moved?.y).toBe(84)
+    expect(moved?.x).toBe(target.x)
+    expect(moved?.y).toBe(target.y)
     expect(moved?.direction).toBe('right')
     expect(moved?.motionState).toBe('walking')
   })
@@ -307,6 +322,68 @@ describe('officeRoom', () => {
 
       const avatar = room.state.players.get(client.sessionId)
       expect(spawn).toEqual({ x: avatar!.x, y: avatar!.y })
+    })
+  })
+
+  describe('movement validation (issue #255)', () => {
+    function correctionOf(client: SDKRoom): Promise<{ x: number, y: number }> {
+      return new Promise(resolve => client.onMessage<{ x: number, y: number }>('correctPosition', payload => resolve(payload)))
+    }
+
+    it('keeps a teleport out of the state and sends the sender back to its last valid position', async () => {
+      const room = await colyseus.createRoom('office', joinAs('Alice', 'man'))
+      const clientA = await colyseus.connectTo(room, joinAs('Alice', 'man'))
+      const clientB = await colyseus.connectTo(room, joinAs('Bob', 'woman'))
+      const avatarA = room.state.players.get(clientA.sessionId)!
+      const before = { x: avatarA.x, y: avatarA.y }
+      const correction = correctionOf(clientA)
+
+      clientA.send('updateState', { x: 1500, y: 800, direction: 'up', motionState: 'sprinting' })
+
+      expect(await correction).toEqual({ x: before.x, y: before.y })
+      expect(avatarA.x).toBe(before.x)
+      expect(avatarA.y).toBe(before.y)
+      expect(avatarA.direction).toBe('down')
+      expect(clientB.state.players.get(clientA.sessionId)?.direction).toBe('down')
+    })
+
+    it('refuses a position inside a wall even when it is close', async () => {
+      const room = await colyseus.createRoom('office', joinAs('Alice', 'man'))
+      const client = await colyseus.connectTo(room, joinAs('Alice', 'man'))
+      const avatar = room.state.players.get(client.sessionId)!
+      const correction = correctionOf(client)
+
+      // Standing next to the wall along the left edge of the map (x ~ 1.3 to 33.3), then stepping into it.
+      avatar.x = 60
+      avatar.y = 1000
+      client.send('updateState', { x: 55, y: 1000, direction: 'left', motionState: 'walking' })
+      client.send('updateState', { x: 10, y: 1000, direction: 'left', motionState: 'walking' })
+
+      expect(await correction).toEqual({ x: 55, y: 1000 })
+      expect(avatar.x).toBe(55)
+    })
+
+    it('keeps a person from claiming a private zone they did not walk to', async () => {
+      const room = await colyseus.createRoom<OfficeRoom>('office', joinAs('Alice', 'man'))
+      const client = await colyseus.connectTo(room, joinAs('Alice', 'man'))
+      const correction = correctionOf(client)
+
+      client.send('updateState', { x: 350, y: 370, direction: 'down', motionState: 'walking' })
+      await correction
+
+      expect(room.isPositionInZone(client.sessionId, 2)).toBe(false)
+    })
+
+    it('accepts a real walk of many small steps', async () => {
+      const room = await colyseus.createRoom('office', joinAs('Alice', 'man'))
+      const client = await colyseus.connectTo(room, joinAs('Alice', 'man'))
+      const start = nearby(room.state.players.get(client.sessionId)!)
+
+      for (let step = 1; step <= 5; step++)
+        client.send('updateState', { x: start.x + step, y: start.y, direction: 'right', motionState: 'walking' })
+      await waitFor(client, () => room.state.players.get(client.sessionId)?.x === start.x + 5)
+
+      expect(room.state.players.get(client.sessionId)?.x).toBe(start.x + 5)
     })
   })
 

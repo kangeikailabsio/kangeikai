@@ -1,11 +1,13 @@
 import type { Client } from 'colyseus'
 import type { AuthenticatedUser, Authenticator } from '../auth/authenticator'
+import process from 'node:process'
 import { POOL_COMMAND, POOL_EVENT } from '@kangeikai/game-pool/protocol'
 import { PoolManager } from '@kangeikai/game-pool/server'
 import { CLOSE_CODE_SESSION_REPLACED, privateZoneAt, resolveRespawnPoint } from '@kangeikai/shared'
 import { CloseCode, Room } from 'colyseus'
 import * as v from 'valibot'
-import { gameTables, mapSize, privateZones, respawnAreas } from '../map-zones'
+import { colliders, gameTables, mapSize, privateZones, respawnAreas } from '../map-zones'
+import { acceptMove, newBudget } from '../movement/movement-guard'
 import { computeSessionProof } from '../session-proof'
 import { interactionPayloadSchema, officeJoinOptionsSchema, setPresencePayloadSchema, updateStatePayloadSchema } from './message-schemas'
 import { AvatarSchema } from './schema/avatar-schema'
@@ -26,6 +28,11 @@ const RECONNECTION_GRACE_PERIOD_SECONDS = 15
 
 export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
   private pool!: PoolManager
+  /**
+   * Skips the speed and wall checks of `updateState` (issue #255). Only the end-to-end tests set
+   * it, because they place the avatar with a teleport hook; it must never be on in production.
+   */
+  private readonly allowTeleport = process.env.E2E_ALLOW_TELEPORT === 'true'
 
   onCreate(): void {
     this.setState(new OfficeRoomState())
@@ -56,6 +63,10 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
       }
 
       if (avatar.presence === 'busy' || this.pool.isAttached(client.sessionId)) {
+        return
+      }
+
+      if (!this.allowTeleport && !this.acceptMovement(client, avatar, result.output)) {
         return
       }
 
@@ -158,6 +169,7 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
     avatar.y = spawn.y
 
     this.state.players.set(client.sessionId, avatar)
+    avatar.movement = newBudget(Date.now())
     client.send('spawn', spawn)
 
     // Lets /livekit-token (spec 003) confirm this identity really went through onJoin, instead
@@ -170,6 +182,26 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
     catch (error) {
       console.warn('kangeikai: failed to send session proof (SESSION_SIGNING_SECRET missing?)', error)
     }
+  }
+
+  /**
+   * Checks a reported position against the map and the speed limit (issue #255). An impossible
+   * one is not stored: the sender is told where to go back to (the last valid position) and
+   * nobody else ever sees it. Nobody is kicked; a laggy client only gets pulled back a little.
+   */
+  private acceptMovement(client: Client, avatar: AvatarSchema, to: { x: number, y: number }): boolean {
+    const now = Date.now()
+    avatar.movement ??= newBudget(now)
+    if (acceptMove(avatar.movement, { x: avatar.x, y: avatar.y }, to, { colliders, mapWidth: mapSize.width, mapHeight: mapSize.height }, now)) {
+      return true
+    }
+
+    client.send('correctPosition', { x: avatar.x, y: avatar.y })
+    if (now - avatar.lastRejectLoggedAt > 5000) {
+      avatar.lastRejectLoggedAt = now
+      console.warn(`kangeikai: rejected an impossible movement of ${avatar.displayName} to (${to.x}, ${to.y}); sent back to (${avatar.x}, ${avatar.y})`)
+    }
+    return false
   }
 
   /**

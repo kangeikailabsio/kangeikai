@@ -1,5 +1,5 @@
 import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
-import { BUSY_PRESENCE_STORAGE_KEY, GUEST_PROFILE_STORAGE_KEY } from '$lib/entry/constants'
+import { BUSY_PRESENCE_STORAGE_KEY } from '$lib/entry/constants'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 function createMockStorage(): Storage {
@@ -101,11 +101,9 @@ describe('busyPresenceStore', () => {
 
     for (const [key] of vi.mocked(sessionStorage.getItem).mock.calls) {
       expect(key).toBe(BUSY_PRESENCE_STORAGE_KEY)
-      expect(key).not.toBe(GUEST_PROFILE_STORAGE_KEY)
     }
     for (const [key] of vi.mocked(sessionStorage.setItem).mock.calls) {
       expect(key).toBe(BUSY_PRESENCE_STORAGE_KEY)
-      expect(key).not.toBe(GUEST_PROFILE_STORAGE_KEY)
     }
   })
 })

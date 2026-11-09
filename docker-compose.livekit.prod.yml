@@ -5,7 +5,7 @@
 # NODE_IP/LIVEKIT_KEYS are supplied as environment variables on the Coolify resource itself,
 # not committed here. NODE_IP is the host's real public IP (advertised to WebRTC peers for ICE
 # candidates); LIVEKIT_KEYS is "key: secret" (generate a real pair for production — never reuse
-# docker-compose.livekit.yml's dev-only fixed "devkey"/"secret").
+# docker-compose.dev.yml's dev-only fixed "devkey"/"secret").
 #
 # Verified against the real image (v1.13.5): with no --bind flag, it already listens on all
 # interfaces inside the container. The RTC UDP range is narrowed from LiveKit's own default

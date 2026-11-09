@@ -13,8 +13,10 @@ export default defineConfig({
       },
 
       // SPA mode: static build, no Node runtime to serve the client (constitution Principle V).
-      // `fallback` routes every path to index.html so the client-side router handles routing.
-      adapter: adapter({ fallback: 'index.html' }),
+      // `fallback` is what a static host serves for every path that is not a file, so the
+      // client-side router handles routing. It must NOT be `index.html`: the landing page at `/`
+      // is pre-rendered into `index.html` (issue #229), and the fallback would overwrite it.
+      adapter: adapter({ fallback: '200.html' }),
     }),
   ],
   server: {

@@ -1,16 +1,18 @@
 import type { Room as ClientRoom } from '@colyseus/sdk'
 import type { ColyseusTestServer } from '@colyseus/testing'
 import type { PoolEvent, PoolSnapshot } from '@kangeikai/game-pool/protocol'
-import { OfficeRoom } from '$lib/rooms/office-room'
+import { OfficeRoom, setOfficeRoomAuthenticator } from '$lib/rooms/office-room'
 import { boot } from '@colyseus/testing'
 import { WebSocketTransport } from '@colyseus/ws-transport'
 import { POOL_COMMAND, POOL_EVENT } from '@kangeikai/game-pool/protocol'
 import { Server } from 'colyseus'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { fakeAuthenticator, joinAs } from './support/fake-auth'
 
 let server: ColyseusTestServer
 
 beforeAll(async () => {
+  setOfficeRoomAuthenticator(fakeAuthenticator)
   const app = new Server({ transport: new WebSocketTransport() })
   app.define('office', OfficeRoom)
   server = await boot(app)
@@ -55,7 +57,7 @@ function listen(client: ClientRoom) {
 
 async function fixture() {
   const room = await server.createRoom<OfficeRoom>('office', {})
-  const clients = await Promise.all(['Alice', 'Bob', 'Carol'].map(displayName => server.connectTo(room, { displayName, spriteType: 'man', accessCode: '' })))
+  const clients = await Promise.all(['Alice', 'Bob', 'Carol'].map(displayName => server.connectTo(room, joinAs(displayName, 'man'))))
   const views = clients.map(listen)
   clients.forEach((client) => {
     const avatar = room.state.players.get(client.sessionId)!

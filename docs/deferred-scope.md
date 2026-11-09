@@ -35,18 +35,9 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   token e tentar `reconnect()` antes de criar sessão nova. A duplicata visível que isso causava
   (avatar antigo nunca some) é corrigida pela
   [#178](https://github.com/kangeikailabsio/kangeikai/issues/178) via deduplicação por
-  identidade persistente no `onJoin` — mas isso só limpa a cópia antiga, não retoma a sessão de
+  identidade no `onJoin` (hoje pelo id da conta, [#232](https://github.com/kangeikailabsio/kangeikai/issues/232)) — mas isso só limpa a cópia antiga, não retoma a sessão de
   fato: cada refresh continua sendo um respawn do zero, sem posição/estado preservado. Notado em
   `docs/mvp-plan.md`, sem issue aberta pra continuidade real.
-- **Identificador de guest persistente não é autenticado** — a correção da
-  [#178](https://github.com/kangeikailabsio/kangeikai/issues/178) usa um UUID gerado pelo próprio
-  client e salvo em `sessionStorage` (por aba, não `localStorage`/por navegador — evita que abrir
-  uma segunda aba do mesmo navegador derrube o avatar da primeira) só pra deduplicar avatares no
-  `onJoin`; como o servidor nunca verifica esse ID, alguém que descobrisse o ID de outra pessoa
-  (acesso físico à aba dela, tráfego sem TLS) poderia forçar a remoção do avatar dela do mapa.
-  Sem exposição de dados — o pior caso é um "kick" que se autocorrige no próximo join dela.
-  Resolver de verdade exige credencial de sessão assinada pelo servidor, o que só faz sentido
-  quando existir conta de usuário.
 - **`privateZoneAt` assume que zonas privadas nunca se sobrepõem** — `packages/shared/src/private-zones.ts:46-48`
   documenta a suposição mas não a garante; se algum mapa no Tiled tiver duas zonas `private`
   sobrepostas, qual delas "vence" é arbitrário e silencioso. Baixa prioridade — depende de erro
@@ -132,3 +123,37 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   `Room` quando o `room.connect` falha pela metade (visto só na leitura do código). A causa do
   erro intermitente (403 por a posição chegar depois do pedido de token) é hipótese, não foi
   reproduzida.
+- **Telas de login e cadastro são só interface** — [#230](https://github.com/kangeikailabsio/kangeikai/issues/230)
+  traz `/sign-in` e `/sign-up` com email e senha e o botão do Google, validados localmente com
+  Valibot, sem falar com servidor nenhum. As chamadas ao better-auth, o redirecionamento para
+  `/room`, o envio do Google e o desvio de quem já tem sessão ficam na integração
+  ([#232](https://github.com/kangeikailabsio/kangeikai/issues/232)). Ficaram de fora do épico: "esqueci
+  a senha" e verificação de email (precisam de SMTP), outros provedores de login, uma tela de
+  conta ou de perfil, mostrar a força da senha e lembrar o último método usado. As regras de senha
+  do formulário (8 a 128 caracteres) copiam o padrão do better-auth e precisam acompanhar o
+  servidor se ele mudar (#231).
+- **Backend de autenticação só com o essencial** — [#231](https://github.com/kangeikailabsio/kangeikai/issues/231)
+  monta o better-auth em `/api/auth/*` do `apps/server`, com email e senha e Google, Drizzle e
+  Postgres (ids inteiros incrementais) e CORS só para a origem do site. Ficaram de fora: rodar as
+  migrações no boot (hoje é `pnpm db:migrate`), limite de tentativas além do padrão do better-auth,
+  backups e hospedagem do Postgres de produção, outros provedores de login e o endpoint que valida
+  e grava o avatar da conta (vem na integração, #232; por isso `spriteType` e
+  `characterSelection` não aceitam escrita pelo cliente e o cadastro que tenta mandá-los leva
+  400). O CORS do Colyseus continua permissivo no preflight (`OPTIONS`) para qualquer origem, como
+  já era; nas rotas de auth só as requisições reais são restritas à origem do site (um `POST` de
+  fora leva 403 e nenhum header de CORS). Apertar o CORS do servidor inteiro para a origem do site
+  é uma mudança à parte, porque afeta o matchmaking do jogo.
+- **Integração da conta com a sala só com o essencial** — [#232](https://github.com/kangeikailabsio/kangeikai/issues/232)
+  exige conta para entrar: as telas de login chamam o better-auth, `/room` redireciona para
+  `/sign-in` sem sessão, o formulário de entrada vem preenchido com a conta e salva nome e avatar
+  (`PUT /api/profile`), e o `join` do Colyseus leva um ticket assinado de 60 s (`POST
+  /api/session-ticket`) que o `onAuth` valida. Uma conta tem um avatar só: a nova conexão fecha a
+  anterior com o código 4001 e a aba antiga mostra um aviso. Saem os guests, o `guestId`, o
+  `ACCESS_CODE` e o gerador de nome aleatório. Ficaram de fora: reaproveitar o perfil que
+  estava no `localStorage` como ponto de partida do primeiro cadastro, uma tela de perfil ou
+  conta separada do formulário de entrada (o avatar só se edita ali), ticket de uso único (hoje
+  qualquer um que interceptar o ticket pode usá-lo por até 60 s, e o ticket só vale para
+  entrar, não dá acesso à conta), reconexão automática depois de um `join` rejeitado por
+  sessão expirada além de voltar para o login, limite de tentativas no endpoint do ticket e do
+  perfil, e rodar o Playwright contra o fluxo completo (#227). O botão de sair existe só como
+  link no formulário de entrada.

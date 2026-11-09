@@ -14,6 +14,8 @@ export default antfu(
       '**/.svelte-kit/**',
       '**/dist/**',
       '**/build/**',
+      // drizzle-kit's generated SQL migrations and snapshots (apps/server/drizzle).
+      'apps/server/drizzle/**',
       '.claude/**',
     ],
   },

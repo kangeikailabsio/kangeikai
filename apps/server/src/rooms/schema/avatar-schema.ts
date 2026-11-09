@@ -18,8 +18,8 @@ export class AvatarSchema extends Schema {
   @type('string') characterSelection = ''
 
   /**
-   * Deliberately NOT `@type`-annotated — this is server-only bookkeeping for `OfficeRoom.onJoin`'s
-   * duplicate-avatar dedup (issue #178), never synced to any client.
+   * Deliberately NOT `@type`-annotated — server-only bookkeeping for `OfficeRoom.onJoin`'s
+   * one-avatar-per-account rule (issue #232), never synced to any client.
    */
-  guestId = ''
+  userId = ''
 }

@@ -1,4 +1,3 @@
-import { MAX_NAME_LENGTH } from '@kangeikai/shared'
 import * as v from 'valibot'
 
 /**
@@ -8,14 +7,8 @@ import * as v from 'valibot'
  */
 const directionSchema = v.picklist(['up', 'down', 'left', 'right'])
 const motionStateSchema = v.picklist(['idle', 'walking', 'sprinting'])
-const spriteTypeSchema = v.picklist(['man', 'woman'])
+export const spriteTypeSchema = v.picklist(['man', 'woman'])
 const presenceSchema = v.picklist(['available', 'busy'])
-const displayNameSchema = v.pipe(
-  v.string(),
-  v.trim(),
-  v.transform(name => name.slice(0, MAX_NAME_LENGTH)),
-  v.minLength(1, 'Display name is required'),
-)
 
 /**
  * Mirrors packages/shared/src/character.ts's `CharacterPieceRef`/`CharacterSelection` shape —
@@ -29,7 +22,7 @@ const characterPieceRefSchema = v.object({
   style: v.pipe(v.number(), v.integer(), v.minValue(0)),
   variant: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
 })
-const characterSelectionSchema = v.object({
+export const characterSelectionSchema = v.object({
   body: v.pipe(v.number(), v.integer(), v.minValue(0)),
   eyes: v.pipe(v.number(), v.integer(), v.minValue(0)),
   outfit: characterPieceRefSchema,
@@ -37,21 +30,16 @@ const characterSelectionSchema = v.object({
   accessory: v.nullable(characterPieceRefSchema),
 })
 
-/** Client→server join payload (contracts/office-room-protocol.md's OfficeJoinOptions). */
+/**
+ * Client→server join payload (contracts/office-room-protocol.md's OfficeJoinOptions). Who the person
+ * is (name, avatar) is no longer sent: `OfficeRoom.onAuth` derives it from the account behind
+ * `ticket` (issue #232), so a client cannot claim another identity.
+ */
 export const officeJoinOptionsSchema = v.object({
-  displayName: displayNameSchema,
-  spriteType: spriteTypeSchema,
+  /** Short-lived pass from `POST /api/session-ticket` (see auth/session-ticket.ts). */
+  ticket: v.pipe(v.string(), v.nonEmpty()),
+  /** Busy is a per-tab choice the person made before this join (it survives a reload), so it stays client-reported. */
   presence: v.optional(presenceSchema, 'available'),
-  /** Checked in `onAuth` against `ACCESS_CODE` (only enforced when that env var is set). */
-  accessCode: v.string(),
-  /** Absent for a guest with no Character Creator selection (issue #169's fallback decision). */
-  characterSelection: v.optional(characterSelectionSchema),
-  /**
-   * Client's per-tab identifier (issue #178), used by `OfficeRoom.onJoin` to drop a stale
-   * duplicate left behind by the same tab's previous session. Optional so an old/mismatched
-   * client build without it still joins — it just skips the dedup, same as today.
-   */
-  guestId: v.optional(v.string()),
 })
 
 /** Client→server "updateState" message payload (contracts/office-room-protocol.md). */

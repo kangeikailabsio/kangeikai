@@ -12,6 +12,7 @@
     "dev": "pnpm --filter ./apps/client dev",
     "dev:client": "pnpm --filter ./apps/client dev",
     "dev:server": "pnpm --filter ./apps/server dev",
+    "dev:infra": "docker compose -f docker-compose.dev.yml up -d --wait && pnpm --filter @kangeikai/server db:migrate && pnpm --filter @kangeikai/server db:seed",
     "build": "pnpm --filter ./apps/client build",
     "lint": "eslint .",
     "test": "pnpm -r --if-present test",

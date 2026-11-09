@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const events: string[] = []
 vi.mock('livekit-client', () => {
   class FakeRoom {
+    options: Record<string, unknown> = {}
     connect = vi.fn(async () => {})
     disconnect = vi.fn(async () => {
       // A real Room.disconnect() only resolves once its local tracks (mic/camera) are actually
@@ -256,5 +257,35 @@ describe('privateRoomController leaving into another zone', () => {
     await controller.update(options, pos(350, 50), new Map([['remote-2', pos(360, 60)]]), h, () => {})
 
     expect(h.onDisconnect).toHaveBeenCalledOnce()
+  })
+})
+
+describe('privateRoomController devices (issue #245)', () => {
+  afterEach(() => {
+    events.length = 0
+    vi.clearAllMocks()
+  })
+
+  const remoteInZone = new Map([['remote-1', pos(60, 60)]])
+
+  it('creates the private room with the microphone and camera the person chose', async () => {
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0, () => ({ audioinput: 'mic-2', videoinput: 'cam-9' }))
+    controller.setZones(zones)
+    const onConnect = vi.fn()
+
+    await controller.update(options, pos(50, 50), remoteInZone, { onConnect, onDisconnect: vi.fn(), onError: vi.fn() }, () => {})
+
+    const room = onConnect.mock.calls[0][0] as { options: Record<string, unknown> }
+    expect(room.options).toEqual({ audioCaptureDefaults: { deviceId: 'mic-2' }, videoCaptureDefaults: { deviceId: 'cam-9' } })
+  })
+
+  it('leaves the browser default alone when nothing was chosen', async () => {
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0, () => ({}))
+    controller.setZones(zones)
+    const onConnect = vi.fn()
+
+    await controller.update(options, pos(50, 50), remoteInZone, { onConnect, onDisconnect: vi.fn(), onError: vi.fn() }, () => {})
+
+    expect((onConnect.mock.calls[0][0] as { options: Record<string, unknown> }).options).toEqual({})
   })
 })

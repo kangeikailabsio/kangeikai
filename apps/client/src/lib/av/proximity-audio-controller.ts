@@ -1,8 +1,11 @@
 import type { AvatarState } from '@kangeikai/shared'
+import type { DeviceChoice } from './devices/device-choice-store'
 import { PUBLIC_LIVEKIT_TOKEN_ENDPOINT } from '$env/static/public'
 import { Room, Track } from 'livekit-client'
 import { attachRemoteAudioElements } from './attach-remote-audio'
 import { busyProximityVolume } from './busy-proximity-volume'
+import { DeviceChoiceStore } from './devices/device-choice-store'
+import { applyDeviceChoice } from './devices/room-device-options'
 import { fetchLiveKitToken } from './livekit-token-client'
 import { resolveProximityHysteresis } from './proximity-hysteresis'
 
@@ -51,7 +54,7 @@ export class ProximityAudioController {
   /** Hysteresis state (see `resolveProximityHysteresis`) — who counted as nearby as of the last `update()` call. */
   private readonly nearbyIdentities = new Set<string>()
 
-  constructor(tokenEndpoint: string = DEFAULT_TOKEN_ENDPOINT) {
+  constructor(tokenEndpoint: string = DEFAULT_TOKEN_ENDPOINT, private readonly loadDeviceChoice: () => DeviceChoice = () => new DeviceChoiceStore().load()) {
     this.tokenEndpoint = tokenEndpoint
     // Fail closed (issue #144): a freshly (re)connected participant starts silent instead of at
     // the browser default full volume, until this class's own per-frame `update()` below sets
@@ -71,6 +74,8 @@ export class ProximityAudioController {
    */
   async connect(options: ProximityAudioControllerOptions, _localPosition: AvatarPosition): Promise<void> {
     const { token, url } = await fetchLiveKitToken(this.tokenEndpoint, options)
+    // The same `Room` serves every return to the office, so the choice is read each time: it may have changed since.
+    applyDeviceChoice(this.room, this.loadDeviceChoice())
     await this.room.connect(url, token)
   }
 

@@ -1,6 +1,10 @@
 import type { ConnectionQuality, LocalTrack, LocalTrackPublication, Room } from 'livekit-client'
+import type { DeviceKind } from './devices/device-choice-store'
+import type { MediaFailureKind } from './devices/device-error'
 import type { ScreenShareQualityTier } from './screen-share-quality'
 import { ParticipantEvent, Track } from 'livekit-client'
+import { classifyMediaError } from './devices/device-error'
+import { applyDeviceChoice } from './devices/room-device-options'
 import { DEFAULT_SCREEN_SHARE_QUALITY_TIER, resolveScreenShareQuality } from './screen-share-quality'
 
 interface EnabledSnapshot {
@@ -48,6 +52,9 @@ export function isScreenShareCaptureSupported(nav: Navigator = navigator): boole
 export class MediaControls {
   private micUnavailable = false
   private cameraUnavailableFlag = false
+  /** Why the last attempt failed, `undefined` after a success (issue #245): blocked, no device or in use. */
+  private micFailure: MediaFailureKind | undefined
+  private cameraFailureKind: MediaFailureKind | undefined
   private busySuppression = false
   private busySnapshot: EnabledSnapshot | null = null
   /**
@@ -138,6 +145,14 @@ export class MediaControls {
     return this.room.localParticipant.isScreenShareEnabled
   }
 
+  get microphoneFailure(): MediaFailureKind | undefined {
+    return this.micFailure
+  }
+
+  get cameraFailure(): MediaFailureKind | undefined {
+    return this.cameraFailureKind
+  }
+
   get microphoneUnavailable(): boolean {
     return this.micUnavailable
   }
@@ -181,10 +196,40 @@ export class MediaControls {
     try {
       await this.room.localParticipant.setMicrophoneEnabled(enabled)
       this.micUnavailable = false
+      this.micFailure = undefined
     }
     catch (error) {
       this.micUnavailable = true
+      this.micFailure = classifyMediaError(error)
       console.warn('kangeikai: microphone unavailable (permission denied or no device)', error)
+    }
+  }
+
+  /**
+   * Switches to another microphone or camera (issue #245). The room's next capture is always
+   * pointed at it; when the person wants that device on (`microphoneIntent` / `cameraIntent`) it is
+   * also switched live. Off, it is only remembered and applies when the device is turned on.
+   * Saving the choice for later rooms and visits is the caller's job (`DeviceChoiceStore`).
+   * Resolves to `false`, with the reason on `microphoneFailure` / `cameraFailure`, when the switch
+   * fails (the new device is in use, say) instead of throwing.
+   */
+  async switchDevice(kind: DeviceKind, deviceId: string): Promise<boolean> {
+    applyDeviceChoice(this.room, kind === 'audioinput' ? { audioinput: deviceId } : { videoinput: deviceId })
+    const wanted = kind === 'audioinput' ? this.microphoneIntent : this.cameraIntent
+    if (!wanted)
+      return true
+
+    try {
+      await this.room.switchActiveDevice(kind, deviceId)
+      return true
+    }
+    catch (error) {
+      if (kind === 'audioinput')
+        this.micFailure = classifyMediaError(error)
+      else
+        this.cameraFailureKind = classifyMediaError(error)
+      console.warn(`kangeikai: could not switch the ${kind === 'audioinput' ? 'microphone' : 'camera'}`, error)
+      return false
     }
   }
 
@@ -193,9 +238,11 @@ export class MediaControls {
     try {
       await this.room.localParticipant.setCameraEnabled(enabled)
       this.cameraUnavailableFlag = false
+      this.cameraFailureKind = undefined
     }
     catch (error) {
       this.cameraUnavailableFlag = true
+      this.cameraFailureKind = classifyMediaError(error)
       console.warn('kangeikai: camera unavailable (permission denied or no device)', error)
     }
   }

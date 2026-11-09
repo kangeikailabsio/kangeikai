@@ -458,3 +458,84 @@ describe('mediaControls intent (issue #239)', () => {
     expect(participant.setMicrophoneEnabled).toHaveBeenLastCalledWith(false)
   })
 })
+
+describe('mediaControls failure kinds and device switching (issue #245)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function roomWithSwitch(participant: FakeLocalParticipant) {
+    const switchActiveDevice = vi.fn(async () => true)
+    const room = { localParticipant: participant, options: {} as Record<string, unknown>, switchActiveDevice } as unknown as Room
+    return { room, switchActiveDevice }
+  }
+
+  it('records why the microphone failed: blocked, no device, in use', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant))
+
+    participant.setMicrophoneEnabled.mockRejectedValueOnce(Object.assign(new Error('x'), { name: 'NotAllowedError' }))
+    await controls.setMicrophoneEnabled(true)
+    expect(controls.microphoneFailure).toBe('blocked')
+
+    participant.setMicrophoneEnabled.mockRejectedValueOnce(Object.assign(new Error('x'), { name: 'NotFoundError' }))
+    await controls.setMicrophoneEnabled(true)
+    expect(controls.microphoneFailure).toBe('not-found')
+
+    participant.setMicrophoneEnabled.mockRejectedValueOnce(Object.assign(new Error('x'), { name: 'NotReadableError' }))
+    await controls.setMicrophoneEnabled(true)
+    expect(controls.microphoneFailure).toBe('in-use')
+  })
+
+  it('clears the failure when the next attempt works, and the camera has its own', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant))
+    participant.setCameraEnabled.mockRejectedValueOnce(Object.assign(new Error('x'), { name: 'NotFoundError' }))
+
+    await controls.setCameraEnabled(true)
+    expect(controls.cameraFailure).toBe('not-found')
+    expect(controls.microphoneFailure).toBeUndefined()
+
+    await controls.setCameraEnabled(true)
+    expect(controls.cameraFailure).toBeUndefined()
+  })
+
+  it('switches the microphone live when it is on, and points later captures at it', async () => {
+    const { room, switchActiveDevice } = roomWithSwitch(createFakeLocalParticipant())
+    const controls = new MediaControls(room)
+    controls.declareIntent({ microphoneEnabled: true, cameraEnabled: false })
+
+    const switched = await controls.switchDevice('audioinput', 'mic-2')
+
+    expect(switched).toBe(true)
+    expect(switchActiveDevice).toHaveBeenCalledWith('audioinput', 'mic-2')
+    expect(room.options.audioCaptureDefaults).toEqual({ deviceId: 'mic-2' })
+  })
+
+  it('only remembers the device when the camera is off: it applies when it is turned on', async () => {
+    const { room, switchActiveDevice } = roomWithSwitch(createFakeLocalParticipant())
+    const controls = new MediaControls(room)
+    controls.declareIntent({ microphoneEnabled: true, cameraEnabled: false })
+
+    const switched = await controls.switchDevice('videoinput', 'cam-9')
+
+    expect(switched).toBe(true)
+    expect(switchActiveDevice).not.toHaveBeenCalled()
+    expect(room.options.videoCaptureDefaults).toEqual({ deviceId: 'cam-9' })
+  })
+
+  it('reports a failed live switch with its reason instead of throwing', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { room, switchActiveDevice } = roomWithSwitch(createFakeLocalParticipant())
+    switchActiveDevice.mockRejectedValueOnce(Object.assign(new Error('x'), { name: 'NotReadableError' }))
+    const controls = new MediaControls(room)
+    controls.declareIntent({ microphoneEnabled: true, cameraEnabled: false })
+
+    const switched = await controls.switchDevice('audioinput', 'mic-2')
+
+    expect(switched).toBe(false)
+    expect(controls.microphoneFailure).toBe('in-use')
+  })
+})

@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createAuth } from '../../src/auth/auth'
 import { createDb } from '../../src/db/client'
 import { runMigrations } from '../../src/db/migrate'
+import { DEV_USER_PASSWORD, DEV_USERS, seedDevUsers } from '../../src/db/seed-users'
 import { registerAuthRoutes } from '../../src/http/auth-route'
 
 // Needs a real PostgreSQL (docker compose -f docker-compose.dev.yml up postgres); skipped without one.
@@ -16,6 +17,8 @@ describe.skipIf(!databaseUrl)('auth routes against postgres (issue #231)', () =>
   let server: HttpServer
   let baseUrl: string
   let pool: ReturnType<typeof createDb>['pool']
+  let seedAuth: ReturnType<typeof createAuth>
+  let seedDb: ReturnType<typeof createDb>['db']
   const run = Date.now()
 
   beforeAll(async () => {
@@ -37,7 +40,9 @@ describe.skipIf(!databaseUrl)('auth routes against postgres (issue #231)', () =>
       res.setHeader('Access-Control-Allow-Credentials', 'true')
       next()
     })
-    registerAuthRoutes(app, createAuth(config, created.db), config)
+    seedDb = created.db
+    seedAuth = createAuth(config, created.db)
+    registerAuthRoutes(app, seedAuth, config)
     await new Promise<void>((resolve) => {
       server = app.listen(0, () => resolve())
     })
@@ -141,5 +146,18 @@ describe.skipIf(!databaseUrl)('auth routes against postgres (issue #231)', () =>
 
     expect(response.headers.get('access-control-allow-origin')).toBeNull()
     expect(response.headers.get('access-control-allow-credentials')).toBeNull()
+  })
+
+  it('seeds the dev users once, and they can sign in with the shared password', async () => {
+    await seedDevUsers(seedAuth, seedDb)
+    const second = await seedDevUsers(seedAuth, seedDb)
+
+    expect(second).toEqual([])
+    for (const dev of DEV_USERS) {
+      const response = await post('/sign-in/email', { email: dev.email, password: DEV_USER_PASSWORD })
+      expect(response.status).toBe(200)
+      const body = await response.json() as { user: { spriteType: string } }
+      expect(body.user.spriteType).toBe(dev.spriteType)
+    }
   })
 })

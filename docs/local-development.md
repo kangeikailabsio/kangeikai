@@ -10,15 +10,28 @@ pnpm install
 cp apps/server/.env.example apps/server/.env
 cp apps/client/.env.example apps/client/.env
 
-# LiveKit + PostgreSQL
-docker compose -f docker-compose.dev.yml up -d
-
-# create the tables (once, and again after pulling a new migration)
-pnpm --filter @kangeikai/server db:migrate
+# LiveKit + PostgreSQL, then the tables and two dev accounts (safe to re-run)
+pnpm dev:infra
 
 pnpm dev:server   # Colyseus + auth on http://localhost:2567
 pnpm dev:client   # SvelteKit on http://localhost:5173
 ```
+
+`pnpm dev:infra` is the same as running `docker compose -f docker-compose.dev.yml up -d --wait`,
+`pnpm --filter @kangeikai/server db:migrate` and `pnpm --filter @kangeikai/server db:seed` in order.
+Run `db:migrate` again after pulling a new migration.
+
+## Dev accounts
+
+`db:seed` creates two accounts, skipping any that already exist:
+
+| Email | Password | Avatar |
+| --- | --- | --- |
+| `ana@dev.test` | `dev-password-123` | woman |
+| `bruno@dev.test` | `dev-password-123` | man |
+
+The seed refuses to run unless `DATABASE_URL` points at a local database (`localhost`,
+`127.0.0.1` or the compose service), because the password is public.
 
 The server refuses to start when an auth variable is missing and lists every one that is. Email
 and password works with the placeholder Google values; the "Continue with Google" button needs a

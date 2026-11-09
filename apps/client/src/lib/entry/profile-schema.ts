@@ -1,14 +1,13 @@
 import type { AvatarSpriteType } from '@kangeikai/shared'
 import * as v from 'valibot'
 import { MAX_NAME_LENGTH } from './constants'
-import { generateDefaultName } from './default-name'
 
 const characterPieceRefSchema = v.object({
   style: v.number(),
   variant: v.optional(v.number()),
 })
 
-const characterSelectionSchema = v.object({
+export const characterSelectionSchema = v.object({
   body: v.number(),
   eyes: v.number(),
   outfit: characterPieceRefSchema,
@@ -49,21 +48,12 @@ export const displayNameSchema = v.pipe(
 export const avatarTypeSchema = v.picklist(AVATAR_TYPES)
 
 /**
- * Lenient schema for parsing a stored `GuestProfile` (data-model.md): a per-field
- * `v.fallback()` recovers a corrupted/missing `displayName` or `avatarType` independently
- * (FR-008) rather than discarding the whole stored blob. A structurally invalid blob (not an
- * object at all) still fails `v.safeParse()` outright — there's nothing per-field to fall
- * back to — and callers treat that the same as "no stored profile".
+ * What the entry form works with and the game is started from: the account's name and avatar
+ * (issue #232). `character` is `undefined` for an account that never picked an avatar, in which
+ * case the form generates one.
  */
-export const guestProfileSchema = v.object({
-  displayName: v.fallback(displayNameSchema, () => generateDefaultName()),
-  avatarType: v.fallback(avatarTypeSchema, 'man'),
-  /**
-   * Absent for a profile saved before the Character Creator existed, or if the stored blob is
-   * corrupted — `avatarType` above is the fallback the map still renders from either way
-   * (issue #169's deliberate non-removal, until issue #170 wires the map up to this instead).
-   */
-  character: v.fallback(v.optional(characterProfileSchema), undefined),
-})
-
-export type GuestProfile = v.InferOutput<typeof guestProfileSchema>
+export interface Profile {
+  displayName: string
+  avatarType: AvatarSpriteType
+  character?: CharacterProfile
+}

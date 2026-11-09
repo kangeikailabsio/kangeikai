@@ -10,6 +10,8 @@
 
 {#if state === 'connecting'}
   <div class='status connecting' role='status'>Reconnecting…</div>
+{:else if state === 'replaced'}
+  <div class='status disconnected' role='alert'>This account joined from another tab or device. Refresh the page to take over again.</div>
 {:else if state === 'disconnected'}
   <div class='status disconnected' role='alert'>You were disconnected. Refresh the page to reconnect.</div>
 {/if}

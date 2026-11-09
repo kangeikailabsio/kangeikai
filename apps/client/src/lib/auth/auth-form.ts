@@ -68,3 +68,42 @@ export function validateSignIn(input: SignInInput): FormResult<SignInValue, 'ema
 export function validateSignUp(input: SignUpInput): FormResult<SignUpValue, 'name' | 'email' | 'password'> {
   return validate(signUpSchema, input)
 }
+
+interface AuthErrorLike {
+  status?: number
+  code?: string
+}
+
+/**
+ * Turns whatever the auth client reports into a message safe to show. Server text is never
+ * echoed (it can leak internals); known cases get a specific, actionable sentence.
+ */
+export function describeAuthError(error: unknown): string {
+  const { status, code } = (error && typeof error === 'object' ? error : {}) as AuthErrorLike
+
+  if (error instanceof TypeError || status === 0)
+    return 'Couldn\'t reach the server. Check your connection and try again.'
+  if (code?.startsWith('USER_ALREADY_EXISTS'))
+    return 'An account with this email already exists. Try signing in.'
+  if (code === 'INVALID_EMAIL_OR_PASSWORD')
+    return 'Wrong email or password.'
+  if (status === 429)
+    return 'Too many attempts. Wait a moment and try again.'
+  return 'Something went wrong. Try again.'
+}
+
+/**
+ * The message for the `?error=` code better-auth appends when a Google sign in fails and sends the
+ * person back to the form (`errorCallbackURL`). The code is never shown as is. Empty when there is
+ * no error. `account_not_linked` is the common one: better-auth refuses to attach Google to an
+ * existing account whose email was never verified, and there is no email verification yet.
+ */
+export function describeOAuthError(code: string | null): string {
+  if (!code)
+    return ''
+  if (code === 'account_not_linked')
+    return 'An account with this email already exists. Sign in with your email and password instead.'
+  if (code === 'access_denied')
+    return 'Google sign-in was cancelled.'
+  return 'Couldn\'t sign in with Google. Try again.'
+}

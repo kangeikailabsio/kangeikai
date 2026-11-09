@@ -27,7 +27,6 @@ import { buildVideoOverlayTiles } from '$lib/av/video-overlay-tiles'
 import { buildCharacterManifest } from '$lib/character/character-pieces'
 import { composeCharacterSheets, loadImageElement } from '$lib/character/compose-character'
 import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
-import { GuestIdStore } from '$lib/entry/guest-id-store'
 import { clampedCameraCenter, clampZoom, fitToMapZoom } from '$lib/game/camera/camera-math'
 import { Avatar, AVATAR_FRAME_RANGES, feetHitbox, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
 import { resolveHoverTargetPosition } from '$lib/game/entities/avatar-hover'
@@ -283,29 +282,23 @@ interface RemoteAvatarEntry {
 const REMOTE_AVATAR_SMOOTHING_TAU_SECONDS = 0.08
 
 /**
- * Passed via `game.scene.add('office', OfficeScene, true, data)` — the confirmed guest
- * identity from spec 004's entry flow (`contracts/guest-profile-handoff.md`).
+ * Passed via `game.scene.add('office', OfficeScene, true, data)` — the signed-in person's
+ * confirmed profile from the entry form, plus the ticket to join with (issue #232).
  */
 export interface OfficeSceneData {
   displayName: string
   spriteType: AvatarSpriteType
   /**
-   * Typed on the entry form; validated server-side (`OfficeRoom.onAuth`, contracts/office-
-   * room-protocol.md) — a shared room lock, not part of the guest's identity.
+   * Short-lived pass for this join (`POST /api/session-ticket`), checked server-side in
+   * `OfficeRoom.onAuth` (issue #232). Who the person is comes from the account behind it.
    */
-  accessCode: string
+  ticket: string
   /**
-   * The Character Creator's composed idle/walk sheets (issue #167/#168), if the guest has one —
+   * The Character Creator's composed idle/walk sheets (issue #167/#168), if the account has one —
    * `undefined` for a profile saved before the creator existed. Renders the *local* avatar
    * (issue #170).
    */
   customAvatarSheets?: { idle: string, walk: string }
-  /**
-   * The raw selection behind `customAvatarSheets` — sent to the server at join (issue #171) so
-   * other players can compose the same appearance themselves (only the small selection travels
-   * over the network, never the images). `undefined` alongside `customAvatarSheets` above.
-   */
-  characterSelection?: CharacterSelection
 }
 
 export class OfficeScene extends Phaser.Scene {
@@ -351,7 +344,6 @@ export class OfficeScene extends Phaser.Scene {
   private hoveredTarget: HoverTarget | undefined
   private hoverRing: Phaser.GameObjects.Arc | undefined
   private readonly busyPresenceStore = new BusyPresenceStore()
-  private readonly guestIdStore = new GuestIdStore()
   private readonly roomConnection = new RoomConnection()
   private readonly proximityAudioController = new ProximityAudioController()
   private readonly privateRoomController = new PrivateRoomController()
@@ -377,11 +369,9 @@ export class OfficeScene extends Phaser.Scene {
   private spriteType!: AvatarSpriteType
   /** Set from `OfficeSceneData.customAvatarSheets` — see `localVisualKey()`. */
   private customAvatarSheets: { idle: string, walk: string } | undefined
-  /** Set from `OfficeSceneData.characterSelection` — sent to the server at join (issue #171). */
-  private characterSelection: CharacterSelection | undefined
   /** Computed once — reused by `applyRemoteCharacterAppearance` to sanity-check a remote selection before composing it. */
   private readonly characterManifest = buildCharacterManifest()
-  private accessCode!: string
+  private ticket!: string
   private presence: AvatarPresence = 'available'
   private mediaControls: MediaControls | undefined
   /** Tracks the screen-share overlay's previous open state, to edge-trigger `movementController.clear()` (#100) only on the transition into it, not every frame it stays open. */
@@ -425,8 +415,7 @@ export class OfficeScene extends Phaser.Scene {
     this.displayName = data.displayName
     this.spriteType = data.spriteType
     this.customAvatarSheets = data.customAvatarSheets
-    this.characterSelection = data.characterSelection
-    this.accessCode = data.accessCode
+    this.ticket = data.ticket
   }
 
   preload(): void {
@@ -446,7 +435,7 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
-  /** Which texture/animation key the *local* avatar's sprite should use — the Character Creator's `custom` sheets when the guest has one, else the static `spriteType` sheets (issue #170). */
+  /** Which texture/animation key the *local* avatar's sprite should use — the Character Creator's `custom` sheets when the account has one, else the static `spriteType` sheets (issue #170). */
   private localVisualKey(): AvatarSpriteType | 'custom' {
     return this.customAvatarSheets ? 'custom' : this.spriteType
   }
@@ -573,12 +562,8 @@ export class OfficeScene extends Phaser.Scene {
     this.presence = this.busyPresenceStore.load()
     this.avatarNameLabel.setPresence(this.presence)
     this.roomConnection.connect({
-      displayName: this.displayName,
-      spriteType: this.spriteType,
-      accessCode: this.accessCode,
+      ticket: this.ticket,
       presence: this.presence,
-      characterSelection: this.characterSelection,
-      guestId: this.guestIdStore.get(),
     })
       .then(() => {
         this.game.events.emit(ROOM_JOINED_EVENT)

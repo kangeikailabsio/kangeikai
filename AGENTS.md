@@ -25,7 +25,9 @@ chat. See `docs/mvp-plan.md` for the product plan.
 - **Auth**: [better-auth](https://www.better-auth.com), mounted on the Express app of
   `apps/server` under `/api/auth/*` (the client is a static SPA and cannot host it). Email and
   password plus Google. Config lives in `apps/server/src/auth/` and is read from env vars that
-  the server requires at boot (`apps/server/.env.example`).
+  the server requires at boot (`apps/server/.env.example`). Joining the Colyseus room uses a
+  short-lived signed ticket (`POST /api/session-ticket`, checked in `OfficeRoom.onAuth`) instead
+  of the session cookie, and `PUT /api/profile` is how the account's name and avatar are saved.
 - **Database**: PostgreSQL through Drizzle ORM (`pg` driver). It holds identity and profile
   only. Better-auth's ids are integer identity columns. Migrations are SQL files in
   `apps/server/drizzle`, applied with `pnpm --filter @kangeikai/server db:migrate`.

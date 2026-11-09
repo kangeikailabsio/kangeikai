@@ -211,3 +211,14 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   trocar o dispositivo dentro da sala (#247). Dispositivo bloqueado, ausente ou em uso é explicado na
   tela, mas nunca impede de entrar. No e2e só dá para testar com o microfone e a câmera falsos do
   Chromium; a troca entre dispositivos reais e os pedidos de permissão se conferem à mão.
+
+- **Menu de dispositivos na sala, sem avisos de desplugar** — [#247](https://github.com/kangeikailabsio/kangeikai/issues/247),
+  parte do épico [#244](https://github.com/kangeikailabsio/kangeikai/issues/244): os botões de microfone e
+  câmera do HUD viram botões divididos. A parte principal continua ligando e desligando; a seta abre um
+  menu (`role='menu'`, setas e Escape) com os dispositivos e o atual marcado. Escolher um dispositivo o
+  guarda para as próximas salas e visitas e troca na sala atual (ao vivo só se estiver ligado; desligado,
+  só aponta a próxima captura). O menu fica desligado em "Busy", atualiza no `devicechange` e, sem
+  dispositivos, explica o motivo. Ficaram de fora: a saída de áudio (alto-falante) e avisar quando o
+  dispositivo em uso é desplugado. O e2e só enxerga o microfone e a câmera falsos do Chromium; trocar
+  entre dois dispositivos reais, um fone Bluetooth conectando com o menu aberto e trocar numa sala
+  privada e sair andando se conferem à mão.

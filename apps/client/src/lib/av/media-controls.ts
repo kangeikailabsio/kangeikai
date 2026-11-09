@@ -50,6 +50,12 @@ export class MediaControls {
   private cameraUnavailableFlag = false
   private busySuppression = false
   private busySnapshot: EnabledSnapshot | null = null
+  /**
+   * What the person last asked for, recorded when they ask and not when the publish finishes
+   * (issue #239). `undefined` until the first request. See `microphoneIntent`.
+   */
+  private requestedMicrophone: boolean | undefined
+  private requestedCamera: boolean | undefined
   private screenShareQualityTier: ScreenShareQualityTier = DEFAULT_SCREEN_SHARE_QUALITY_TIER
   private screenShareAudioPreference = false
 
@@ -90,6 +96,42 @@ export class MediaControls {
 
   get cameraEnabled(): boolean {
     return this.room.localParticipant.isCameraEnabled
+  }
+
+  /**
+   * Whether the person wants their microphone on — what to carry across a room switch.
+   *
+   * Not `microphoneEnabled`: that is read from the published track and stays `false` from the
+   * moment a publish starts until it completes (`getUserMedia` plus publishing, a few hundred
+   * ms), and `false` for good once the room it belongs to is disconnected. Handing that over made
+   * a person who left a private room right after joining it come back to the office muted
+   * (issue #239). The intent is recorded synchronously when the person (or a room hand-off)
+   * asks, survives a rejected publish so the next room can retry it, and while busy it is what
+   * `endBusy` will restore, not the suppression.
+   */
+  get microphoneIntent(): boolean {
+    if (this.busySuppression && this.busySnapshot) {
+      return this.busySnapshot.microphoneEnabled
+    }
+    return this.requestedMicrophone ?? this.microphoneEnabled
+  }
+
+  /** Same as `microphoneIntent`, for the camera. */
+  get cameraIntent(): boolean {
+    if (this.busySuppression && this.busySnapshot) {
+      return this.busySnapshot.cameraEnabled
+    }
+    return this.requestedCamera ?? this.cameraEnabled
+  }
+
+  /**
+   * Sets both intents up front, synchronously. A room hand-off (`OfficeScene.applyMediaControls`)
+   * publishes the microphone, then the camera, one after the other: without this the camera's
+   * intent would stay unknown while the microphone publish is still in flight.
+   */
+  declareIntent(intent: EnabledSnapshot): void {
+    this.requestedMicrophone = intent.microphoneEnabled
+    this.requestedCamera = intent.cameraEnabled
   }
 
   get screenShareEnabled(): boolean {
@@ -135,6 +177,7 @@ export class MediaControls {
   }
 
   async setMicrophoneEnabled(enabled: boolean): Promise<void> {
+    this.requestedMicrophone = enabled
     try {
       await this.room.localParticipant.setMicrophoneEnabled(enabled)
       this.micUnavailable = false
@@ -146,6 +189,7 @@ export class MediaControls {
   }
 
   async setCameraEnabled(enabled: boolean): Promise<void> {
+    this.requestedCamera = enabled
     try {
       await this.room.localParticipant.setCameraEnabled(enabled)
       this.cameraUnavailableFlag = false
@@ -245,8 +289,8 @@ export class MediaControls {
       this.busySnapshot = intended
         ? { ...intended }
         : {
-            microphoneEnabled: this.microphoneEnabled,
-            cameraEnabled: this.cameraEnabled,
+            microphoneEnabled: this.microphoneIntent,
+            cameraEnabled: this.cameraIntent,
           }
       this.busySuppression = true
     }

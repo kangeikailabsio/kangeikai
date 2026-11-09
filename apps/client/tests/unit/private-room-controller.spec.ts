@@ -5,21 +5,10 @@ import { PrivateRoomController } from '$lib/av/private-room-controller'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const events: string[] = []
-// What the fake local participant reports; `disconnect()` flips both to false, like a real
-// livekit-client Room, which stops and unpublishes the local tracks.
-const localMedia = { microphone: true, camera: false }
-
 vi.mock('livekit-client', () => {
   class FakeRoom {
-    localParticipant = {
-      get isMicrophoneEnabled() { return localMedia.microphone },
-      get isCameraEnabled() { return localMedia.camera },
-    }
-
     connect = vi.fn(async () => {})
     disconnect = vi.fn(async () => {
-      localMedia.microphone = false
-      localMedia.camera = false
       // A real Room.disconnect() only resolves once its local tracks (mic/camera) are actually
       // stopped — a microtask delay here stands in for that, so a test relying on call order
       // alone (rather than resolution order) would pass for the wrong reason.
@@ -58,8 +47,6 @@ function pos(x: number, y: number, presence: AvatarPosition['presence'] = 'avail
 describe('privateRoomController teardown ordering', () => {
   afterEach(() => {
     events.length = 0
-    localMedia.microphone = true
-    localMedia.camera = false
     vi.clearAllMocks()
   })
 
@@ -253,47 +240,21 @@ describe('privateRoomController bounded retry and manual retry (issue #225)', ()
   })
 })
 
-describe('privateRoomController media state hand-off on leave (issue #222)', () => {
+describe('privateRoomController leaving into another zone', () => {
   afterEach(() => {
     events.length = 0
-    localMedia.microphone = true
-    localMedia.camera = false
     vi.clearAllMocks()
   })
 
-  const remoteInZone = new Map([['remote-1', pos(60, 60)]])
-
-  async function leaveZone(media: { microphone: boolean, camera: boolean }) {
-    const controller = new PrivateRoomController('http://fake/livekit-token')
-    controller.setZones(zones)
-    const h = { onConnect: vi.fn(), onDisconnect: vi.fn(), onError: vi.fn() }
-    await controller.update(options, pos(50, 50), remoteInZone, h, () => {})
-    localMedia.microphone = media.microphone
-    localMedia.camera = media.camera
-    await controller.update(options, pos(50, 50), new Map(), h, () => {})
-    return h
-  }
-
-  it.each([
-    { microphone: true, camera: false },
-    { microphone: true, camera: true },
-    { microphone: false, camera: false },
-    { microphone: false, camera: true },
-  ])('hands onDisconnect the pre-disconnect state %j', async (media) => {
-    const h = await leaveZone(media)
-
-    expect(h.onDisconnect).toHaveBeenCalledExactlyOnceWith({ microphoneEnabled: media.microphone, cameraEnabled: media.camera })
-  })
-
-  it('hands over the state when switching straight into a different private zone', async () => {
+  it('reports the end of the first room exactly once when switching straight into a different private zone', async () => {
     const twoZones: PrivateZone[] = [...zones, { id: 2, name: 'desk-02', x: 300, y: 0, width: 100, height: 100 }]
     const controller = new PrivateRoomController('http://fake/livekit-token')
     controller.setZones(twoZones)
     const h = { onConnect: vi.fn(), onDisconnect: vi.fn(), onError: vi.fn() }
-    await controller.update(options, pos(50, 50), remoteInZone, h, () => {})
+    await controller.update(options, pos(50, 50), new Map([['remote-1', pos(60, 60)]]), h, () => {})
 
     await controller.update(options, pos(350, 50), new Map([['remote-2', pos(360, 60)]]), h, () => {})
 
-    expect(h.onDisconnect).toHaveBeenCalledExactlyOnceWith({ microphoneEnabled: true, cameraEnabled: false })
+    expect(h.onDisconnect).toHaveBeenCalledOnce()
   })
 })

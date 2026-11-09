@@ -1,14 +1,13 @@
 import type { Page } from '@playwright/test'
 import { expect, test } from '@playwright/test'
 import { newPlayer } from '../support/accounts'
-import { enterTheOffice, muteButton, teleport } from '../support/game'
+import { enterTheOffice, muteButton, SETTLE_AFTER_ROOM_SWITCH_MS, teleport, waitForRoom } from '../support/game'
 import { OUTSIDE_ZONES, privateZoneCenter } from '../support/zones'
 
-/** A remote person's tile once the private call has really connected: an avatar with its mic dot (a pending tile only shows a spinner). */
+/** A remote person's tile once the call has connected: an avatar with its mic dot (a pending tile only shows a spinner). */
 const connectedTile = (page: Page, name: string) => page.locator('.tile', { hasText: name }).locator('.mic-dot')
-/** The green dot of a remote person's tile: their microphone is published and on. */
-const micOnDot = (page: Page, name: string) => page.locator('.tile', { hasText: name }).locator('.mic-dot.on')
 const pendingTile = (page: Page, name: string) => page.locator('.tile', { hasText: name }).locator('.connecting-spinner')
+const cameraButton = (page: Page) => page.getByRole('button', { name: /Turn camera/ })
 
 test('leaving a private room keeps each person\'s microphone as it was (issue #222)', async ({ browser }) => {
   const ana = await newPlayer(browser, 'Ana')
@@ -22,24 +21,19 @@ test('leaving a private room keeps each person\'s microphone as it was (issue #2
   await muteButton(ana.page).click()
   await expect(ana.page.getByRole('button', { name: '🔇 Unmute' })).toBeVisible()
 
-  // They meet in a private zone: the call moves to a private room.
+  // They meet in a private zone: the call moves to a private room and they talk for a few seconds.
   const desk = privateZoneCenter('desk-01')
   await teleport(ana.page, desk)
   await teleport(bruno.page, desk)
-  await expect(connectedTile(ana.page, 'Bruno')).toBeVisible({ timeout: 30_000 })
-  await expect(connectedTile(bruno.page, 'Ana')).toBeVisible({ timeout: 30_000 })
-  // A normal conversation: Bruno's microphone is published in the private room (his green dot, seen
-  // by Ana) and they talk for a few seconds. Leaving right after joining is a different case, which
-  // still loses the microphone: see the `fixme` test below.
-  await expect(micOnDot(ana.page, 'Bruno')).toBeVisible({ timeout: 30_000 })
+  await waitForRoom(ana.page, 'private')
+  await waitForRoom(bruno.page, 'private')
+  await expect(connectedTile(ana.page, 'Bruno')).toBeVisible()
   await ana.page.waitForTimeout(3_000)
 
   // Bruno walks out: the private call ends and both go back to the office.
   await teleport(bruno.page, OUTSIDE_ZONES)
-  await expect(ana.page.locator('.tile', { hasText: 'Bruno' })).toHaveCount(0, { timeout: 30_000 })
-  // Back in the office the audio reconnects; give the hand-off time to finish before asserting,
-  // otherwise the label could still be the one from before the switch and the check proves nothing.
-  await ana.page.waitForTimeout(4_000)
+  await waitForRoom(bruno.page, 'office')
+  await ana.page.waitForTimeout(SETTLE_AFTER_ROOM_SWITCH_MS)
 
   await expect(bruno.page.getByRole('button', { name: '🎤 Mute' })).toBeVisible()
   await expect(ana.page.getByRole('button', { name: '🔇 Unmute' })).toBeVisible()
@@ -47,11 +41,31 @@ test('leaving a private room keeps each person\'s microphone as it was (issue #2
   await bruno.context.close()
 })
 
-// Found by this suite (issue #239). Leaving a private room within about a second of joining it
-// brings the person back to the office with the microphone off; the client logs "microphone
-// unavailable ... Cancelled publication by calling unpublish". The cause is not confirmed yet.
-// Remove `fixme` once #239 is fixed.
-test.fixme('leaving a private room right after joining it keeps the microphone on', async ({ browser }) => {
+// Issue #239: the microphone and camera stay on when the person leaves while a publish is still in
+// flight, which is the case in the first moments after a private room connects.
+test('leaving a private room as soon as its call is up keeps the microphone and camera on (issue #239)', async ({ browser }) => {
+  const ana = await newPlayer(browser, 'Ana')
+  const bruno = await newPlayer(browser, 'Bruno')
+  await enterTheOffice(ana.page)
+  await enterTheOffice(bruno.page)
+  await cameraButton(bruno.page).click()
+  await expect(bruno.page.getByRole('button', { name: '📷 Turn camera off' })).toBeVisible()
+
+  const desk = privateZoneCenter('desk-01')
+  await teleport(ana.page, desk)
+  await teleport(bruno.page, desk)
+  await waitForRoom(bruno.page, 'private')
+  await teleport(bruno.page, OUTSIDE_ZONES)
+  await waitForRoom(bruno.page, 'office')
+  await bruno.page.waitForTimeout(SETTLE_AFTER_ROOM_SWITCH_MS)
+
+  await expect(bruno.page.getByRole('button', { name: '🎤 Mute' })).toBeVisible()
+  await expect(bruno.page.getByRole('button', { name: '📷 Turn camera off' })).toBeVisible()
+  await ana.context.close()
+  await bruno.context.close()
+})
+
+test('leaving a zone while its private room is still connecting keeps the microphone on (issue #239)', async ({ browser }) => {
   const ana = await newPlayer(browser, 'Ana')
   const bruno = await newPlayer(browser, 'Bruno')
   await enterTheOffice(ana.page)
@@ -60,10 +74,12 @@ test.fixme('leaving a private room right after joining it keeps the microphone o
   const desk = privateZoneCenter('desk-01')
   await teleport(ana.page, desk)
   await teleport(bruno.page, desk)
-  await expect(connectedTile(bruno.page, 'Ana')).toBeVisible({ timeout: 30_000 })
+  // Bruno already sees Ana (a proximity tile in the office) but the private room is not up yet.
+  await expect(connectedTile(bruno.page, 'Ana')).toBeVisible()
   await teleport(bruno.page, OUTSIDE_ZONES)
-  await bruno.page.waitForTimeout(4_000)
+  await bruno.page.waitForTimeout(SETTLE_AFTER_ROOM_SWITCH_MS)
 
+  await waitForRoom(bruno.page, 'office')
   await expect(bruno.page.getByRole('button', { name: '🎤 Mute' })).toBeVisible()
   await ana.context.close()
   await bruno.context.close()
@@ -90,6 +106,7 @@ test('a failed private-room connection shows an error that "Try again" recovers 
   blocked = false
   await bruno.page.getByRole('button', { name: 'Try again' }).click()
 
+  await waitForRoom(bruno.page, 'private')
   await expect(connectedTile(bruno.page, 'Ana')).toBeVisible({ timeout: 30_000 })
   await expect(connectedTile(ana.page, 'Bruno')).toBeVisible({ timeout: 30_000 })
   await ana.context.close()

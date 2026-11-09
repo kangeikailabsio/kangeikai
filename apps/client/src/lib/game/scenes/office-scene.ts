@@ -1,3 +1,4 @@
+import type { MediaIntent } from '$lib/av/devices/media-intent'
 import type { ScreenShareHandoff } from '$lib/av/media-controls'
 import type { AvatarPosition, ProximityAudioControllerOptions } from '$lib/av/proximity-audio-controller'
 import type { ScreenShareQualityTier } from '$lib/av/screen-share-quality'
@@ -299,6 +300,11 @@ export interface OfficeSceneData {
    * (issue #170).
    */
   customAvatarSheets?: { idle: string, walk: string }
+  /**
+   * Whether to enter with the microphone and camera on: what the switches on the entry screen
+   * said (issue #246).
+   */
+  initialMedia: MediaIntent
 }
 
 export class OfficeScene extends Phaser.Scene {
@@ -372,6 +378,7 @@ export class OfficeScene extends Phaser.Scene {
   /** Computed once — reused by `applyRemoteCharacterAppearance` to sanity-check a remote selection before composing it. */
   private readonly characterManifest = buildCharacterManifest()
   private ticket!: string
+  private initialMedia!: MediaIntent
   private presence: AvatarPresence = 'available'
   private mediaControls: MediaControls | undefined
   /** Tracks the screen-share overlay's previous open state, to edge-trigger `movementController.clear()` (#100) only on the transition into it, not every frame it stays open. */
@@ -416,6 +423,7 @@ export class OfficeScene extends Phaser.Scene {
     this.spriteType = data.spriteType
     this.customAvatarSheets = data.customAvatarSheets
     this.ticket = data.ticket
+    this.initialMedia = data.initialMedia
   }
 
   preload(): void {
@@ -567,7 +575,7 @@ export class OfficeScene extends Phaser.Scene {
     })
       .then(() => {
         this.game.events.emit(ROOM_JOINED_EVENT)
-        this.connectProximityAudio()
+        this.connectProximityAudio(this.initialMedia.microphoneEnabled, this.initialMedia.cameraEnabled)
       })
       .catch((error: unknown) => {
         console.warn('kangeikai: failed to connect to the shared room', error)

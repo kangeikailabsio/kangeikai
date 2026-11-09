@@ -200,3 +200,14 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   mão). Achado lateral, fora do épico: ao ir do escritório para uma sala privada o app desconecta a sala
   antiga sem esperar o microfone ser liberado (o #137 só cobre a volta), então a corrida de "dispositivo
   ocupado" ainda é possível nessa direção.
+
+- **Tela de entrada com prévia de dispositivos, sem teste** — [#246](https://github.com/kangeikailabsio/kangeikai/issues/246),
+  parte do épico [#244](https://github.com/kangeikailabsio/kangeikai/issues/244): a tela "Join the space"
+  liga microfone e câmera sozinha, mostra a prévia da câmera e deixa escolher o dispositivo de cada um com
+  um interruptor liga/desliga; o estado dos interruptores é como a pessoa entra na sala. A prévia é
+  independente da sala (`DevicePreview`): ela é parada ao clicar em "Enter" e a sala captura de novo com o
+  dispositivo escolhido, porque o LiveKit para as faixas ao desconectar e não dá para entregá-las. Ficaram
+  de fora: medidor de volume do microfone e botão de teste (viram a modal da #248), saída de áudio, e
+  trocar o dispositivo dentro da sala (#247). Dispositivo bloqueado, ausente ou em uso é explicado na
+  tela, mas nunca impede de entrar. No e2e só dá para testar com o microfone e a câmera falsos do
+  Chromium; a troca entre dispositivos reais e os pedidos de permissão se conferem à mão.

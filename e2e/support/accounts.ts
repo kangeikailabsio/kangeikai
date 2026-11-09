@@ -1,4 +1,4 @@
-import type { BrowserContext } from '@playwright/test'
+import type { Browser, BrowserContext, Page } from '@playwright/test'
 import { expect } from '@playwright/test'
 import { CLIENT_URL, SERVER_URL } from './env'
 
@@ -26,4 +26,19 @@ export async function signUp(context: BrowserContext, account: Account): Promise
     data: { name: account.name, email: account.email, password: account.password },
   })
   expect(response.ok(), `sign up ${account.email}`).toBe(true)
+}
+
+export interface Player {
+  account: Account
+  context: BrowserContext
+  page: Page
+}
+
+/** A signed-in player in a context of their own (a separate browser profile, as another person would have). */
+export async function newPlayer(browser: Browser, name: string): Promise<Player> {
+  // Contexts made with `browser.newContext()` do not inherit the config's `use` options.
+  const context = await browser.newContext({ permissions: ['microphone', 'camera'] })
+  const account = newAccount(name)
+  await signUp(context, account)
+  return { account, context, page: await context.newPage() }
 }

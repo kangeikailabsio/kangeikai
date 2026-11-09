@@ -1,0 +1,21 @@
+{
+  "name": "@kangeikai/e2e",
+  "type": "module",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "test:e2e": "playwright test",
+    "install:browsers": "playwright install chromium",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@kangeikai/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.0",
+    "@types/node": "26.2.0",
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.1",
+    "typescript": "^6.0.3"
+  }
+}

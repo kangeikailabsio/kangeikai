@@ -28,3 +28,7 @@ plans/*
 docs/how-to-deliver.md
 docs/how-to-discover.md
 docs/how-to-version.md
+
+# Playwright (e2e)
+e2e/playwright-report/
+e2e/test-results/

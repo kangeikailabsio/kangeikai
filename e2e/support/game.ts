@@ -4,6 +4,8 @@ import { expect } from '@playwright/test'
 interface E2eHook {
   teleport: (x: number, y: number) => void
   position: () => { x: number, y: number }
+  walkTo: (x: number, y: number) => void
+  isWalking: () => boolean
   activeRoom: () => 'office' | 'private'
 }
 
@@ -35,3 +37,9 @@ export async function waitForRoom(page: Page, room: 'office' | 'private'): Promi
 
 /** Gives the office audio time to reconnect after a room switch before a state is asserted, so a late change is not missed. */
 export const SETTLE_AFTER_ROOM_SWITCH_MS = 4_000
+
+/** Walks along the game's own route-finding (around furniture and walls) and resolves once the avatar has arrived. */
+export async function walkTo(page: Page, point: { x: number, y: number }): Promise<void> {
+  await page.evaluate(({ x, y }) => (window as unknown as { __kangeikaiE2E: E2eHook }).__kangeikaiE2E.walkTo(x, y), point)
+  await page.waitForFunction(() => !(window as unknown as { __kangeikaiE2E: E2eHook }).__kangeikaiE2E.isWalking(), undefined, { timeout: 60_000 })
+}

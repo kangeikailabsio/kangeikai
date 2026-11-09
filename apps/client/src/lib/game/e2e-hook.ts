@@ -11,6 +11,10 @@ export interface E2eHook {
   /** Puts the local avatar at the given map position (px); the next frame syncs it to the server like any move. */
   teleport: (x: number, y: number) => void
   position: () => { x: number, y: number }
+  /** Walks to the point along the same route-finding the click-to-move uses, without the ground marker. */
+  walkTo: (x: number, y: number) => void
+  /** Whether a `walkTo` (or a click) is still under way. */
+  isWalking: () => boolean
   /** Which LiveKit room the call is in: `private` only once a private room is actually connected (a nearby person's tile shows up in the office long before that). */
   activeRoom: () => 'office' | 'private'
 }

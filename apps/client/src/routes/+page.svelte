@@ -1,12 +1,17 @@
 <script lang='ts'>
-  import { FEATURES, GITHUB_URL, HERO, LICENSE_URL, STEPS } from '$lib/landing/landing-content'
+  import { FEATURES, GITHUB_URL, HERO, LICENSE_URL, mediaSources, STEPS } from '$lib/landing/landing-content'
   import LandingMedia from '$lib/landing/landing-media.svelte'
 
   const title = 'Kangeikai — a virtual office you can walk around in'
+  // The hero's poster is what the browser paints first: ask for it right away instead of when the markup is reached.
+  const heroPoster = HERO.media.clip ? mediaSources(HERO.media.clip).poster : undefined
   const description = 'Open-source virtual office: move your avatar across a shared 2D map and talk by voice and video to whoever is nearby.'
 </script>
 
 <svelte:head>
+  {#if heroPoster}
+    <link rel='preload' as='image' href={heroPoster} fetchpriority='high' />
+  {/if}
   <title>{title}</title>
   <meta name='description' content={description} />
   <meta property='og:type' content='website' />
@@ -33,7 +38,7 @@
         <a class='button ghost large' href='/sign-in'>Sign in</a>
       </div>
       <div class='hero-media'>
-        <LandingMedia media={HERO.media} />
+        <LandingMedia media={HERO.media} eager />
       </div>
     </section>
 

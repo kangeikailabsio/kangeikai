@@ -2,18 +2,31 @@
  * Everything the landing page (`routes/+page.svelte`) says and shows, in one place so the copy
  * and the media can be swapped without touching markup (issue #229).
  *
- * Media is a placeholder until `src` is set: drop the gif/video into `apps/client/static/landing/`
- * and set `src` to its path (e.g. `/landing/proximity-chat.mp4`).
+ * Media are short muted loops recorded by `pnpm capture:landing` (issue #242): a `clip` name
+ * stands for `static/landing/<clip>.mp4`, `<clip>.webm` and `<clip>-poster.jpg`. A feature without
+ * a `clip` shows a placeholder until its clip exists.
  */
 
-export type LandingMediaKind = 'gif' | 'video'
-
 export interface LandingMedia {
-  kind: LandingMediaKind
-  /** Public path of the file. Leave undefined to show the placeholder. */
-  src?: string
-  /** Describes what the clip will show — used as the placeholder label and as alt text. */
+  /** Name of the clip in `static/landing/`; leave undefined to show the placeholder. */
+  clip?: string
+  /** Describes what the clip shows — used as the placeholder label and as the video's accessible name. */
   alt: string
+}
+
+export interface LandingMediaSources {
+  mp4: string
+  webm: string
+  poster: string
+}
+
+/** Public paths of a clip's files. */
+export function mediaSources(clip: string): LandingMediaSources {
+  return {
+    mp4: `/landing/${clip}.mp4`,
+    webm: `/landing/${clip}.webm`,
+    poster: `/landing/${clip}-poster.jpg`,
+  }
 }
 
 export interface LandingFeature {
@@ -35,7 +48,7 @@ export const LICENSE_URL = 'https://www.gnu.org/licenses/agpl-3.0.html'
 export const HERO: { headline: string, subheadline: string, media: LandingMedia } = {
   headline: 'A virtual office you can walk around in',
   subheadline: 'Move your avatar across a shared 2D map and talk to whoever is nearby. Voice and video connect automatically by proximity — no calls to start.',
-  media: { kind: 'video', alt: 'A short tour of the office: avatars walking up to each other and starting a conversation' },
+  media: { clip: 'hero', alt: 'A short tour of the office: someone walking out of the meeting room and along the desks, past colleagues at work' },
 }
 
 export const FEATURES: readonly LandingFeature[] = [
@@ -43,37 +56,37 @@ export const FEATURES: readonly LandingFeature[] = [
     id: 'shared-map',
     title: 'One shared map',
     description: 'Everyone shares the same office. See who is around, who is busy, and walk over to say hi.',
-    media: { kind: 'gif', alt: 'Avatars moving around the shared office map' },
+    media: { clip: 'shared-map', alt: 'Avatars moving around the shared office, passing each other with their names above their heads' },
   },
   {
     id: 'proximity-chat',
     title: 'Voice and video by proximity',
     description: 'Get close to someone and you hear and see them. Walk away and the conversation fades out, like in a real room.',
-    media: { kind: 'video', alt: 'Two avatars getting close and their video tiles appearing' },
+    media: { clip: 'proximity-chat', alt: 'Two people walking up to someone, and a video tile for each appearing as they get close' },
   },
   {
     id: 'private-rooms',
     title: 'Private rooms',
     description: 'Step into a private zone to talk without being heard by the rest of the office.',
-    media: { kind: 'gif', alt: 'Two avatars entering a private room and the call switching to it' },
+    media: { clip: 'private-rooms', alt: 'Two avatars stepping into a private zone, the rest of the office dimming and the call moving into it' },
   },
   {
     id: 'screen-share',
     title: 'Screen sharing',
     description: 'Share your screen with whoever is in the conversation, and open it full screen when you need the detail.',
-    media: { kind: 'video', alt: 'Sharing a screen and expanding it to full screen' },
+    media: { alt: 'Sharing a screen and expanding it to full screen' },
   },
   {
     id: 'games',
     title: 'Games at the break table',
     description: 'Challenge a coworker to a game of pool without leaving the office.',
-    media: { kind: 'gif', alt: 'Two avatars playing pool at a table' },
+    media: { alt: 'Two avatars playing pool at a table' },
   },
   {
     id: 'your-avatar',
     title: 'Make it yours',
     description: 'Build your own character and keep it wherever you sign in.',
-    media: { kind: 'gif', alt: 'The character creator changing hair and clothes' },
+    media: { clip: 'your-avatar', alt: 'The character creator changing hair, outfit and eyes in the preview, then shuffling the whole look' },
   },
 ]
 

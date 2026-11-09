@@ -168,3 +168,15 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   WebKit, o login com o Google (exige o provedor real) e o desaparecimento do spinner dos
   outros depois de 15 s (teste de 15 s, melhor com relógio simulado). Os testes da sala privada
   compartilham a sala `office` do LiveKit de desenvolvimento.
+
+- **Vídeos da landing: primeira rodada** — [#242](https://github.com/kangeikailabsio/kangeikai/issues/242)
+  grava com `pnpm capture:landing` o passeio do hero, o mapa compartilhado, voz e vídeo por
+  proximidade, salas privadas e o criador de avatar (MP4, WebM e poster, uns 2,5 MB no total em
+  `apps/client/static/landing/`), com câmera desligada e avatares fixos. A landing toca cada clipe
+  só quando ele aparece na tela, carrega os posters de baixo só perto dela e mostra só o poster para
+  quem pede menos movimento. Ficaram de fora: os clipes de compartilhar tela e do jogo de sinuca
+  (a captura de tela em Chromium headless é instável e a sinuca exige mirar com o mouse; as duas
+  vagas continuam com o espaço reservado), imagem de rosto de verdade, recortes para celular,
+  regenerar os clipes no CI e vídeos mais longos ou com som. A qualidade é a do vídeo do Playwright
+  (WebM de uns 25 fps, sem retina), boa para loops curtos, e não a de um gravador de tela
+  profissional. O crédito da arte do mapa (LimeZu) continua pendente, como registrado.

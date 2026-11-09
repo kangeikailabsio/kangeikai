@@ -28,6 +28,7 @@ import { buildCharacterManifest } from '$lib/character/character-pieces'
 import { composeCharacterSheets, loadImageElement } from '$lib/character/compose-character'
 import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
 import { clampedCameraCenter, clampZoom, fitToMapZoom } from '$lib/game/camera/camera-math'
+import { registerE2eHook } from '$lib/game/e2e-hook'
 import { Avatar, AVATAR_FRAME_RANGES, feetHitbox, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
 import { resolveHoverTargetPosition } from '$lib/game/entities/avatar-hover'
 import { AvatarNameLabel } from '$lib/game/entities/avatar-name-label'
@@ -575,7 +576,19 @@ export class OfficeScene extends Phaser.Scene {
       })
 
     videoOverlayState.setRetryHandler(() => this.retryPrivateRoomConnection())
+    // End-to-end tests only (issue #227): lets them place the avatar without walking there.
+    const unregisterE2eHook = import.meta.env.VITE_E2E === 'true'
+      ? registerE2eHook({
+          teleport: (x, y) => {
+            this.avatar.x = x
+            this.avatar.y = y
+          },
+          position: () => ({ x: this.avatar.x, y: this.avatar.y }),
+        })
+      : undefined
+
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      unregisterE2eHook?.()
       this.tableGlows.forEach(glow => glow.destroy())
       this.tableGlows.clear()
       disconnectGameSession()

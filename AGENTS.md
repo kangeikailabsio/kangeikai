@@ -21,7 +21,14 @@ chat. See `docs/mvp-plan.md` for the product plan.
   is not a file.
 - **Rendering**: Phaser.js for the 2D map/avatar canvas.
 - **Map authoring**: Tiled, exported as JSON and loaded via Phaser's Tiled loader.
-- **Realtime sync**: Colyseus (in-memory room state, no database).
+- **Realtime sync**: Colyseus (in-memory room state — rooms are never persisted).
+- **Auth**: [better-auth](https://www.better-auth.com), mounted on the Express app of
+  `apps/server` under `/api/auth/*` (the client is a static SPA and cannot host it). Email and
+  password plus Google. Config lives in `apps/server/src/auth/` and is read from env vars that
+  the server requires at boot (`apps/server/.env.example`).
+- **Database**: PostgreSQL through Drizzle ORM (`pg` driver). It holds identity and profile
+  only. Better-auth's ids are integer identity columns. Migrations are SQL files in
+  `apps/server/drizzle`, applied with `pnpm --filter @kangeikai/server db:migrate`.
 - **Voice/video**: LiveKit, self-hosted.
 - **Styling**: plain CSS in Svelte's native scoped `<style>` blocks — no CSS framework.
 - **Validation**: Valibot — the only schema/validation library, for form input, `localStorage`
@@ -51,9 +58,14 @@ chat. See `docs/mvp-plan.md` for the product plan.
 
 - Source file names are kebab-case (enforced by `unicorn/filename-case`), except SvelteKit's
   reserved route filenames (`+page.svelte`, `+layout.ts`, `+server.ts`, etc.).
-- No user accounts or server-persisted identity — guests only, name/avatar choice lives in
-  `localStorage`.
-- No database — Colyseus room state is in-memory and resets on server restart.
+- Identity comes from accounts (better-auth) — there are no guests. Name and avatar live on the
+  account (the `user` table), not in `localStorage`.
+- The database holds identity and profile only. Colyseus room state stays in memory and resets
+  on server restart; do not move gameplay state into Postgres without discussing it first.
+- Auth tables are generated, not hand-written: change `apps/server/src/auth/auth-options.ts`,
+  run `pnpm --filter @kangeikai/server db:generate-auth-schema` (rewrites `src/db/schema.ts`)
+  and then `db:generate` (a new SQL migration). See `docs/local-development.md` for the local
+  stack.
 - Cross-package/module imports always use SvelteKit's `$lib` alias with an absolute path from
   `src/lib` — never a relative `../` import — including in test files (see `vitest.config.ts`'s
   `sveltekit()` plugin, needed for the alias to resolve there too).

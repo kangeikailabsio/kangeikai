@@ -22,12 +22,11 @@ Caso de uso primário: **virtual office** (presença assíncrona de time/comunid
   ajustado no client conforme distância entre avatares — exceto quando os dois avatares estão
   na mesma zona nomeada, caso em que o volume/vídeo fica cheio independente da distância exata
   dentro da zona.
-- Entrada como convidado, sem contas/login. Nome e avatar escolhidos ficam salvos em `localStorage` do navegador (sem backend) — não persistem entre dispositivos/navegadores.
+- Entrada com conta (email e senha ou Google), via better-auth. Nome e avatar ficam salvos na conta e valem em qualquer dispositivo/navegador. Não há convidados.
 - Estado de sala 100% em memória via Colyseus — reseta em restart do servidor.
 
 **Fora do MVP (backlog v2+):**
-- Contas de usuário / autenticação.
-- Persistência em banco de dados (Postgres).
+- Persistência de estado de sala e de jogo em banco de dados (hoje o Postgres guarda só identidade e perfil).
 - Empacotamento genérico para self-host de terceiros (Docker Compose documentado, guia de instalação).
 - Chat de texto.
 - Customização avançada de avatar.
@@ -53,7 +52,8 @@ Caso de uso primário: **virtual office** (presença assíncrona de time/comunid
 | Estilização | CSS vanilla | `<style>` escopado nativo do SvelteKit — sem framework CSS/utility-classes |
 | Validação/schema | Valibot | Única lib de validação — formulário, parse de dado guardado no localStorage, payloads de rede |
 | Áudio / vídeo | LiveKit (self-hosted) | Proximidade via volume ajustado no client, todos numa mesma room |
-| Banco de dados | — (nenhum no MVP) | Reavaliar quando surgir a primeira feature que exija persistência real |
+| Autenticação | better-auth | Montado no Express do `apps/server`; email e senha + Google |
+| Banco de dados | PostgreSQL + Drizzle ORM | Só identidade e perfil; o estado das salas continua em memória |
 | Monorepo | pnpm workspaces | Sem Turborepo por enquanto — build ainda não é lento o suficiente para justificar cache |
 | Lint/format | ESLint (`@antfu/eslint-config`) | Sem Prettier — o config do antfu já cobre formatação via regras de estilo do próprio ESLint |
 | Git hooks | `simple-git-hooks` + `lint-staged` | Hook `pre-commit` local roda lint só nos arquivos staged |

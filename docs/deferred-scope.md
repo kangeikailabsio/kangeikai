@@ -141,3 +141,14 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   conta ou de perfil, mostrar a força da senha e lembrar o último método usado. As regras de senha
   do formulário (8 a 128 caracteres) copiam o padrão do better-auth e precisam acompanhar o
   servidor se ele mudar (#231).
+- **Backend de autenticação só com o essencial** — [#231](https://github.com/kangeikailabsio/kangeikai/issues/231)
+  monta o better-auth em `/api/auth/*` do `apps/server`, com email e senha e Google, Drizzle e
+  Postgres (ids inteiros incrementais) e CORS só para a origem do site. Ficaram de fora: rodar as
+  migrações no boot (hoje é `pnpm db:migrate`), limite de tentativas além do padrão do better-auth,
+  backups e hospedagem do Postgres de produção, outros provedores de login e o endpoint que valida
+  e grava o avatar da conta (vem na integração, #232; por isso `spriteType` e
+  `characterSelection` não aceitam escrita pelo cliente e o cadastro que tenta mandá-los leva
+  400). O CORS do Colyseus continua permissivo no preflight (`OPTIONS`) para qualquer origem, como
+  já era; nas rotas de auth só as requisições reais são restritas à origem do site (um `POST` de
+  fora leva 403 e nenhum header de CORS). Apertar o CORS do servidor inteiro para a origem do site
+  é uma mudança à parte, porque afeta o matchmaking do jogo.

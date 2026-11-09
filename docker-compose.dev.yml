@@ -1,0 +1,41 @@
+# Local development only (constitution's local-dev requirement) — runs everything the app needs
+# next to it: a LiveKit dev server with fixed dev API key/secret and a PostgreSQL for accounts.
+# Not used for production deploy (spec 003 research.md; see docker-compose.livekit.prod.yml).
+#
+# Usage: docker compose -f docker-compose.dev.yml up
+# Matches apps/server/.env.example's LIVEKIT_* and DATABASE_URL values.
+services:
+  livekit:
+    image: livekit/livekit-server:v1.13.5
+    # --dev: in-memory single-node mode with the fixed "devkey"/"secret" API key/secret pair.
+    # --bind 0.0.0.0: without this the signal server only binds to the container's own
+    # loopback, which the host-side port mapping below can't reach.
+    # --node-ip 127.0.0.1: the address LiveKit advertises to WebRTC peers for ICE candidates —
+    # correct for local dev, where every participant connects via localhost (two browser tabs/
+    # windows, per quickstart.md).
+    command: --dev --bind 0.0.0.0 --node-ip 127.0.0.1
+    ports:
+      - '7880:7880' # HTTP + WebSocket signaling
+      - '7881:7881' # WebRTC over TCP (fallback)
+      - '7882:7882/udp' # WebRTC over UDP
+
+  postgres:
+    image: postgres:17-alpine
+    # Fixed dev credentials, matching DATABASE_URL in apps/server/.env.example. The named volume
+    # keeps accounts across restarts; `docker compose -f docker-compose.dev.yml down -v` wipes them.
+    environment:
+      POSTGRES_USER: kangeikai
+      POSTGRES_PASSWORD: kangeikai
+      POSTGRES_DB: kangeikai
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U kangeikai -d kangeikai]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres-data:

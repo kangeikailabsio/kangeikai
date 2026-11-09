@@ -157,3 +157,16 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   sessão expirada além de voltar para o login, limite de tentativas no endpoint do ticket e do
   perfil, e rodar o Playwright contra o fluxo completo (#227). O botão de sair existe só como
   link no formulário de entrada.
+- **Suíte e2e com Playwright só localmente e com um caso conhecido falhando** — [#227](https://github.com/kangeikailabsio/kangeikai/issues/227)
+  traz o pacote `e2e/` (Chromium, servidor e cliente próprios nas portas 2667 e 5273, banco
+  recriado a cada execução, câmera e microfone falsos) com os cenários de cadastro, teclado,
+  dois jogadores, mesma conta em duas abas, microfone ao sair da sala privada (#222) e falha de
+  conexão com "Try again" (#225). Ficaram de fora: rodar no GitHub Actions (#236), Firefox e
+  WebKit, o login com o Google (exige o provedor real) e o desaparecimento do spinner dos
+  outros depois de 15 s (teste de 15 s, melhor com relógio simulado). Um cenário está marcado
+  como `fixme` porque **o aplicativo tem o problema**: sair de uma sala privada até cerca de
+  1 s depois de entrar leva o microfone desligado ao escritório (o cliente registra
+  `Cancelled publication by calling unpublish`). A causa exata não está confirmada e está
+  descrita, com as hipóteses, em [#239](https://github.com/kangeikailabsio/kangeikai/issues/239);
+  o `fixme` sai quando ela for corrigida. Os testes da sala privada
+  compartilham a sala `office` do LiveKit de desenvolvimento.

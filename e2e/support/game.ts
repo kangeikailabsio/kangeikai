@@ -4,6 +4,7 @@ import { expect } from '@playwright/test'
 interface E2eHook {
   teleport: (x: number, y: number) => void
   position: () => { x: number, y: number }
+  activeRoom: () => 'office' | 'private'
 }
 
 /** Goes through the entry form (name and a generated avatar come from the account) and waits for the game HUD. */
@@ -26,3 +27,11 @@ export async function position(page: Page): Promise<{ x: number, y: number }> {
 }
 
 export const muteButton = (page: Page) => page.getByRole('button', { name: /Mute|Unmute/ })
+
+/** Waits for the call to be in the given LiveKit room. A nearby person's tile shows up in the office long before a private room is connected, so tiles say nothing about this. */
+export async function waitForRoom(page: Page, room: 'office' | 'private'): Promise<void> {
+  await page.waitForFunction(expected => (window as unknown as { __kangeikaiE2E: E2eHook }).__kangeikaiE2E.activeRoom() === expected, room, { timeout: 30_000 })
+}
+
+/** Gives the office audio time to reconnect after a room switch before a state is asserted, so a late change is not missed. */
+export const SETTLE_AFTER_ROOM_SWITCH_MS = 4_000

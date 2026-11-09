@@ -1,5 +1,4 @@
 import type { ScreenShareHandoff } from '$lib/av/media-controls'
-import type { LocalMediaSnapshot } from '$lib/av/private-room-controller'
 import type { AvatarPosition, ProximityAudioControllerOptions } from '$lib/av/proximity-audio-controller'
 import type { ScreenShareQualityTier } from '$lib/av/screen-share-quality'
 import type { RemoteVideoOverlayCandidate, VideoOverlayParticipant } from '$lib/av/video-overlay-tiles'
@@ -584,6 +583,7 @@ export class OfficeScene extends Phaser.Scene {
             this.avatar.y = y
           },
           position: () => ({ x: this.avatar.x, y: this.avatar.y }),
+          activeRoom: () => (this.connectedPrivateRoom ? 'private' : 'office'),
         })
       : undefined
 
@@ -658,6 +658,10 @@ export class OfficeScene extends Phaser.Scene {
       quality => this.game.events.emit(CONNECTION_QUALITY_CHANGED_EVENT, quality),
     )
     next.adoptBusyState(previous)
+    // Before the first publish starts: the next room switch reads the person's intent from here,
+    // and a publish still in flight must not make it look like the microphone or camera is off
+    // (issue #239).
+    next.declareIntent({ microphoneEnabled: micEnabled, cameraEnabled })
     this.mediaControls = next
     let screenShareHandoffFailed = false
     if (this.presence === 'busy') {
@@ -817,8 +821,8 @@ export class OfficeScene extends Phaser.Scene {
     try {
       const result = await this.applyMediaControls(
         room,
-        previous?.microphoneEnabled ?? true,
-        previous?.cameraEnabled ?? false,
+        previous?.microphoneIntent ?? true,
+        previous?.cameraIntent ?? false,
         false,
         undefined,
         false,
@@ -843,12 +847,15 @@ export class OfficeScene extends Phaser.Scene {
    * direction; the HUD button and full-screen overlay resolve on their own once
    * `screenShareEnabled` goes back to `false`, the same way they do for a manual "Stop sharing".
    */
-  private handlePrivateRoomDisconnect(media: LocalMediaSnapshot): void {
-    // `this.mediaControls` still points at the just-disconnected private room, whose tracks are
-    // gone — it would always report mic/camera off, so the controller's pre-disconnect snapshot
-    // is the source of truth (issue #222).
+  private handlePrivateRoomDisconnect(): void {
+    // `this.mediaControls` still belongs to the just-disconnected private room. Its published tracks
+    // are gone, but the intent it recorded is not tied to the room (issue #239): reading the track
+    // state instead (`microphoneEnabled`) is always `false` after the disconnect (#222), and is
+    // still `false` before it if a publish was in flight when the person left.
+    const micEnabled = this.mediaControls?.microphoneIntent ?? true
+    const cameraEnabled = this.mediaControls?.cameraIntent ?? false
     this.connectedPrivateRoom = null
-    this.connectProximityAudio(media.microphoneEnabled, media.cameraEnabled, false)
+    this.connectProximityAudio(micEnabled, cameraEnabled, false)
   }
 
   update(time: number, delta: number): void {
@@ -949,7 +956,7 @@ export class OfficeScene extends Phaser.Scene {
       const options: ProximityAudioControllerOptions = { identity: sessionId, name: this.displayName, proof: sessionProof ?? '' }
       void this.privateRoomController.update(options, localPosition, remotePositions, {
         onConnect: room => this.handlePrivateRoomConnect(room),
-        onDisconnect: media => this.handlePrivateRoomDisconnect(media),
+        onDisconnect: () => this.handlePrivateRoomDisconnect(),
         onError: zoneId => this.handlePrivateRoomConnectError(zoneId),
       }, () => this.roomConnection.flushPendingState())
     }

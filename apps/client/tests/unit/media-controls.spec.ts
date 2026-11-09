@@ -346,3 +346,115 @@ describe('mediaControls screenShareUnsupported', () => {
     vi.restoreAllMocks()
   })
 })
+
+describe('mediaControls intent (issue #239)', () => {
+  /** A publish that stays in flight until the test resolves it, like `getUserMedia` plus publishing does for a few hundred ms. */
+  function pending<T = void>() {
+    let resolve!: (value: T) => void
+    let reject!: (reason: unknown) => void
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res
+      reject = rej
+    })
+    return { promise, resolve, reject }
+  }
+
+  it('records the microphone intent as soon as it is requested, before the publish finishes', () => {
+    const participant = createFakeLocalParticipant()
+    const publish = pending()
+    participant.setMicrophoneEnabled.mockReturnValue(publish.promise)
+    const controls = new MediaControls(createFakeRoom(participant))
+
+    void controls.setMicrophoneEnabled(true)
+
+    expect(controls.microphoneIntent).toBe(true)
+    expect(controls.microphoneEnabled).toBe(false) // the published track still lags
+  })
+
+  it('records the camera intent the same way', () => {
+    const participant = createFakeLocalParticipant()
+    participant.setCameraEnabled.mockReturnValue(pending().promise)
+    const controls = new MediaControls(createFakeRoom(participant))
+
+    void controls.setCameraEnabled(true)
+
+    expect(controls.cameraIntent).toBe(true)
+    expect(controls.cameraEnabled).toBe(false)
+  })
+
+  it('keeps the intent when the publish is rejected, so it can be retried elsewhere', async () => {
+    const participant = createFakeLocalParticipant()
+    participant.setMicrophoneEnabled.mockRejectedValue(new Error('Cancelled publication by calling unpublish'))
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const controls = new MediaControls(createFakeRoom(participant))
+
+    await controls.setMicrophoneEnabled(true)
+
+    expect(controls.microphoneIntent).toBe(true)
+    expect(controls.microphoneUnavailable).toBe(true)
+  })
+
+  it('follows the latest request, on and off', async () => {
+    const controls = new MediaControls(createFakeRoom(createFakeLocalParticipant()))
+
+    await controls.setMicrophoneEnabled(true)
+    expect(controls.microphoneIntent).toBe(true)
+    await controls.setMicrophoneEnabled(false)
+    expect(controls.microphoneIntent).toBe(false)
+  })
+
+  it('declares both intents at once, synchronously, before any publish starts', () => {
+    const controls = new MediaControls(createFakeRoom(createFakeLocalParticipant()))
+
+    controls.declareIntent({ microphoneEnabled: true, cameraEnabled: true })
+
+    expect(controls.microphoneIntent).toBe(true)
+    expect(controls.cameraIntent).toBe(true)
+  })
+
+  it('falls back to what is actually published when no intent was ever given', () => {
+    const participant = createFakeLocalParticipant()
+    participant.isMicrophoneEnabled = true
+    participant.isCameraEnabled = true
+    const controls = new MediaControls(createFakeRoom(participant))
+
+    expect(controls.microphoneIntent).toBe(true)
+    expect(controls.cameraIntent).toBe(true)
+  })
+
+  it('while busy, reports what ending busy will restore, not the suppression', async () => {
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant))
+    controls.declareIntent({ microphoneEnabled: true, cameraEnabled: true })
+
+    await controls.beginBusy()
+
+    expect(controls.microphoneIntent).toBe(true)
+    expect(controls.cameraIntent).toBe(true)
+  })
+
+  it('takes the busy snapshot from the intent even when the publish is still in flight', async () => {
+    const participant = createFakeLocalParticipant()
+    participant.setMicrophoneEnabled.mockReturnValueOnce(pending().promise)
+    const controls = new MediaControls(createFakeRoom(participant))
+    void controls.setMicrophoneEnabled(true) // published state is still false
+
+    await controls.beginBusy()
+    await controls.endBusy()
+
+    expect(participant.setMicrophoneEnabled).toHaveBeenLastCalledWith(true)
+    expect(controls.microphoneIntent).toBe(true)
+  })
+
+  it('keeps an explicitly muted microphone muted through busy and back', async () => {
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant))
+    controls.declareIntent({ microphoneEnabled: false, cameraEnabled: false })
+
+    await controls.beginBusy()
+    await controls.endBusy()
+
+    expect(controls.microphoneIntent).toBe(false)
+    expect(participant.setMicrophoneEnabled).toHaveBeenLastCalledWith(false)
+  })
+})

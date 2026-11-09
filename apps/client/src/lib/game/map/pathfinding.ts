@@ -1,7 +1,7 @@
 import type { WalkTarget } from '$lib/game/input/auto-walk-controller'
-import type { CollisionRect } from '$lib/game/map/collision'
+import type { CollisionRect } from '@kangeikai/shared'
 import { ARRIVAL_TOLERANCE_PX } from '$lib/game/input/auto-walk-controller'
-import { collidesWithAny } from '$lib/game/map/collision'
+import { collidesWithAny } from '@kangeikai/shared'
 
 interface Cell {
   col: number

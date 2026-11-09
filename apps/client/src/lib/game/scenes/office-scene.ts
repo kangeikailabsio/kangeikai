@@ -4,10 +4,9 @@ import type { AvatarPosition, ProximityAudioControllerOptions } from '$lib/av/pr
 import type { ScreenShareQualityTier } from '$lib/av/screen-share-quality'
 import type { RemoteVideoOverlayCandidate, VideoOverlayParticipant } from '$lib/av/video-overlay-tiles'
 import type { HoverTarget } from '$lib/game/entities/avatar-hover'
-import type { CollisionRect } from '$lib/game/map/collision'
 import type { PathfindingGrid } from '$lib/game/map/pathfinding'
 import type { InteractionReceivedPayload } from '$lib/network/room-connection'
-import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, CharacterSelection, GameTable, PrivateZone, TiledSpaceObject } from '@kangeikai/shared'
+import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, CharacterSelection, CollisionRect, GameTable, PrivateZone, TiledSpaceObject } from '@kangeikai/shared'
 import type { LocalVideoTrack, RemoteVideoTrack, Room } from 'livekit-client'
 import avatarManIdleUrl from '$lib/assets/sprites/avatar-man-idle.png?url'
 import avatarManWalkUrl from '$lib/assets/sprites/avatar-man-walk.png?url'
@@ -29,7 +28,7 @@ import { composeCharacterSheets, loadImageElement } from '$lib/character/compose
 import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
 import { clampedCameraCenter, clampZoom, fitToMapZoom } from '$lib/game/camera/camera-math'
 import { registerE2eHook } from '$lib/game/e2e-hook'
-import { Avatar, AVATAR_FRAME_RANGES, feetHitbox, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
+import { Avatar, AVATAR_FRAME_RANGES, getSpriteAnimation, MOTION_STATE_ANIMATIONS } from '$lib/game/entities/avatar'
 import { resolveHoverTargetPosition } from '$lib/game/entities/avatar-hover'
 import { AvatarNameLabel } from '$lib/game/entities/avatar-name-label'
 import { blocksOfficeInput, isTypingTarget, nextOverlayRefresh } from '$lib/game/games/game-input'
@@ -39,16 +38,16 @@ import { AutoWalkController } from '$lib/game/input/auto-walk-controller'
 import { DoubleClickDetector } from '$lib/game/input/double-click-detector'
 import { FollowController } from '$lib/game/input/follow-controller'
 import { MovementController } from '$lib/game/input/movement-controller'
+import { applyPositionCorrection } from '$lib/game/input/position-correction'
 import { queueActiveMapLoad } from '$lib/game/map/active-map'
 import { resolveApproachPoint } from '$lib/game/map/approach-point'
 import { buildPathfindingGrid, findPath } from '$lib/game/map/pathfinding'
-import { resolveRespawnPoint } from '$lib/game/map/respawn-point'
 import { RoomConnection } from '$lib/network/room-connection'
 import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
 import { followState } from '$lib/people/follow-state.svelte'
 import { attentionModalState } from '$lib/ui/attention-modal-state.svelte'
 import { toastState } from '$lib/ui/toast-state.svelte'
-import { isValidCharacterSelection, privateZoneAt, resolveGameTables, resolvePrivateZones, selectGameTable, tableContains } from '@kangeikai/shared'
+import { feetHitbox, isValidCharacterSelection, privateZoneAt, resolveGameTables, resolvePrivateZones, selectGameTable, tableContains } from '@kangeikai/shared'
 import { Track } from 'livekit-client'
 import Phaser from 'phaser'
 
@@ -514,18 +513,10 @@ export class OfficeScene extends Phaser.Scene {
       }
     }
 
-    // The "respawn" object layer's rectangles mark valid spawn areas — one is picked at random,
-    // then a random point inside it, so simultaneous joins don't stack on the same pixel.
-    const respawnObjects = (map.getObjectLayer('respawn')?.objects ?? []).map(object => ({
-      x: object.x ?? 0,
-      y: object.y ?? 0,
-      width: object.width ?? 0,
-      height: object.height ?? 0,
-    }))
-    if (respawnObjects.length === 0) {
-      console.warn('kangeikai: active map has no "respawn" object layer objects — falling back to the map center')
-    }
-    const spawnPoint = resolveRespawnPoint(respawnObjects, { x: this.mapWidthPx / 2, y: this.mapHeightPx / 2 })
+    // Where the avatar really starts is up to the server (issue #254), which draws it from the map's
+    // `respawn` layer and says so on joining. Until then the map's center holds the place; the entry
+    // screen covers the map while the join is pending, so nobody sees the avatar move.
+    const spawnPoint = { x: this.mapWidthPx / 2, y: this.mapHeightPx / 2 }
 
     this.avatar = new Avatar(spawnPoint.x, spawnPoint.y, this.spriteType, this.mapWidthPx, this.mapHeightPx)
 
@@ -566,6 +557,7 @@ export class OfficeScene extends Phaser.Scene {
     this.roomConnection.onRemoteAvatarChange((sessionId, state) => this.updateRemoteAvatar(sessionId, state))
     this.roomConnection.onRemoteAvatarRemove(sessionId => this.removeRemoteAvatar(sessionId))
     this.roomConnection.onInteractionReceived(payload => this.handleInteractionReceived(payload))
+    this.roomConnection.onCorrectPosition(position => applyPositionCorrection(this.avatar, this.autoWalkController, position))
     this.game.events.emit(ROOM_CONNECTION_READY_EVENT, this.roomConnection)
     this.presence = this.busyPresenceStore.load()
     this.avatarNameLabel.setPresence(this.presence)
@@ -574,6 +566,11 @@ export class OfficeScene extends Phaser.Scene {
       presence: this.presence,
     })
       .then(() => {
+        const spawn = this.roomConnection.spawnPoint
+        if (spawn) {
+          this.avatar.x = spawn.x
+          this.avatar.y = spawn.y
+        }
         this.game.events.emit(ROOM_JOINED_EVENT)
         this.connectProximityAudio(this.initialMedia.microphoneEnabled, this.initialMedia.cameraEnabled)
       })

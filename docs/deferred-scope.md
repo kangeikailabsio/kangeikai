@@ -4,12 +4,6 @@ Coisas deixadas deliberadamente de fora do escopo de uma correção ou feature, 
 perderem. Cada item linka de volta pra onde a decisão foi tomada. Quando um item for finalmente
 endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de verdade).
 
-- **Servidor autoritativo do ponto de spawn** — o servidor ainda cria cada avatar numa posição
-  placeholder fixa, em vez do ponto real de respawn do Tiled, porque o servidor não tem
-  consciência de mapa/collision hoje. Deixado de fora de
-  [#143](https://github.com/kangeikailabsio/kangeikai/issues/143) como um projeto maior e
-  separado (dar ao servidor consciência real de mapa), não parte da correção contida
-  client-side daquele bug.
 - **Blindar o áudio de proximidade/salas privadas contra cliente malicioso** — hoje, distância
   e estado "busy" só reduzem o volume de reprodução no cliente; todo cliente está de fato
   inscrito no áudio de todo mundo na sala "office" do LiveKit, então um cliente deliberadamente
@@ -17,13 +11,6 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   fora de [#144](https://github.com/kangeikailabsio/kangeikai/issues/144) (vazamento acidental,
   não um cliente malicioso) como um projeto maior e separado — exigiria inscrição
   seletiva/mediada pelo servidor em vez de apenas controle de volume no cliente.
-- **Posição client-authoritative, sem validação de movimento no servidor** — o servidor confia
-  no `x/y` que o próprio cliente reporta via `updateState` (`apps/server/src/rooms/office-room.ts:104-112`);
-  um cliente modificado pode reportar qualquer posição (teleporte, atravessar paredes do ponto
-  de vista do servidor, se declarar dentro de qualquer zona a qualquer momento). A issue #60
-  (fechada) resolveu só o caso de pedir um token de sala privada sem nunca ter sincronizado uma
-  posição compatível — não o problema mais amplo de confiar cegamente na posição reportada.
-  Provavelmente a causa raiz por trás do gap de áudio acima. Sem issue aberta cobrindo isso.
 - **Perda de conexão com o servidor falha silenciosamente** — `RoomConnection` já expõe
   `onConnectionStateChange` (`apps/client/src/lib/network/room-connection.ts:118`), mas nenhum
   lugar do client escuta esse evento; se o servidor Colyseus cai ou a conexão é perdida, o
@@ -222,3 +209,22 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   dispositivo em uso é desplugado. O e2e só enxerga o microfone e a câmera falsos do Chromium; trocar
   entre dois dispositivos reais, um fone Bluetooth conectando com o menu aberto e trocar numa sala
   privada e sair andando se conferem à mão.
+
+- **Validação de movimento no servidor, só o essencial** — [#255](https://github.com/kangeikailabsio/kangeikai/issues/255),
+  parte do épico [#253](https://github.com/kangeikailabsio/kangeikai/issues/253): o servidor deixa de
+  confiar no `x/y` que o cliente manda. Rejeita `NaN`/`Infinity`, posições fora do mapa ou com os pés
+  em cima de um retângulo de `collisions`, o trecho entre duas posições que cruza uma parede (amostrado a
+  cada 4 px, aceitando a reta ou qualquer um dos dois "L") e velocidade acima de 450 px/s. A velocidade é
+  um balde de distância que enche com o relógio do servidor (no máximo 1 s de folga, mais 32 px por passo
+  que precisam ser devolvidos), então rajadas de mensagens atrasadas passam, mas um salto depois de um
+  longo silêncio não. Uma posição inválida não vai para o estado: só quem a mandou recebe
+  `correctPosition` com a última posição válida, e o servidor registra (no máximo a cada 5 s por pessoa).
+  Ninguém é expulso. Isso torna `isPositionInZone` (token de sala privada) e a distância da mesa de
+  sinuca confiáveis. Não foi preciso tratar a volta do Busy nem a saída da mesa como saltos: o cliente não
+  anda nesses estados. O teleporte dos testes e2e só funciona com `E2E_ALLOW_TELEPORT=true` no servidor
+  (o `playwright.config.ts` liga; `E2E_VALIDATE_MOVEMENT=true` desliga para testar com a validação
+  real); essa variável nunca deve existir em produção. Ficaram de fora: o áudio mediado pelo servidor
+  (a entrada "Blindar o áudio" acima continua valendo: um cliente modificado ainda escuta quem está longe),
+  punir ou desconectar quem insiste, e checar colisão com outros jogadores ou mesas além do que já existe.
+  Os limites são generosos e não foram afinados com dados reais: vale olhar o log do servidor depois do
+  deploy.

@@ -98,14 +98,14 @@ describe('pool over OfficeRoom websocket transport', () => {
     const { room, clients, command } = await fixture()
     await command(0, { kind: 'open' })
     const id = clients[0].sessionId
-    clients[0].send('updateState', { x: 900, y: 900, direction: 'down', motionState: 'walking' })
+    clients[0].send('updateState', { x: 150, y: 1510, direction: 'down', motionState: 'walking' })
     // A following command/response is a transport barrier after the movement message.
     await command(0, { kind: 'sit' })
     expect(room.state.players.get(id)).toMatchObject({ x: 250, y: 1510, motionState: 'idle' })
     await command(0, { kind: 'leave' }, e => e.kind === 'closed')
-    clients[0].send('updateState', { x: 900, y: 900, direction: 'down', motionState: 'walking' })
+    clients[0].send('updateState', { x: 150, y: 1510, direction: 'down', motionState: 'walking' })
     await command(0, { kind: 'open' }, e => e.kind === 'error')
-    expect(room.state.players.get(id)).toMatchObject({ x: 900, y: 900 })
+    expect(room.state.players.get(id)).toMatchObject({ x: 150, y: 1510 })
   })
 
   it('isolates physical tables and reports a forfeit on consented office leave', async () => {

@@ -44,8 +44,8 @@ export const officeJoinOptionsSchema = v.object({
 
 /** Client→server "updateState" message payload (contracts/office-room-protocol.md). */
 export const updateStatePayloadSchema = v.object({
-  x: v.number(),
-  y: v.number(),
+  x: v.pipe(v.number(), v.finite()),
+  y: v.pipe(v.number(), v.finite()),
   direction: directionSchema,
   motionState: motionStateSchema,
 })

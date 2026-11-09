@@ -1,8 +1,10 @@
+import type { Position } from '$lib/network/position-message'
 import type { MapSchema } from '@colyseus/schema'
 import type { Room } from '@colyseus/sdk'
 import type { PoolCommand, PoolEvent } from '@kangeikai/game-pool/protocol'
 import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, CharacterSelection } from '@kangeikai/shared'
 import { PUBLIC_COLYSEUS_URL } from '$env/static/public'
+import { parsePosition } from '$lib/network/position-message'
 import { Client, getStateCallbacks } from '@colyseus/sdk'
 import { POOL_COMMAND, POOL_EVENT } from '@kangeikai/game-pool/protocol'
 import { CLOSE_CODE_SESSION_REPLACED } from '@kangeikai/shared'
@@ -148,9 +150,11 @@ export class RoomConnection {
   private readonly remoteChangeListeners = new Set<RemoteAvatarListener>()
   private readonly remoteRemoveListeners = new Set<RemoteAvatarRemoveListener>()
   private readonly interactionReceivedListeners = new Set<InteractionReceivedListener>()
+  private readonly correctPositionListeners = new Set<(position: Position) => void>()
 
   private readonly stateSender = new PendingUpdateStateSender(payload => this.room?.send('updateState', payload))
   private proof: string | undefined
+  private spawn: Position | undefined
 
   constructor(serverUrl: string = DEFAULT_SERVER_URL) {
     this.client = new Client(serverUrl)
@@ -161,6 +165,11 @@ export class RoomConnection {
    * LiveKit `identity` when requesting a proximity token (contracts/livekit-token-endpoint.md
    * "Stability" section, spec 003).
    */
+  /** Where the server placed this person on joining (issue #254); `undefined` until it says, or if it never does. */
+  get spawnPoint(): Position | undefined {
+    return this.spawn
+  }
+
   get sessionId(): string | undefined {
     return this.room?.sessionId
   }
@@ -206,6 +215,12 @@ export class RoomConnection {
     return () => this.interactionReceivedListeners.delete(listener)
   }
 
+  /** The server refused a movement and says where to go back to (issue #255). */
+  onCorrectPosition(listener: (position: Position) => void): () => void {
+    this.correctPositionListeners.add(listener)
+    return () => this.correctPositionListeners.delete(listener)
+  }
+
   async connect(options: OfficeJoinOptions): Promise<void> {
     this.emitConnectionState('connecting')
     try {
@@ -217,6 +232,17 @@ export class RoomConnection {
       room.onReconnect(() => this.emitConnectionState('connected'))
       this.bindRemoteAvatarEvents(room)
       this.bindInteractionEvents(room)
+      // Same tick as the join, like the session proof: registered before anything can be missed.
+      room.onMessage('spawn', (payload: unknown) => {
+        this.spawn = parsePosition(payload)
+      })
+      room.onMessage('correctPosition', (payload: unknown) => {
+        const position = parsePosition(payload)
+        if (position) {
+          for (const listener of this.correctPositionListeners)
+            listener(position)
+        }
+      })
       await this.awaitSessionProof(room)
       this.emitConnectionState('connected')
     }

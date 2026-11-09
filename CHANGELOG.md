@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.15.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.14.1...v0.15.0) (2026-11-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* **auth:** joining the office requires an account. The guestId and accessCode join options and the ACCESS_CODE environment variable are removed.
+
+### Features
+
+* **auth:** accounts with better-auth and PostgreSQL; sign in to join the office ([#238](https://github.com/kangeikailabsio/kangeikai/issues/238)) ([8216473](https://github.com/kangeikailabsio/kangeikai/commit/8216473aa5680643f491267a30a0e15a33f4dec9))
+* **av:** choose and test microphone and camera on the entry screen and in the room ([#244](https://github.com/kangeikailabsio/kangeikai/issues/244)) ([#252](https://github.com/kangeikailabsio/kangeikai/issues/252)) ([a32584d](https://github.com/kangeikailabsio/kangeikai/commit/a32584da7e8f42eaf710eacb874ed5d28ceb2f55))
+* **landing:** add the landing page clips and play them lazily ([#243](https://github.com/kangeikailabsio/kangeikai/issues/243)) ([ac82f2a](https://github.com/kangeikailabsio/kangeikai/commit/ac82f2a9bb39ca8790a5edcd1b5ad810bbbf41a6))
+* **server:** the server knows the map and validates movement ([#253](https://github.com/kangeikailabsio/kangeikai/issues/253)) ([#258](https://github.com/kangeikailabsio/kangeikai/issues/258)) ([faacfb1](https://github.com/kangeikailabsio/kangeikai/commit/faacfb1ff386e8ff093afd0977f31d0029af81fd))
+
+
+### Fixes
+
+* **av:** keep mic and camera state when leaving a private room ([#222](https://github.com/kangeikailabsio/kangeikai/issues/222)) ([#223](https://github.com/kangeikailabsio/kangeikai/issues/223)) ([6d750a1](https://github.com/kangeikailabsio/kangeikai/commit/6d750a170abc80d15f8882448fcfb9a658e04579))
+* **av:** keep the microphone and camera intent across room switches ([#241](https://github.com/kangeikailabsio/kangeikai/issues/241)) ([cab6335](https://github.com/kangeikailabsio/kangeikai/commit/cab6335811063e7f17b5863f88f60d9f3c4268b6))
+* **av:** recover from private-room connect failures and stop the endless spinner for others ([#226](https://github.com/kangeikailabsio/kangeikai/issues/226)) ([e20770e](https://github.com/kangeikailabsio/kangeikai/commit/e20770e9209d40e6a705d0664f3f2c476b2a95ee))
+
 ## [0.14.1](https://github.com/kangeikailabsio/kangeikai/compare/v0.14.0...v0.14.1) (2026-11-01)
 
 

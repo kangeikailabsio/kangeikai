@@ -11,6 +11,14 @@ import { resolvePrivateZoneOccupancy } from './private-room-occupancy'
 const DEFAULT_TOKEN_ENDPOINT = PUBLIC_LIVEKIT_TOKEN_ENDPOINT
 
 /** A private zone's LiveKit room name, derived from its (stable, unique) Tiled object id — livekit-token.ts only grants a `private-<id>` room, never an arbitrary name. */
+/** Extra attempts after the first one fails, before the failure is reported (issue #225). */
+const CONNECT_RETRIES = 2
+const DEFAULT_RETRY_DELAY_MS = 1000
+
+function wait(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 function roomNameForZone(zoneId: number): string {
   return `private-${zoneId}`
 }
@@ -51,9 +59,20 @@ export class PrivateRoomController {
    */
   private failedZoneId: number | null = null
   private readonly tokenEndpoint: string
+  private readonly retryDelayMs: number
 
-  constructor(tokenEndpoint: string = DEFAULT_TOKEN_ENDPOINT) {
+  constructor(tokenEndpoint: string = DEFAULT_TOKEN_ENDPOINT, retryDelayMs: number = DEFAULT_RETRY_DELAY_MS) {
     this.tokenEndpoint = tokenEndpoint
+    this.retryDelayMs = retryDelayMs
+  }
+
+  /**
+   * Manual "Try again" (issue #225): lifts the block a failed attempt put on its zone, so the
+   * next `update()` frame runs a fresh `establish()` (with its own bounded retries) without the
+   * person having to walk out of the zone and back in.
+   */
+  retryFailedConnection(): void {
+    this.failedZoneId = null
   }
 
   /** The map's `spaces` layer objects flagged `private: true`. */
@@ -89,8 +108,10 @@ export class PrivateRoomController {
     }
 
     // No longer standing in the zone a previous attempt failed for — forget it, so walking back
-    // in later (a fresh threshold crossing) can retry instead of staying blocked forever.
-    if (zoneId !== this.failedZoneId) {
+    // in later (a fresh threshold crossing) can retry instead of staying blocked forever. Same
+    // when the other person leaves it (issue #225): with nobody left to talk to the failure is
+    // moot, and whoever enters next must get a fresh attempt instead of inheriting the block.
+    if (zoneId !== this.failedZoneId || occupantSessionIds.length < 1) {
       this.failedZoneId = null
     }
 
@@ -123,20 +144,34 @@ export class PrivateRoomController {
    */
   private async establish(options: ProximityAudioControllerOptions, zoneId: number, onConnect: PrivateRoomTransitionHandlers['onConnect'], onError: PrivateRoomTransitionHandlers['onError'], flushLocalPosition: () => void): Promise<void> {
     this.connecting = true
-    flushLocalPosition()
     try {
-      const room = new LiveKitRoom()
-      attachRemoteAudioElements(room)
-      const { token, url } = await fetchLiveKitToken(this.tokenEndpoint, { ...options, room: roomNameForZone(zoneId) })
-      await room.connect(url, token)
-      this.room = room
-      this.connectedZoneIdInternal = zoneId
-      onConnect(room, zoneId)
-    }
-    catch (error) {
-      console.warn('kangeikai: failed to connect to private room', error)
-      this.failedZoneId = zoneId
-      onError(zoneId)
+      for (let attempt = 0; ; attempt++) {
+        // Re-flushed on every attempt: a transient 403 is most likely the position update still
+        // being behind the token request (#134), so each retry gives it another chance to land.
+        flushLocalPosition()
+        let room: Room
+        try {
+          const candidate = new LiveKitRoom()
+          attachRemoteAudioElements(candidate)
+          const { token, url } = await fetchLiveKitToken(this.tokenEndpoint, { ...options, room: roomNameForZone(zoneId) })
+          await candidate.connect(url, token)
+          room = candidate
+        }
+        catch (error) {
+          console.warn(`kangeikai: failed to connect to private room (attempt ${attempt + 1} of ${CONNECT_RETRIES + 1})`, error)
+          if (attempt >= CONNECT_RETRIES) {
+            this.failedZoneId = zoneId
+            onError(zoneId)
+            return
+          }
+          await wait(this.retryDelayMs)
+          continue
+        }
+        this.room = room
+        this.connectedZoneIdInternal = zoneId
+        onConnect(room, zoneId)
+        return
+      }
     }
     finally {
       this.connecting = false

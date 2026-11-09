@@ -84,8 +84,16 @@ export function isErrorTile(entry: VideoOverlayEntry): entry is VideoOverlayErro
  */
 function createVideoOverlayState() {
   let tiles = $state<VideoOverlayEntry[]>([])
+  let retryHandler: (() => void) | null = null
 
   return {
+    /** `OfficeScene` registers what the error tile's "Try again" button does (issue #225), and clears it on shutdown. */
+    setRetryHandler(handler: (() => void) | null): void {
+      retryHandler = handler
+    },
+    retryPrivateRoomConnection(): void {
+      retryHandler?.()
+    },
     get tiles(): VideoOverlayEntry[] {
       return tiles
     },

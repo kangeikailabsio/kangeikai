@@ -14,6 +14,7 @@ import avatarManWalkUrl from '$lib/assets/sprites/avatar-man-walk.png?url'
 import avatarWomanIdleUrl from '$lib/assets/sprites/avatar-woman-idle.png?url'
 import avatarWomanWalkUrl from '$lib/assets/sprites/avatar-woman-walk.png?url'
 import { MediaControls } from '$lib/av/media-controls'
+import { PendingTileTimeout } from '$lib/av/pending-tile-timeout'
 import { PrivateRoomController } from '$lib/av/private-room-controller'
 import { resolvePrivateZoneOccupancy } from '$lib/av/private-room-occupancy'
 import { ProximityAudioController } from '$lib/av/proximity-audio-controller'
@@ -411,6 +412,10 @@ export class OfficeScene extends Phaser.Scene {
    * handling here beyond `handlePrivateRoomConnect` clearing it for hygiene.
    */
   private localPrivateRoomConnectErrorZoneId: number | null = null
+  /** "Try again" was pressed and the new attempt hasn't connected or failed yet (issue #225) — the local tile goes back to the connecting spinner meanwhile. */
+  private localPrivateRoomRetrying = false
+  /** Hides a remote person's pending tile after they have been connecting for too long (issue #225); recreated on every private-room connect. */
+  private pendingTileTimeout = new PendingTileTimeout()
 
   constructor() {
     super('office')
@@ -584,6 +589,7 @@ export class OfficeScene extends Phaser.Scene {
         this.game.events.emit(ROOM_JOIN_FAILED_EVENT)
       })
 
+    videoOverlayState.setRetryHandler(() => this.retryPrivateRoomConnection())
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.tableGlows.forEach(glow => glow.destroy())
       this.tableGlows.clear()
@@ -598,6 +604,7 @@ export class OfficeScene extends Phaser.Scene {
       this.roomConnection.disconnect()
       this.proximityAudioController.disconnect()
       this.privateRoomController.disconnect()
+      videoOverlayState.setRetryHandler(null)
       videoOverlayState.set([])
     })
   }
@@ -771,6 +778,8 @@ export class OfficeScene extends Phaser.Scene {
     // A retry (after a previous attempt in this same zone failed) succeeded — hygiene only,
     // `connectedPrivateRoom` truthy already takes priority over the error state in `update()`.
     this.localPrivateRoomConnectErrorZoneId = null
+    this.localPrivateRoomRetrying = false
+    this.pendingTileTimeout = new PendingTileTimeout()
     void this.connectPrivateRoomWithScreenShareHandoff(room)
   }
 
@@ -782,6 +791,15 @@ export class OfficeScene extends Phaser.Scene {
    */
   private handlePrivateRoomConnectError(zoneId: number): void {
     this.localPrivateRoomConnectErrorZoneId = zoneId
+    this.localPrivateRoomRetrying = false
+  }
+
+  /** The error tile's "Try again" button (issue #225): the controller lifts its block on the failed zone and the next frame reconnects. */
+  private retryPrivateRoomConnection(): void {
+    if (this.localPrivateRoomConnectErrorZoneId === null)
+      return
+    this.localPrivateRoomRetrying = true
+    this.privateRoomController.retryFailedConnection()
   }
 
   private async connectPrivateRoomWithScreenShareHandoff(room: Room): Promise<void> {
@@ -953,8 +971,16 @@ export class OfficeScene extends Phaser.Scene {
         // above: that call is fire-and-forget (its own connect is async), but this needs the
         // same-frame, synchronous answer `updateVideoOverlay` runs on right below.
         const { occupantSessionIds } = resolvePrivateZoneOccupancy(this.privateZones, localPosition, remotePositions)
-        const pendingSessionIds = new Set(occupantSessionIds)
-        const expectedSessionIds = new Set([...pendingSessionIds, ...this.connectedPrivateRoom.remoteParticipants.keys()])
+        // Occupants not (yet) in the LiveKit room are the pending ones; the ones pending for too
+        // long are dropped (issue #225) — a remote failure can't be told apart from a slow
+        // connect, and a spinner that never resolves misleads. They reappear as real tiles if
+        // they connect later, since this is recomputed every refresh.
+        const { remoteParticipants } = this.connectedPrivateRoom
+        const pendingSessionIds = this.pendingTileTimeout.visible(
+          occupantSessionIds.filter(sessionId => !remoteParticipants.has(sessionId)),
+          time,
+        )
+        const expectedSessionIds = new Set([...pendingSessionIds, ...remoteParticipants.keys()])
         this.updateVideoOverlay(expectedSessionIds, this.connectedPrivateRoom, pendingSessionIds)
       }
     }
@@ -966,7 +992,9 @@ export class OfficeScene extends Phaser.Scene {
 
       if (this.localPrivateRoomConnectErrorZoneId !== null) {
         const { zoneId, occupantSessionIds } = resolvePrivateZoneOccupancy(this.privateZones, localPosition, remotePositions)
-        if (zoneId === this.localPrivateRoomConnectErrorZoneId) {
+        // Also gone once everybody else left the zone (issue #225): nobody to talk to, nothing to
+        // retry — `PrivateRoomController` forgets its block on the same condition.
+        if (zoneId === this.localPrivateRoomConnectErrorZoneId && occupantSessionIds.length >= 1) {
           if (refreshOverlay)
             this.updateVideoOverlayForLocalConnectError(occupantSessionIds)
         }
@@ -976,6 +1004,7 @@ export class OfficeScene extends Phaser.Scene {
           // real state, not a view write, so it is never throttled: delaying it would keep a stale
           // error tile alive after the avatar has already left the zone.
           this.localPrivateRoomConnectErrorZoneId = null
+          this.localPrivateRoomRetrying = false
           if (refreshOverlay)
             this.updateVideoOverlay(nearbySessionIds, this.proximityAudioController.liveKitRoom)
         }
@@ -1191,11 +1220,10 @@ export class OfficeScene extends Phaser.Scene {
       return
     }
 
-    const local: VideoOverlayParticipant[] = [{
-      sessionId: this.roomConnection.sessionId ?? 'local',
-      name: this.displayName,
-      error: true,
-    }]
+    const localSessionId = this.roomConnection.sessionId ?? 'local'
+    const local: VideoOverlayParticipant[] = [this.localPrivateRoomRetrying
+      ? { sessionId: localSessionId, name: this.displayName, pending: true }
+      : { sessionId: localSessionId, name: this.displayName, error: true }]
 
     const remotes: RemoteVideoOverlayCandidate[] = occupantSessionIds
       .filter(sessionId => this.remoteAvatars.get(sessionId)?.presence !== 'busy')

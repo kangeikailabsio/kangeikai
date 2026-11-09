@@ -17,16 +17,6 @@ export default defineConfig({
       // client-side router handles routing. It must NOT be `index.html`: the landing page at `/`
       // is pre-rendered into `index.html` (issue #229), and the fallback would overwrite it.
       adapter: adapter({ fallback: '200.html' }),
-
-      prerender: {
-        // The landing page links to /sign-in and /sign-up before those routes exist (issue #230).
-        // Remove this once they do, so a genuinely broken link fails the build again.
-        handleHttpError: ({ path, message }) => {
-          if (path === '/sign-in' || path === '/sign-up')
-            return
-          throw new Error(message)
-        },
-      },
     }),
   ],
   server: {

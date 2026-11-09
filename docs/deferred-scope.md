@@ -132,3 +132,12 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   `Room` quando o `room.connect` falha pela metade (visto só na leitura do código). A causa do
   erro intermitente (403 por a posição chegar depois do pedido de token) é hipótese, não foi
   reproduzida.
+- **Telas de login e cadastro são só interface** — [#230](https://github.com/kangeikailabsio/kangeikai/issues/230)
+  traz `/sign-in` e `/sign-up` com email e senha e o botão do Google, validados localmente com
+  Valibot, sem falar com servidor nenhum. As chamadas ao better-auth, o redirecionamento para
+  `/room`, o envio do Google e o desvio de quem já tem sessão ficam na integração
+  ([#232](https://github.com/kangeikailabsio/kangeikai/issues/232)). Ficaram de fora do épico: "esqueci
+  a senha" e verificação de email (precisam de SMTP), outros provedores de login, uma tela de
+  conta ou de perfil, mostrar a força da senha e lembrar o último método usado. As regras de senha
+  do formulário (8 a 128 caracteres) copiam o padrão do better-auth e precisam acompanhar o
+  servidor se ele mudar (#231).

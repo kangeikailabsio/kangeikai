@@ -1,8 +1,8 @@
 import type { Client } from 'colyseus'
-import process from 'node:process'
+import type { AuthenticatedUser, Authenticator } from '../auth/authenticator'
 import { POOL_COMMAND, POOL_EVENT } from '@kangeikai/game-pool/protocol'
 import { PoolManager } from '@kangeikai/game-pool/server'
-import { privateZoneAt } from '@kangeikai/shared'
+import { CLOSE_CODE_SESSION_REPLACED, privateZoneAt } from '@kangeikai/shared'
 import { CloseCode, Room } from 'colyseus'
 import * as v from 'valibot'
 import { gameTables, privateZones } from '../map-zones'
@@ -17,6 +17,16 @@ import { OfficeRoomState } from './schema/office-room-state'
  */
 const SPAWN_X = 150
 const SPAWN_Y = 150
+
+let authenticator: Authenticator | null = null
+
+/**
+ * Wires the account lookup `OfficeRoom.onAuth` uses (issue #232). Set once at boot (`index.ts`),
+ * and by tests with a fake; until it is set every join is refused, so the room fails closed.
+ */
+export function setOfficeRoomAuthenticator(next: Authenticator | null): void {
+  authenticator = next
+}
 
 /** Bounded reconnection grace period for an ungraceful disconnect (FR-005, FR-008, FR-009). */
 const RECONNECTION_GRACE_PERIOD_SECONDS = 15
@@ -114,44 +124,40 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
   }
 
   /**
-   * A simple shared-secret gate (not per-user auth) — kept out of `onJoin` because a rejection
-   * here happens before a session/avatar is ever created, blocking movement, presence, AND
-   * proximity audio/video in one place (the latter two depend on a real `onJoin` having
-   * happened at all — see session-proof.ts). Only enforced when `ACCESS_CODE` is actually set,
-   * so local dev needs no code configured.
+   * Who may join: only someone holding a valid, unexpired ticket for an existing account. Kept in
+   * `onAuth` (not `onJoin`) so a rejection happens before any session or avatar exists, blocking
+   * movement, presence and proximity audio/video in one place (the latter two depend on a real
+   * `onJoin` having happened — see session-proof.ts). What it returns is `client.auth` and the
+   * third argument of `onJoin`.
    */
-  onAuth(_client: Client, options: unknown): boolean {
-    const accessCode = process.env.ACCESS_CODE
-    if (!accessCode) {
-      return true
-    }
-
+  async onAuth(_client: Client, options: unknown): Promise<AuthenticatedUser | false> {
     const result = v.safeParse(officeJoinOptionsSchema, options)
-    return result.success && result.output.accessCode === accessCode
+    if (!result.success || !authenticator)
+      return false
+
+    return (await authenticator(result.output.ticket)) ?? false
   }
 
-  onJoin(client: Client, options: unknown): void {
-    const { displayName, spriteType, presence, characterSelection, guestId } = v.parse(officeJoinOptionsSchema, options)
+  onJoin(client: Client, options: unknown, auth: AuthenticatedUser): void {
+    const { presence } = v.parse(officeJoinOptionsSchema, options)
 
-    // Same guest rejoining (typically a page reload) while their previous session's avatar is
-    // still around — e.g. the old socket hasn't closed on the server yet, or is still within its
-    // `allowReconnection` grace period below. Drop it synchronously instead of leaving both
-    // entries on the map until `onLeave`/the grace period eventually catches up (issue #178).
-    if (guestId) {
-      for (const [existingSessionId, existingAvatar] of this.state.players.entries()) {
-        if (existingAvatar.guestId === guestId) {
-          this.state.players.delete(existingSessionId)
-          break
-        }
+    // One avatar per account (issue #232): a join from another tab or device replaces the earlier
+    // one. The old avatar is dropped synchronously and its connection closed with a dedicated code,
+    // instead of leaving both on the map until `onLeave`/the grace period catches up (issue #178).
+    for (const [existingSessionId, existingAvatar] of this.state.players.entries()) {
+      if (existingAvatar.userId === auth.userId) {
+        this.state.players.delete(existingSessionId)
+        this.clients.getById(existingSessionId)?.leave(CLOSE_CODE_SESSION_REPLACED)
+        break
       }
     }
 
     const avatar = new AvatarSchema()
-    avatar.displayName = displayName
-    avatar.spriteType = spriteType
+    avatar.displayName = auth.displayName
+    avatar.spriteType = auth.spriteType
     avatar.presence = presence
-    avatar.characterSelection = characterSelection ? JSON.stringify(characterSelection) : ''
-    avatar.guestId = guestId ?? ''
+    avatar.characterSelection = auth.characterSelection ? JSON.stringify(auth.characterSelection) : ''
+    avatar.userId = auth.userId
     avatar.x = SPAWN_X
     avatar.y = SPAWN_Y
 

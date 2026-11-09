@@ -1,4 +1,3 @@
-import { MAX_NAME_LENGTH } from '@kangeikai/shared'
 import * as v from 'valibot'
 import { describe, expect, it } from 'vitest'
 import {
@@ -8,41 +7,20 @@ import {
   updateStatePayloadSchema,
 } from '../../src/rooms/message-schemas'
 
-const baseJoinOptions = {
-  displayName: 'Alice',
-  spriteType: 'woman' as const,
-  accessCode: '',
-}
+const baseJoinOptions = { ticket: '42.1700000060000.signature' }
 
 describe('officeJoinOptionsSchema', () => {
-  it('trims a display name', () => {
-    const result = v.parse(officeJoinOptionsSchema, {
-      displayName: '  Alice  ',
-      spriteType: 'woman',
-      accessCode: '',
-    })
-
-    expect(result.displayName).toBe('Alice')
+  it('requires a non-empty ticket', () => {
+    expect(v.safeParse(officeJoinOptionsSchema, {}).success).toBe(false)
+    expect(v.safeParse(officeJoinOptionsSchema, { ticket: '' }).success).toBe(false)
+    expect(v.safeParse(officeJoinOptionsSchema, { ticket: 123 }).success).toBe(false)
+    expect(v.parse(officeJoinOptionsSchema, baseJoinOptions).ticket).toBe(baseJoinOptions.ticket)
   })
 
-  it('clamps a display name to the shared maximum length', () => {
-    const result = v.parse(officeJoinOptionsSchema, {
-      displayName: 'x'.repeat(MAX_NAME_LENGTH + 10),
-      spriteType: 'man',
-      accessCode: '',
-    })
+  it('no longer accepts who the person is from the client: name and avatar are dropped', () => {
+    const result = v.parse(officeJoinOptionsSchema, { ...baseJoinOptions, displayName: 'Mallory', spriteType: 'man', accessCode: 'x', guestId: 'g' })
 
-    expect(result.displayName).toHaveLength(MAX_NAME_LENGTH)
-  })
-
-  it('rejects a blank display name', () => {
-    const result = v.safeParse(officeJoinOptionsSchema, {
-      displayName: '   ',
-      spriteType: 'man',
-      accessCode: '',
-    })
-
-    expect(result.success).toBe(false)
+    expect(result).toEqual({ ticket: baseJoinOptions.ticket, presence: 'available' })
   })
 
   it('defaults presence to available when omitted', () => {
@@ -63,18 +41,6 @@ describe('officeJoinOptionsSchema', () => {
     })
 
     expect(result.success).toBe(false)
-  })
-
-  it('accepts and passes through a guestId (issue #178)', () => {
-    const result = v.parse(officeJoinOptionsSchema, { ...baseJoinOptions, guestId: 'guest-123' })
-
-    expect(result.guestId).toBe('guest-123')
-  })
-
-  it('leaves guestId undefined when omitted, for an old client build (issue #178)', () => {
-    const result = v.parse(officeJoinOptionsSchema, baseJoinOptions)
-
-    expect(result.guestId).toBeUndefined()
   })
 })
 

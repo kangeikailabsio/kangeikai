@@ -68,3 +68,26 @@ export function validateSignIn(input: SignInInput): FormResult<SignInValue, 'ema
 export function validateSignUp(input: SignUpInput): FormResult<SignUpValue, 'name' | 'email' | 'password'> {
   return validate(signUpSchema, input)
 }
+
+interface AuthErrorLike {
+  status?: number
+  code?: string
+}
+
+/**
+ * Turns whatever the auth client reports into a message safe to show. Server text is never
+ * echoed (it can leak internals); known cases get a specific, actionable sentence.
+ */
+export function describeAuthError(error: unknown): string {
+  const { status, code } = (error && typeof error === 'object' ? error : {}) as AuthErrorLike
+
+  if (error instanceof TypeError || status === 0)
+    return 'Couldn\'t reach the server. Check your connection and try again.'
+  if (code?.startsWith('USER_ALREADY_EXISTS'))
+    return 'An account with this email already exists. Try signing in.'
+  if (code === 'INVALID_EMAIL_OR_PASSWORD')
+    return 'Wrong email or password.'
+  if (status === 429)
+    return 'Too many attempts. Wait a moment and try again.'
+  return 'Something went wrong. Try again.'
+}

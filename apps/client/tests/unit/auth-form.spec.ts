@@ -1,4 +1,4 @@
-import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, validateSignIn, validateSignUp } from '$lib/auth/auth-form'
+import { describeAuthError, MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, validateSignIn, validateSignUp } from '$lib/auth/auth-form'
 import { MAX_NAME_LENGTH } from '@kangeikai/shared'
 import { describe, expect, it } from 'vitest'
 
@@ -68,5 +68,30 @@ describe('validateSignUp (issue #230)', () => {
     expect(result.ok).toBe(false)
     if (!result.ok)
       expect(Object.keys(result.errors).sort()).toEqual(['email', 'name', 'password'])
+  })
+})
+
+describe('describeAuthError (issue #232)', () => {
+  it('explains a duplicate email and points to sign in', () => {
+    expect(describeAuthError({ status: 422, code: 'USER_ALREADY_EXISTS' })).toBe('An account with this email already exists. Try signing in.')
+    expect(describeAuthError({ status: 422, code: 'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL' })).toBe('An account with this email already exists. Try signing in.')
+  })
+
+  it('does not reveal whether the email or the password was wrong', () => {
+    expect(describeAuthError({ status: 401, code: 'INVALID_EMAIL_OR_PASSWORD' })).toBe('Wrong email or password.')
+  })
+
+  it('reports rate limiting', () => {
+    expect(describeAuthError({ status: 429 })).toBe('Too many attempts. Wait a moment and try again.')
+  })
+
+  it('reports an unreachable server for a network failure', () => {
+    expect(describeAuthError({ status: 0, message: 'Failed to fetch' })).toBe('Couldn\'t reach the server. Check your connection and try again.')
+    expect(describeAuthError(new TypeError('Failed to fetch'))).toBe('Couldn\'t reach the server. Check your connection and try again.')
+  })
+
+  it('falls back to a generic message and never echoes server text', () => {
+    expect(describeAuthError({ status: 500, message: 'SELECT * FROM user failed' })).toBe('Something went wrong. Try again.')
+    expect(describeAuthError(null)).toBe('Something went wrong. Try again.')
   })
 })

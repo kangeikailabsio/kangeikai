@@ -1,5 +1,5 @@
 <script lang='ts'>
-  import type { CharacterProfile } from '$lib/entry/guest-profile-schema'
+  import type { CharacterProfile } from '$lib/entry/profile-schema'
   import type { AvatarDirection, CharacterSelection } from '@kangeikai/shared'
   import { buildCharacterManifest, resolvePieceUrl } from '$lib/character/character-pieces'
   import { extractPortrait } from '$lib/character/character-portrait'

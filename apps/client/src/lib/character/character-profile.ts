@@ -1,4 +1,4 @@
-import type { CharacterProfile } from '$lib/entry/guest-profile-schema'
+import type { CharacterProfile } from '$lib/entry/profile-schema'
 import { buildCharacterManifest } from '$lib/character/character-pieces'
 import { composeCharacterSheets } from '$lib/character/compose-character'
 import { randomCharacterSelection } from '@kangeikai/shared'

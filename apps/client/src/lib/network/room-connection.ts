@@ -5,29 +5,20 @@ import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteTy
 import { PUBLIC_COLYSEUS_URL } from '$env/static/public'
 import { Client, getStateCallbacks } from '@colyseus/sdk'
 import { POOL_COMMAND, POOL_EVENT } from '@kangeikai/game-pool/protocol'
+import { CLOSE_CODE_SESSION_REPLACED } from '@kangeikai/shared'
 import { PendingUpdateStateSender } from './pending-update-state-sender'
 
 /**
  * Mirrors contracts/office-room-protocol.md's OfficeJoinOptions — keep in sync with
  * apps/server's message-schemas.ts if this shape changes (contract's "Stability" section).
+ *
+ * Name and avatar are no longer sent (issue #232): the server takes them from the account behind
+ * `ticket`, so a client cannot claim another identity.
  */
 export interface OfficeJoinOptions {
-  displayName: string
-  spriteType: AvatarSpriteType
-  /**
-   * Validated server-side (`OfficeRoom.onAuth`) — only enforced when the deployment has
-   * `ACCESS_CODE` configured.
-   */
-  accessCode: string
+  /** Short-lived pass from `POST /api/session-ticket` (see `lib/account/account-api.ts`). */
+  ticket: string
   presence?: AvatarPresence
-  /** Absent for a guest with no Character Creator selection (issue #169's fallback decision). */
-  characterSelection?: CharacterSelection
-  /**
-   * Stable per-tab identifier (`GuestIdStore`) — lets `OfficeRoom.onJoin` recognize a rejoin
-   * from the same tab (e.g. a page reload) and drop the previous, now-stale avatar instead of
-   * leaving a duplicate on the map (issue #178). Never synced to other clients.
-   */
-  guestId: string
 }
 
 /** Mirrors contracts/office-room-protocol.md's UpdateStatePayload. */
@@ -38,7 +29,8 @@ export interface UpdateStatePayload {
   motionState: AvatarMotionState
 }
 
-export type ConnectionState = 'connecting' | 'connected' | 'disconnected'
+/** `replaced`: the same account joined from another tab or device, so the server closed this connection (issue #232). */
+export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'replaced'
 
 /**
  * Mirrors apps/server's message-schemas.ts InteractionPayload's `kind` — a generic point-to-
@@ -220,7 +212,7 @@ export class RoomConnection {
       const room = await this.client.joinOrCreate<OfficeRoomLike>('office', options)
       this.room = room
       room.onMessage<PoolEvent>(POOL_EVENT, event => this.poolListeners.forEach(listener => listener(event)))
-      room.onLeave(() => this.emitConnectionState('disconnected'))
+      room.onLeave(code => this.emitConnectionState(code === CLOSE_CODE_SESSION_REPLACED ? 'replaced' : 'disconnected'))
       room.onDrop(() => this.emitConnectionState('connecting'))
       room.onReconnect(() => this.emitConnectionState('connected'))
       this.bindRemoteAvatarEvents(room)

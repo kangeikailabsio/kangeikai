@@ -1,24 +1,23 @@
 <script lang='ts'>
-  import type { CharacterProfile, GuestProfile } from './guest-profile-schema'
+  import type { CharacterProfile, Profile } from './profile-schema'
   import CharacterCreatorModal from '$lib/character/character-creator-modal.svelte'
   import { extractPortrait } from '$lib/character/character-portrait'
   import { generateRandomCharacterProfile } from '$lib/character/character-profile'
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import * as v from 'valibot'
   import { MAX_NAME_LENGTH } from './constants'
-  import { generateDefaultName } from './default-name'
-  import { displayNameSchema } from './guest-profile-schema'
-  import { GuestProfileStore } from './guest-profile-store'
+  import { displayNameSchema } from './profile-schema'
 
   interface Props {
+    /** The signed-in account's name and avatar, to pre-fill the form (issue #232). */
+    initialProfile: Profile
+    /** Called with the validated profile once the person confirms (FR-009). */
+    onConfirm: (profile: Profile) => void
+    /** Lets the person switch to another account; the link is hidden when this is not given. */
+    onSignOut?: () => void
     /**
-     * Called with the validated profile and the (possibly empty) access code once the person
-     * confirms (FR-009) — the server decides whether the code is actually required.
-     */
-    onConfirm: (profile: GuestProfile, accessCode: string) => void
-    /**
-     * Set by the parent when a previous attempt's room join was rejected (e.g. wrong access
-     * code) — cleared as soon as the person edits the code again.
+     * Set by the parent when saving the profile or joining the room failed — cleared as soon as
+     * the person edits the name again.
      */
     joinError?: string
     /**
@@ -28,25 +27,17 @@
     pending?: boolean
   }
 
-  const { onConfirm, joinError, pending = false }: Props = $props()
+  const { initialProfile, onConfirm, onSignOut, joinError, pending = false }: Props = $props()
 
-  // Read once at component creation — pre-fills a returning visitor's previous choice (FR-005,
-  // US2), or a friendly generated name for a first-time visitor (FR-006, US3) when nothing is
-  // stored.
-  const storedProfile = new GuestProfileStore().load()
+  // Read once at component creation: the form edits a copy and hands it back on submit.
+  const { displayName: initialName, avatarType, character: initialCharacter } = untrack(() => initialProfile)
 
-  let name = $state(storedProfile?.displayName ?? generateDefaultName())
-  // Not editable here any more (issue #168 replaces this toggle with the Character Creator
-  // below) — kept as-is and passed straight through, since it's still what the map renders
-  // from until issue #170 wires that up to `character` instead (issue #169's fallback decision).
-  const avatarType = storedProfile?.avatarType ?? 'man'
-  // Never persisted — it's a shared room lock, not part of the guest's identity/appearance.
-  let accessCode = $state('')
+  let name = $state(initialName)
   let error = $state<string | undefined>()
 
-  // Undefined only until the first-visit random avatar finishes composing (onMount below) — the
+  // Undefined only until the first-time random avatar finishes composing (onMount below) — the
   // form can't submit without one (see handleSubmit).
-  let character: CharacterProfile | undefined = $state(storedProfile?.character)
+  let character: CharacterProfile | undefined = $state(initialCharacter)
   let avatarPreviewUrl: string | undefined = $state()
   let editingAvatar = $state(false)
 
@@ -89,7 +80,7 @@
     }
 
     error = undefined
-    onConfirm({ displayName: nameResult.output, avatarType, character }, accessCode)
+    onConfirm({ displayName: nameResult.output, avatarType, character })
   }
 </script>
 
@@ -121,16 +112,6 @@
           oninput={() => (error = undefined)}
         />
 
-        <label for='entry-access-code'>Access code (if you have one)</label>
-        <input
-          id='entry-access-code'
-          type='password'
-          autocomplete='off'
-          bind:value={accessCode}
-          disabled={pending}
-          oninput={() => (error = undefined)}
-        />
-
         {#if error}
           <p class='error'>{error}</p>
         {:else if joinError}
@@ -146,6 +127,13 @@
         </button>
       </div>
     </div>
+
+    {#if onSignOut}
+      <p class='account-line'>
+        Not you?
+        <button type='button' class='link' disabled={pending} onclick={onSignOut}>Sign out</button>
+      </p>
+    {/if}
   </form>
 </div>
 
@@ -234,13 +222,33 @@
     cursor: pointer;
   }
 
+  .account-line {
+    margin: 0;
+    color: #9ca3af;
+    font-size: 13px;
+  }
+
+  .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: #93c5fd;
+    cursor: pointer;
+    font: inherit;
+    text-decoration: underline;
+  }
+
+  .link:disabled {
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+
   .avatar-column button:disabled {
     cursor: not-allowed;
     opacity: 0.7;
   }
 
-  input[type='text'],
-  input[type='password'] {
+  input[type='text'] {
     padding: 8px;
     border: 1px solid #4a4a4a;
     border-radius: 6px;

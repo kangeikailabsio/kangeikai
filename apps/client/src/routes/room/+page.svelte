@@ -1,9 +1,15 @@
 <script lang='ts'>
+  import type { AccountUser } from '$lib/account/account-profile'
   import type { MediaControls } from '$lib/av/media-controls'
   import type { ScreenShareQualityTier } from '$lib/av/screen-share-quality'
-  import type { GuestProfile } from '$lib/entry/guest-profile-schema'
+  import type { Profile } from '$lib/entry/profile-schema'
   import type { ConnectionState, InteractionReceivedPayload, RoomConnection } from '$lib/network/room-connection'
   import type { AvatarPresence } from '@kangeikai/shared'
+  import { goto } from '$app/navigation'
+  import { AccountApiError, createAccountApi, describeAccountError } from '$lib/account/account-api'
+  import { profileFieldsFromUser, profileUpdateBody } from '$lib/account/account-profile'
+  import { AUTH_URL, authClient } from '$lib/auth/auth-client'
+  import { SIGN_IN_PATH } from '$lib/auth/auth-routes'
   import AvatarVideoOverlay from '$lib/av/avatar-video-overlay.svelte'
   import BusyOverlay from '$lib/av/busy-overlay.svelte'
   import ConnectionQualityIndicator from '$lib/av/connection-quality-indicator.svelte'
@@ -11,8 +17,8 @@
   import ScreenShareOverlay from '$lib/av/screen-share-overlay.svelte'
   import ScreenShareQualityPopover from '$lib/av/screen-share-quality-popover.svelte'
   import { ScreenShareQualityStore } from '$lib/av/screen-share-quality-store'
+  import { composeCharacterSheets } from '$lib/character/compose-character'
   import EntryForm from '$lib/entry/entry-form.svelte'
-  import { GuestProfileStore } from '$lib/entry/guest-profile-store'
   import FpsDisplay from '$lib/game/fps-display.svelte'
   import { gameSessionState } from '$lib/game/games/game-session-state.svelte'
   import PoolKickModal from '$lib/game/games/pool-kick-modal.svelte'
@@ -33,18 +39,23 @@
   import Toast from '$lib/ui/toast.svelte'
   import { ConnectionQuality } from 'livekit-client'
   import Phaser from 'phaser'
-  import { onDestroy } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
 
   let gameContainer: HTMLDivElement
   // $state so FpsDisplay (issue #130), passed this by reference, re-renders correctly if it
-  // ever changes while mounted — not just relying on the {#if guestProfile && !connecting} block
+  // ever changes while mounted — not just relying on the {#if activeProfile && !connecting} block
   // remounting at exactly the right time.
   let game: Phaser.Game | undefined = $state()
 
-  const guestProfileStore = new GuestProfileStore()
+  const accountApi = createAccountApi(AUTH_URL)
   const screenShareQualityStore = new ScreenShareQualityStore()
 
-  let guestProfile: GuestProfile | undefined = $state()
+  // The signed-in account's name and avatar, which pre-fill the entry form (issue #232). `checking`
+  // until the session is known; `unreachable` when the server could not be asked at all.
+  let accountProfile: Profile | undefined = $state()
+  let sessionState: 'checking' | 'ready' | 'unreachable' = $state('checking')
+  // The profile the game was started with — set once entry is confirmed.
+  let activeProfile: Profile | undefined = $state()
   // True from the moment the game is constructed until the Colyseus join actually succeeds —
   // keeps EntryForm mounted (pending) instead of revealing the map, so it never flashes
   // visible right before a possible access-code rejection (ROOM_JOIN_FAILED_EVENT).
@@ -81,12 +92,73 @@
   // room while one is connected), including once immediately on every room switch.
   let connectionQuality: ConnectionQuality = $state(ConnectionQuality.Unknown)
 
-  /** Mounts the game only once entry is confirmed (FR-009) — see `EntryForm` below. */
-  function handleEntryConfirm(profile: GuestProfile, accessCode: string): void {
-    guestProfileStore.save(profile)
+  /**
+   * Better-auth's client types do not know the extra `user` columns (`spriteType`,
+   * `characterSelection`), so they are read through `AccountUser`. Composing the sheets can fail
+   * (a piece that no longer exists); the form then simply generates a fresh avatar.
+   */
+  async function loadAccountProfile(): Promise<void> {
+    sessionState = 'checking'
+    try {
+      const { data, error } = await authClient.getSession()
+      if (error) {
+        sessionState = 'unreachable'
+        return
+      }
+      if (!data) {
+        await goto(SIGN_IN_PATH, { replaceState: true })
+        return
+      }
+
+      const fields = profileFieldsFromUser(data.user as AccountUser)
+      const character = fields.selection
+        ? await composeCharacterSheets(fields.selection).then(sheets => ({ selection: fields.selection!, sheets }), () => undefined)
+        : undefined
+      accountProfile = { displayName: fields.displayName, avatarType: fields.avatarType, character }
+      sessionState = 'ready'
+    }
+    catch {
+      sessionState = 'unreachable'
+    }
+  }
+
+  onMount(() => {
+    void loadAccountProfile()
+  })
+
+  async function signOut(): Promise<void> {
+    const { error } = await authClient.signOut()
+    if (error) {
+      joinError = 'Couldn\'t sign out. Try again.'
+      return
+    }
+    await goto(SIGN_IN_PATH)
+  }
+
+  /**
+   * Saves the confirmed profile to the account, gets a join ticket, and only then mounts the game
+   * (FR-009) — see `EntryForm` below. The form stays up (pending) during the two requests.
+   */
+  async function handleEntryConfirm(profile: Profile): Promise<void> {
     joinError = undefined
-    guestProfile = profile
     connecting = true
+
+    let ticket: string
+    try {
+      await accountApi.saveProfile(profileUpdateBody(profile))
+      ticket = await accountApi.fetchSessionTicket()
+    }
+    catch (error) {
+      connecting = false
+      if (error instanceof AccountApiError && error.kind === 'unauthorized')
+        await goto(SIGN_IN_PATH)
+      else
+        joinError = describeAccountError(error)
+      return
+    }
+
+    accountProfile = profile
+    activeProfile = profile
 
     game = new Phaser.Game({
       type: Phaser.AUTO,
@@ -108,9 +180,8 @@
     game.scene.add('office', OfficeScene, true, {
       displayName: profile.displayName,
       spriteType: profile.avatarType,
-      accessCode,
+      ticket,
       customAvatarSheets: profile.character?.sheets,
-      characterSelection: profile.character?.selection,
     })
 
     rosterState.reset()
@@ -171,14 +242,19 @@
       playNotificationSound('attention')
     })
 
-    // Most likely a wrong/missing access code (OfficeRoom.onAuth) — there's no meaningful
-    // in-game state to show, so tear down and let the person try again from the entry form.
+    // Most likely an expired or rejected ticket (OfficeRoom.onAuth) — there's no meaningful
+    // in-game state to show, so tear down and let the person try again from the entry form. If
+    // the session itself is gone, go back to sign in instead.
     game.events.on(ROOM_JOIN_FAILED_EVENT, () => {
       game?.destroy(true)
       game = undefined
-      guestProfile = undefined
+      activeProfile = undefined
       connecting = false
-      joinError = 'Could not join — check the access code and try again.'
+      joinError = 'Could not join — try again.'
+      void authClient.getSession().then(({ data, error }) => {
+        if (!data && !error)
+          void goto(SIGN_IN_PATH)
+      })
       unwireRoster?.()
       unwireConnectionStatus?.()
       rosterState.reset()
@@ -296,7 +372,7 @@
 </script>
 
 <div class='game-container' bind:this={gameContainer}>
-  {#if guestProfile && !connecting}
+  {#if activeProfile && !connecting}
     <AvatarVideoOverlay />
     <ScreenShareOverlay />
     <BusyOverlay active={localPresence === 'busy'} />
@@ -314,8 +390,18 @@
   {/if}
 </div>
 
-{#if !guestProfile || connecting}
-  <EntryForm onConfirm={handleEntryConfirm} {joinError} pending={connecting} />
+{#if sessionState !== 'ready' || !accountProfile}
+  <div class='session-screen' role={sessionState === 'unreachable' ? 'alert' : 'status'}>
+    {#if sessionState === 'unreachable'}
+      <p>Couldn't reach the server.</p>
+      <button type='button' onclick={loadAccountProfile}>Try again</button>
+    {:else}
+      <span class='session-spinner' aria-hidden='true'></span>
+      <p>Checking your session…</p>
+    {/if}
+  </div>
+{:else if !activeProfile || connecting}
+  <EntryForm initialProfile={accountProfile} onConfirm={handleEntryConfirm} onSignOut={signOut} {joinError} pending={connecting} />
 {:else}
   <div class='media-controls'>
     <button
@@ -372,6 +458,44 @@
 {/if}
 
 <style>
+  .session-screen {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: #1a1a1a;
+    color: #d1d5db;
+    font-size: 14px;
+  }
+
+  .session-screen button {
+    padding: 8px 16px;
+    border: 1px solid #4a4a4a;
+    border-radius: 6px;
+    background: transparent;
+    color: #fff;
+    cursor: pointer;
+    font: inherit;
+  }
+
+  .session-spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid #4a4a4a;
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: session-spin 0.8s linear infinite;
+  }
+
+  @keyframes session-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
   .game-container {
     position: relative;
     width: 100vw;

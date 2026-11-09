@@ -15,6 +15,8 @@ export interface E2eHook {
   walkTo: (x: number, y: number) => void
   /** Whether a `walkTo` (or a click) is still under way. */
   isWalking: () => boolean
+  /** Leaves the office cleanly (Colyseus, the office call and any private room), as closing the tab would not: a person who just vanishes stays in the room for a while. */
+  leave: () => void
   /** Which LiveKit room the call is in: `private` only once a private room is actually connected (a nearby person's tile shows up in the office long before that). */
   activeRoom: () => 'office' | 'private'
 }

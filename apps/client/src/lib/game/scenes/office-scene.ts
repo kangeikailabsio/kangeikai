@@ -585,6 +585,9 @@ export class OfficeScene extends Phaser.Scene {
           position: () => ({ x: this.avatar.x, y: this.avatar.y }),
           walkTo: (x, y) => this.walkTo(x, y, false),
           isWalking: () => this.autoWalkController.active,
+          leave: () => {
+            this.scene.stop()
+          },
           activeRoom: () => (this.connectedPrivateRoom ? 'private' : 'office'),
         })
       : undefined

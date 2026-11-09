@@ -6,6 +6,7 @@ interface E2eHook {
   position: () => { x: number, y: number }
   walkTo: (x: number, y: number) => void
   isWalking: () => boolean
+  leave: () => void
   activeRoom: () => 'office' | 'private'
 }
 
@@ -42,4 +43,18 @@ export const SETTLE_AFTER_ROOM_SWITCH_MS = 4_000
 export async function walkTo(page: Page, point: { x: number, y: number }): Promise<void> {
   await page.evaluate(({ x, y }) => (window as unknown as { __kangeikaiE2E: E2eHook }).__kangeikaiE2E.walkTo(x, y), point)
   await page.waitForFunction(() => !(window as unknown as { __kangeikaiE2E: E2eHook }).__kangeikaiE2E.isWalking(), undefined, { timeout: 60_000 })
+}
+
+/**
+ * Leaves the office cleanly before a browser is closed, so the others do not see a lingering ghost of this person (see
+ * the hook's `leave`). Does nothing for a page that never entered the office (it has no hook).
+ */
+export async function leaveOffice(page: Page): Promise<void> {
+  const left = await page.evaluate(() => {
+    const hook = (window as unknown as { __kangeikaiE2E?: E2eHook }).__kangeikaiE2E
+    hook?.leave()
+    return hook !== undefined
+  })
+  if (left)
+    await page.waitForTimeout(800) // lets the server and LiveKit register the departure
 }

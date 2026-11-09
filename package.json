@@ -17,7 +17,8 @@
     "lint": "eslint .",
     "test": "pnpm -r --if-present test",
     "check": "pnpm -r --if-present check",
-    "test:e2e": "pnpm --filter @kangeikai/e2e test:e2e"
+    "test:e2e": "pnpm --filter @kangeikai/e2e test:e2e",
+    "capture:landing": "pnpm --filter @kangeikai/e2e capture:landing"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^4.0.0",

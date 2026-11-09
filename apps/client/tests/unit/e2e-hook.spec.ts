@@ -9,7 +9,7 @@ describe('e2e hook (issue #227)', () => {
   it('exposes the hook on window and removes it again', () => {
     const fakeWindow: { __kangeikaiE2E?: unknown } = {}
     vi.stubGlobal('window', fakeWindow)
-    const hook = { teleport: vi.fn(), position: vi.fn(() => ({ x: 1, y: 2 })), walkTo: vi.fn(), isWalking: vi.fn(() => false), activeRoom: vi.fn(() => 'office' as const) }
+    const hook = { teleport: vi.fn(), position: vi.fn(() => ({ x: 1, y: 2 })), walkTo: vi.fn(), isWalking: vi.fn(() => false), leave: vi.fn(), activeRoom: vi.fn(() => 'office' as const) }
 
     const unregister = registerE2eHook(hook)
     expect(fakeWindow.__kangeikaiE2E).toBe(hook)
@@ -21,8 +21,8 @@ describe('e2e hook (issue #227)', () => {
   it('does not remove a hook that a newer scene has registered since', () => {
     const fakeWindow: { __kangeikaiE2E?: unknown } = {}
     vi.stubGlobal('window', fakeWindow)
-    const first = { teleport: vi.fn(), position: vi.fn(), walkTo: vi.fn(), isWalking: vi.fn(), activeRoom: vi.fn() }
-    const second = { teleport: vi.fn(), position: vi.fn(), walkTo: vi.fn(), isWalking: vi.fn(), activeRoom: vi.fn() }
+    const first = { teleport: vi.fn(), position: vi.fn(), walkTo: vi.fn(), isWalking: vi.fn(), leave: vi.fn(), activeRoom: vi.fn() }
+    const second = { teleport: vi.fn(), position: vi.fn(), walkTo: vi.fn(), isWalking: vi.fn(), leave: vi.fn(), activeRoom: vi.fn() }
 
     const unregisterFirst = registerE2eHook(first)
     registerE2eHook(second)

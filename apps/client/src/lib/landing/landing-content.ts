@@ -2,7 +2,7 @@
  * Everything the landing page (`routes/+page.svelte`) says and shows, in one place so the copy
  * and the media can be swapped without touching markup (issue #229).
  *
- * Media are short muted loops recorded by `pnpm capture:landing` (issue #242): a `clip` name
+ * Media are short muted loops (issue #242): a `clip` name
  * stands for `static/landing/<clip>.mp4`, `<clip>.webm` and `<clip>-poster.jpg`. A feature without
  * a `clip` shows a placeholder until its clip exists.
  */

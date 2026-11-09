@@ -169,14 +169,19 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   outros depois de 15 s (teste de 15 s, melhor com relógio simulado). Os testes da sala privada
   compartilham a sala `office` do LiveKit de desenvolvimento.
 
-- **Vídeos da landing: primeira rodada** — [#242](https://github.com/kangeikailabsio/kangeikai/issues/242)
-  grava com `pnpm capture:landing` o passeio do hero, o mapa compartilhado, voz e vídeo por
-  proximidade, salas privadas e o criador de avatar (MP4, WebM e poster, uns 2,5 MB no total em
-  `apps/client/static/landing/`), com câmera desligada e avatares fixos. A landing toca cada clipe
-  só quando ele aparece na tela, carrega os posters de baixo só perto dela e mostra só o poster para
-  quem pede menos movimento. Ficaram de fora: os clipes de compartilhar tela e do jogo de sinuca
-  (a captura de tela em Chromium headless é instável e a sinuca exige mirar com o mouse; as duas
-  vagas continuam com o espaço reservado), imagem de rosto de verdade, recortes para celular,
-  regenerar os clipes no CI e vídeos mais longos ou com som. A qualidade é a do vídeo do Playwright
-  (WebM de uns 25 fps, sem retina), boa para loops curtos, e não a de um gravador de tela
-  profissional. O crédito da arte do mapa (LimeZu) continua pendente, como registrado.
+- **Vídeos da landing: primeira rodada, sem script de gravação** — [#242](https://github.com/kangeikailabsio/kangeikai/issues/242)
+  traz o passeio do hero, o mapa compartilhado, voz e vídeo por proximidade, salas privadas e o
+  criador de avatar (MP4, WebM e poster, uns 2,3 MB no total em `apps/client/static/landing/`),
+  gravados com câmera desligada. A landing toca cada clipe só quando ele aparece na tela, carrega
+  os posters de baixo só perto dela e mostra só o poster para quem pede menos movimento. Ficaram de
+  fora: um script que regrave os clipes (a primeira versão, com Playwright e `ffmpeg`, foi
+  escrita e depois removida do PR porque os vídeos não devem mudar tão cedo; está nos commits do
+  PR [#243](https://github.com/kangeikailabsio/kangeikai/pull/243) se for preciso retomar), os
+  clipes de compartilhar tela e do jogo de sinuca (as duas vagas continuam com o espaço
+  reservado), imagem de rosto de verdade, recortes para celular e vídeos mais longos ou com som.
+  Ao regravar à mão, mantenha os arquivos pequenos (uns 1,5 MB cada), em MP4 e WebM, com um poster
+  `<nome>-poster.jpg`, e confira o Lighthouse. Dois cuidados que a primeira gravação ensinou:
+  dentro de uma zona privada todos ficam na mesma chamada qualquer que seja a distância, então os
+  clipes de proximidade só funcionam no chão aberto entre as mesas e a sala de estar; e quem fecha
+  o navegador à força fica um tempo na sala e aparece como tile no clipe seguinte. O crédito da arte
+  do mapa (LimeZu) continua pendente, como registrado.

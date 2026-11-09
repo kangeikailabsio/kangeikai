@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { newPlayer } from '../support/accounts'
-import { enterTheOffice, position, walkTo } from '../support/game'
-import { privateZoneCenter } from '../support/zones'
+import { enterTheOffice, position } from '../support/game'
 
 test('the avatar walks with the arrow keys', async ({ browser }) => {
   const { page, context } = await newPlayer(browser, 'Walker')
@@ -14,17 +13,5 @@ test('the avatar walks with the arrow keys', async ({ browser }) => {
 
   const after = await position(page)
   expect(after.x).toBeGreaterThan(before.x + 20)
-  await context.close()
-})
-
-test('the avatar walks to a point on its own, around the furniture', async ({ browser }) => {
-  const { page, context } = await newPlayer(browser, 'Guide')
-  await enterTheOffice(page)
-  const desk = privateZoneCenter('desk-01')
-
-  await walkTo(page, desk)
-
-  const arrived = await position(page)
-  expect(Math.hypot(arrived.x - desk.x, arrived.y - desk.y)).toBeLessThan(12)
   await context.close()
 })

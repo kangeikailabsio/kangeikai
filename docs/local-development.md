@@ -69,29 +69,6 @@ pnpm test:e2e
 - `E2E_POSTGRES_URL` overrides the PostgreSQL the suite creates its database on.
 - The suite shares the dev LiveKit server with `pnpm dev:client`; avoid being in the same call at the same time.
 
-## Landing page clips
-
-The videos on the landing page are recorded by a script, so they can be refreshed whenever the
-interface changes (issue #242). It needs the same things as the e2e suite (`pnpm dev:infra`, Chromium
-installed) plus `ffmpeg`.
-
-```sh
-pnpm capture:landing                                     # records every clip, then encodes them
-pnpm --filter @kangeikai/e2e capture:record -g hero      # one clip only (a Playwright --grep)
-pnpm --filter @kangeikai/e2e capture:encode              # encodes what was recorded
-```
-
-- The scripts are in `e2e/capture/`, one file per clip. They play a scene with a few signed-in people
-  on the e2e stack (own server, client and database), and film one of them: the camera follows that
-  avatar. Avatars have fixed looks (`capture/support/looks.ts`), so a clip looks the same every time.
-- `encode.mjs` trims each recording to its scene and writes `<clip>.mp4`, `<clip>.webm` and
-  `<clip>-poster.jpg` to `apps/client/static/landing/`, with a size budget of about 1.5 MB per file.
-- A clip stays in a place that is in no private zone when it is about distance: inside a private zone
-  everybody is in the same call whatever the distance. The scripts check that the scene starts clean
-  (the right people in the room, far enough apart, no video tiles) and fail otherwise.
-- `landing-content.ts` names the clips; a unit test checks that every clip it names exists in
-  `static/landing/`. A feature without a clip shows a placeholder.
-
 ## Changing the auth setup
 
 Auth tables are generated from `apps/server/src/auth/auth-options.ts`:

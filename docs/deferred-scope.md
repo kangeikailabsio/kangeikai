@@ -122,3 +122,13 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   contra qualquer desconexão futura, mas é uma mudança maior. O estado de busy iniciado dentro de uma
   sala privada deve ser corrigido de carona, porque o `beginBusy` passa a ler o valor certo, mas não
   há teste automatizado: depende da `OfficeScene`, que não tem testes. Vale conferir no browser.
+- **Falha de conexão na sala privada: recuperação local, sem avisar os outros** — [#225](https://github.com/kangeikailabsio/kangeikai/issues/225)
+  faz o cliente tentar mais 2 vezes (1 s de intervalo) antes de mostrar "Couldn't connect", dá um
+  botão "Try again" ao tile de erro, tira o erro quando a outra pessoa sai da zona e esconde o
+  tile pendente dos outros depois de 15 s (ele volta sozinho se a pessoa conectar). Ficaram de
+  fora: a pessoa que falhou avisar o servidor (campo no schema ou mensagem validada com Valibot)
+  para os outros verem o motivo, distinguir o tipo de erro na mensagem (403, rede, 5xx), timeouts
+  em `fetch` e `room.connect` (se algo travar, nem o erro aparece) e um possível vazamento de
+  `Room` quando o `room.connect` falha pela metade (visto só na leitura do código). A causa do
+  erro intermitente (403 por a posição chegar depois do pedido de token) é hipótese, não foi
+  reproduzida.

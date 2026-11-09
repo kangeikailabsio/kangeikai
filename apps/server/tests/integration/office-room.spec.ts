@@ -8,6 +8,7 @@ import { Server } from 'colyseus'
 import express from 'express'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { registerLiveKitTokenRoute } from '../../src/http/livekit-token'
+import { respawnAreas } from '../../src/map-zones'
 import { OfficeRoom, setOfficeRoomAuthenticator } from '../../src/rooms/office-room'
 import { AvatarSchema } from '../../src/rooms/schema/avatar-schema'
 import { computeSessionProof } from '../../src/session-proof'
@@ -192,14 +193,15 @@ describe('officeRoom', () => {
     const clientA = await colyseus.connectTo(room, joinAs('Alice', 'man'))
     const clientB = await colyseus.connectTo(room, joinAs('Bob', 'woman', { presence: 'busy' }))
     await waitFor(clientA, () => clientA.state.players.get(clientB.sessionId)?.presence === 'busy')
+    const spawn = { x: room.state.players.get(clientB.sessionId)!.x, y: room.state.players.get(clientB.sessionId)!.y }
 
     clientB.send('updateState', { x: 42, y: 84, direction: 'right', motionState: 'walking' })
     clientA.send('updateState', { x: 10, y: 20, direction: 'up', motionState: 'walking' })
     await waitFor(clientA, () => clientA.state.players.get(clientA.sessionId)?.x === 10)
 
     const busy = clientA.state.players.get(clientB.sessionId)
-    expect(busy?.x).toBe(150)
-    expect(busy?.y).toBe(150)
+    expect(busy?.x).toBeCloseTo(spawn.x, 2)
+    expect(busy?.y).toBeCloseTo(spawn.y, 2)
     expect(busy?.direction).toBe('down')
     expect(busy?.motionState).toBe('idle')
   })
@@ -279,6 +281,33 @@ describe('officeRoom', () => {
     })
 
     expect(proof).toBe(computeSessionProof(client.sessionId))
+  })
+
+  describe('spawn point (issue #254)', () => {
+    function insideARespawnArea(point: { x: number, y: number }): boolean {
+      return respawnAreas.some(area => point.x >= area.x && point.x <= area.x + area.width && point.y >= area.y && point.y <= area.y + area.height)
+    }
+
+    it('places a joining avatar inside a respawn area of the map', async () => {
+      const room = await colyseus.createRoom('office', joinAs('Alice', 'man'))
+      const client = await colyseus.connectTo(room, joinAs('Alice', 'man'))
+
+      const avatar = room.state.players.get(client.sessionId)
+      expect(avatar).toBeDefined()
+      expect(insideARespawnArea({ x: avatar!.x, y: avatar!.y })).toBe(true)
+    })
+
+    it('tells the joining client where it was placed', async () => {
+      const room = await colyseus.createRoom('office', joinAs('Alice', 'man'))
+      const client = await colyseus.connectTo(room, joinAs('Alice', 'man'))
+
+      const spawn = await new Promise<{ x: number, y: number }>((resolve) => {
+        client.onMessage<{ x: number, y: number }>('spawn', payload => resolve(payload))
+      })
+
+      const avatar = room.state.players.get(client.sessionId)
+      expect(spawn).toEqual({ x: avatar!.x, y: avatar!.y })
+    })
   })
 
   describe('isPositionInZone (issue #60/TASK #122)', () => {

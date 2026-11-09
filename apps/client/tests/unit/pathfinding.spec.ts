@@ -1,9 +1,9 @@
 import type { WalkTarget } from '$lib/game/input/auto-walk-controller'
-import type { CollisionRect } from '$lib/game/map/collision'
-import { Avatar, feetHitbox } from '$lib/game/entities/avatar'
+import type { CollisionRect } from '@kangeikai/shared'
+import { Avatar } from '$lib/game/entities/avatar'
 import { AutoWalkController } from '$lib/game/input/auto-walk-controller'
-import { collidesWithAny, rectsOverlap } from '$lib/game/map/collision'
 import { buildPathfindingGrid, findPath } from '$lib/game/map/pathfinding'
+import { collidesWithAny, feetHitbox, rectsOverlap } from '@kangeikai/shared'
 import { describe, expect, it } from 'vitest'
 
 const CELL_SIZE = 16

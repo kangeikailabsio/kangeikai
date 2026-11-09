@@ -1,8 +1,10 @@
+import type { SpawnPoint } from '$lib/network/spawn-message'
 import type { MapSchema } from '@colyseus/schema'
 import type { Room } from '@colyseus/sdk'
 import type { PoolCommand, PoolEvent } from '@kangeikai/game-pool/protocol'
 import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, CharacterSelection } from '@kangeikai/shared'
 import { PUBLIC_COLYSEUS_URL } from '$env/static/public'
+import { parseSpawn } from '$lib/network/spawn-message'
 import { Client, getStateCallbacks } from '@colyseus/sdk'
 import { POOL_COMMAND, POOL_EVENT } from '@kangeikai/game-pool/protocol'
 import { CLOSE_CODE_SESSION_REPLACED } from '@kangeikai/shared'
@@ -151,6 +153,7 @@ export class RoomConnection {
 
   private readonly stateSender = new PendingUpdateStateSender(payload => this.room?.send('updateState', payload))
   private proof: string | undefined
+  private spawn: SpawnPoint | undefined
 
   constructor(serverUrl: string = DEFAULT_SERVER_URL) {
     this.client = new Client(serverUrl)
@@ -161,6 +164,11 @@ export class RoomConnection {
    * LiveKit `identity` when requesting a proximity token (contracts/livekit-token-endpoint.md
    * "Stability" section, spec 003).
    */
+  /** Where the server placed this person on joining (issue #254); `undefined` until it says, or if it never does. */
+  get spawnPoint(): SpawnPoint | undefined {
+    return this.spawn
+  }
+
   get sessionId(): string | undefined {
     return this.room?.sessionId
   }
@@ -217,6 +225,10 @@ export class RoomConnection {
       room.onReconnect(() => this.emitConnectionState('connected'))
       this.bindRemoteAvatarEvents(room)
       this.bindInteractionEvents(room)
+      // Same tick as the join, like the session proof: registered before anything can be missed.
+      room.onMessage('spawn', (payload: unknown) => {
+        this.spawn = parseSpawn(payload)
+      })
       await this.awaitSessionProof(room)
       this.emitConnectionState('connected')
     }

@@ -1,5 +1,5 @@
-import type { RespawnRect } from '$lib/game/map/respawn-point'
-import { resolveRespawnPoint } from '$lib/game/map/respawn-point'
+import type { RespawnRect } from '@kangeikai/shared'
+import { resolveRespawnPoint } from '@kangeikai/shared'
 import { describe, expect, it } from 'vitest'
 
 function sequence(values: number[]): () => number {

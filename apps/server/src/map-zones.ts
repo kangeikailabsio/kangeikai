@@ -1,4 +1,4 @@
-import type { PrivateZone, TiledSpaceObject } from '@kangeikai/shared'
+import type { CollisionRect, PrivateZone, RespawnRect, TiledSpaceObject } from '@kangeikai/shared'
 import { readFileSync } from 'node:fs'
 import { resolveGameTables, resolvePrivateZones } from '@kangeikai/shared'
 
@@ -9,6 +9,10 @@ interface TiledLayer {
 
 interface TiledMapJson {
   layers: TiledLayer[]
+  width: number
+  height: number
+  tilewidth: number
+  tileheight: number
 }
 
 /**
@@ -21,16 +25,28 @@ interface TiledMapJson {
  */
 const MAP_PATH = new URL('../../../packages/shared/assets/maps/welcome/map.tmj', import.meta.url)
 
-const SPACES_LAYER_NAME = 'spaces'
+const mapJson = JSON.parse(readFileSync(MAP_PATH, 'utf-8')) as TiledMapJson
 
-function loadPrivateZones(): PrivateZone[] {
-  const mapJson = JSON.parse(readFileSync(MAP_PATH, 'utf-8')) as TiledMapJson
-  const spacesLayer = mapJson.layers.find(layer => layer.name === SPACES_LAYER_NAME)
-  return resolvePrivateZones(spacesLayer?.objects ?? [])
+function objectsOf(layerName: string): TiledSpaceObject[] {
+  return mapJson.layers.find(layer => layer.name === layerName)?.objects ?? []
 }
 
-/** Parsed once at process startup — the map doesn't change while the server is running. */
-export const privateZones: PrivateZone[] = loadPrivateZones()
+function toRects(objects: readonly TiledSpaceObject[]): CollisionRect[] {
+  return objects.map(object => ({ x: object.x ?? 0, y: object.y ?? 0, width: object.width ?? 0, height: object.height ?? 0 }))
+}
 
-const mapJson = JSON.parse(readFileSync(MAP_PATH, 'utf-8')) as TiledMapJson
-export const gameTables = resolveGameTables(mapJson.layers.find(layer => layer.name === 'games')?.objects ?? [])
+// Parsed once at process startup — the map doesn't change while the server is running.
+export const privateZones: PrivateZone[] = resolvePrivateZones(objectsOf('spaces'))
+export const gameTables = resolveGameTables(objectsOf('games'))
+
+/**
+ * The rectangles of the `collisions` layer, which block an avatar's feet (issue #254). Every
+ * object counts, whatever its name; zero-area ones are harmless because `rectsOverlap` ignores them.
+ */
+export const colliders: CollisionRect[] = toRects(objectsOf('collisions'))
+
+/** The rectangles of the `respawn` layer, where a person may start (issue #254). */
+export const respawnAreas: RespawnRect[] = toRects(objectsOf('respawn'))
+
+/** The map's size in pixels. */
+export const mapSize = { width: mapJson.width * mapJson.tilewidth, height: mapJson.height * mapJson.tileheight }

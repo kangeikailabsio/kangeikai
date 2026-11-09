@@ -4,12 +4,6 @@ Coisas deixadas deliberadamente de fora do escopo de uma correção ou feature, 
 perderem. Cada item linka de volta pra onde a decisão foi tomada. Quando um item for finalmente
 endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de verdade).
 
-- **Servidor autoritativo do ponto de spawn** — o servidor ainda cria cada avatar numa posição
-  placeholder fixa, em vez do ponto real de respawn do Tiled, porque o servidor não tem
-  consciência de mapa/collision hoje. Deixado de fora de
-  [#143](https://github.com/kangeikailabsio/kangeikai/issues/143) como um projeto maior e
-  separado (dar ao servidor consciência real de mapa), não parte da correção contida
-  client-side daquele bug.
 - **Blindar o áudio de proximidade/salas privadas contra cliente malicioso** — hoje, distância
   e estado "busy" só reduzem o volume de reprodução no cliente; todo cliente está de fato
   inscrito no áudio de todo mundo na sala "office" do LiveKit, então um cliente deliberadamente

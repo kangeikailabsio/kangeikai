@@ -1,5 +1,5 @@
-import type { CollisionRect } from '$lib/game/map/collision'
-import { collidesWithAny, rectsOverlap } from '$lib/game/map/collision'
+import type { CollisionRect } from '@kangeikai/shared'
+import { collidesWithAny, rectsOverlap } from '@kangeikai/shared'
 import { describe, expect, it } from 'vitest'
 
 describe('rectsOverlap', () => {

@@ -1,21 +1,6 @@
 import type { MovementIntent } from '$lib/game/input/movement-controller'
-import type { CollisionRect } from '$lib/game/map/collision'
-import type { AvatarDirection, AvatarMotionState, AvatarSpriteType, AvatarState } from '@kangeikai/shared'
-import { collidesWithAny } from '$lib/game/map/collision'
-
-const SPEED_PX_PER_SECOND = 200
-const SPRINT_SPEED_MULTIPLIER = 1.5
-
-/** Must match office-scene.ts's AVATAR_FRAME_SIZE — the sprite is center-anchored, so this offsets the collision hitbox down to the sprite's feet instead of its visual middle. */
-const SPRITE_HEIGHT = 64
-
-/**
- * Small hitbox at the avatar's feet rather than the full 32×64 sprite — lets the sprite's
- * head/shoulders visually overlap the top of furniture/walls (how these tile-based asset packs
- * are drawn) while only the base actually collides.
- */
-const COLLISION_HITBOX_WIDTH = 20
-const COLLISION_HITBOX_HEIGHT = 12
+import type { AvatarDirection, AvatarMotionState, AvatarSpriteType, AvatarState, CollisionRect } from '@kangeikai/shared'
+import { collidesWithAny, feetHitbox, SPEED_PX_PER_SECOND, SPRINT_SPEED_MULTIPLIER } from '@kangeikai/shared'
 
 const DIRECTION_VECTORS: Record<AvatarDirection, { x: number, y: number }> = {
   up: { x: 0, y: -1 },
@@ -69,21 +54,6 @@ export interface SpriteAnimation {
 export function getSpriteAnimation(spriteType: AvatarSpriteType | 'custom', motionState: AvatarMotionState, direction: AvatarDirection): SpriteAnimation {
   return {
     key: `${spriteType}-${motionState}-${direction}`,
-  }
-}
-
-/**
- * The avatar's collision hitbox at a given position — a small box at its feet, not the full
- * sprite (see COLLISION_HITBOX_WIDTH/HEIGHT). Exported so pathfinding.ts's grid uses the exact
- * same walkability test as real movement (#92) — never a coarser approximation that could let
- * the grid consider a cell walkable that would actually block the avatar, or vice versa.
- */
-export function feetHitbox(x: number, y: number): CollisionRect {
-  return {
-    x: x - COLLISION_HITBOX_WIDTH / 2,
-    y: y + SPRITE_HEIGHT / 2 - COLLISION_HITBOX_HEIGHT,
-    width: COLLISION_HITBOX_WIDTH,
-    height: COLLISION_HITBOX_HEIGHT,
   }
 }
 

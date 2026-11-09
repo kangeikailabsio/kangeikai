@@ -115,3 +115,10 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   mas deixa texto e código mais borrados enquanto a conexão estiver apertada. Ficou de fora uma
   opção "Content" no popover de qualidade ("Smooth" para jogos e vídeo, "Sharp" para documentos e
   código, voltando ao padrão do SDK, que prioriza a resolução). Só vale a pena se alguém reclamar.
+- **Mic e câmera ao sair de sala privada vêm de um snapshot** — [#222](https://github.com/kangeikailabsio/kangeikai/issues/222)
+  lê o estado de microfone e câmera antes do `room.disconnect()` e o repassa ao `onDisconnect`, para
+  o escritório (ou a próxima sala privada) reconectar como a pessoa estava. Ficou de fora guardar a
+  intenção do usuário no `MediaControls`, em vez de derivá-la da track do LiveKit. Seria mais robusto
+  contra qualquer desconexão futura, mas é uma mudança maior. O estado de busy iniciado dentro de uma
+  sala privada deve ser corrigido de carona, porque o `beginBusy` passa a ler o valor certo, mas não
+  há teste automatizado: depende da `OfficeScene`, que não tem testes. Vale conferir no browser.

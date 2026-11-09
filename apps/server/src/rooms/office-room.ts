@@ -2,21 +2,14 @@ import type { Client } from 'colyseus'
 import type { AuthenticatedUser, Authenticator } from '../auth/authenticator'
 import { POOL_COMMAND, POOL_EVENT } from '@kangeikai/game-pool/protocol'
 import { PoolManager } from '@kangeikai/game-pool/server'
-import { CLOSE_CODE_SESSION_REPLACED, privateZoneAt } from '@kangeikai/shared'
+import { CLOSE_CODE_SESSION_REPLACED, privateZoneAt, resolveRespawnPoint } from '@kangeikai/shared'
 import { CloseCode, Room } from 'colyseus'
 import * as v from 'valibot'
-import { gameTables, privateZones } from '../map-zones'
+import { gameTables, mapSize, privateZones, respawnAreas } from '../map-zones'
 import { computeSessionProof } from '../session-proof'
 import { interactionPayloadSchema, officeJoinOptionsSchema, setPresencePayloadSchema, updateStatePayloadSchema } from './message-schemas'
 import { AvatarSchema } from './schema/avatar-schema'
 import { OfficeRoomState } from './schema/office-room-state'
-
-/**
- * Placeholder spawn point, matching apps/client's office-scene.ts SPAWN_X/SPAWN_Y — see that
- * file's comment on the map's current lack of a collision layer (same known gap applies here).
- */
-const SPAWN_X = 150
-const SPAWN_Y = 150
 
 let authenticator: Authenticator | null = null
 
@@ -158,10 +151,14 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
     avatar.presence = presence
     avatar.characterSelection = auth.characterSelection ? JSON.stringify(auth.characterSelection) : ''
     avatar.userId = auth.userId
-    avatar.x = SPAWN_X
-    avatar.y = SPAWN_Y
+    // The server chooses where a person starts, from the map's `respawn` layer (issue #254), and
+    // tells the client, which has no say in it.
+    const spawn = resolveRespawnPoint(respawnAreas, { x: mapSize.width / 2, y: mapSize.height / 2 })
+    avatar.x = spawn.x
+    avatar.y = spawn.y
 
     this.state.players.set(client.sessionId, avatar)
+    client.send('spawn', spawn)
 
     // Lets /livekit-token (spec 003) confirm this identity really went through onJoin, instead
     // of accepting any identity/name unauthenticated (security review finding). Best-effort:

@@ -46,7 +46,7 @@ import { avatarProfileState } from '$lib/people/avatar-profile-state.svelte'
 import { followState } from '$lib/people/follow-state.svelte'
 import { attentionModalState } from '$lib/ui/attention-modal-state.svelte'
 import { toastState } from '$lib/ui/toast-state.svelte'
-import { feetHitbox, isValidCharacterSelection, privateZoneAt, resolveGameTables, resolvePrivateZones, resolveRespawnPoint, selectGameTable, tableContains } from '@kangeikai/shared'
+import { feetHitbox, isValidCharacterSelection, privateZoneAt, resolveGameTables, resolvePrivateZones, selectGameTable, tableContains } from '@kangeikai/shared'
 import { Track } from 'livekit-client'
 import Phaser from 'phaser'
 
@@ -512,18 +512,10 @@ export class OfficeScene extends Phaser.Scene {
       }
     }
 
-    // The "respawn" object layer's rectangles mark valid spawn areas — one is picked at random,
-    // then a random point inside it, so simultaneous joins don't stack on the same pixel.
-    const respawnObjects = (map.getObjectLayer('respawn')?.objects ?? []).map(object => ({
-      x: object.x ?? 0,
-      y: object.y ?? 0,
-      width: object.width ?? 0,
-      height: object.height ?? 0,
-    }))
-    if (respawnObjects.length === 0) {
-      console.warn('kangeikai: active map has no "respawn" object layer objects — falling back to the map center')
-    }
-    const spawnPoint = resolveRespawnPoint(respawnObjects, { x: this.mapWidthPx / 2, y: this.mapHeightPx / 2 })
+    // Where the avatar really starts is up to the server (issue #254), which draws it from the map's
+    // `respawn` layer and says so on joining. Until then the map's center holds the place; the entry
+    // screen covers the map while the join is pending, so nobody sees the avatar move.
+    const spawnPoint = { x: this.mapWidthPx / 2, y: this.mapHeightPx / 2 }
 
     this.avatar = new Avatar(spawnPoint.x, spawnPoint.y, this.spriteType, this.mapWidthPx, this.mapHeightPx)
 
@@ -572,6 +564,11 @@ export class OfficeScene extends Phaser.Scene {
       presence: this.presence,
     })
       .then(() => {
+        const spawn = this.roomConnection.spawnPoint
+        if (spawn) {
+          this.avatar.x = spawn.x
+          this.avatar.y = spawn.y
+        }
         this.game.events.emit(ROOM_JOINED_EVENT)
         this.connectProximityAudio(this.initialMedia.microphoneEnabled, this.initialMedia.cameraEnabled)
       })

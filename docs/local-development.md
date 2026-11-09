@@ -40,6 +40,13 @@ real OAuth client (https://console.cloud.google.com/apis/credentials) whose redi
 
 `docker compose -f docker-compose.dev.yml down -v` also wipes the database.
 
+## Tests
+
+The server's database integration tests use [Testcontainers](https://testcontainers.com): each
+test file starts its own throwaway PostgreSQL container (`postgres:17-alpine`, the same image as
+the compose file), applies the migrations, and empties the tables between tests. They only need
+Docker running: no compose stack and no `DATABASE_URL`, and your own database is never touched.
+
 ## Changing the auth setup
 
 Auth tables are generated from `apps/server/src/auth/auth-options.ts`:

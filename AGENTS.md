@@ -37,6 +37,9 @@ chat. See `docs/mvp-plan.md` for the product plan.
   whole workspace. No Prettier.
 - **Testing**: Vitest for pure/deterministic logic (e.g. movement/collision math); no automated
   canvas-rendering assertions at MVP stage — validate rendered behavior manually in a browser.
+  Tests that need PostgreSQL use Testcontainers (`@testcontainers/postgresql`): a throwaway
+  container per test file, tables truncated between tests, nothing but Docker required. Never
+  point a test at the developer's own database.
 - **Git hooks**: native git hooks, no wrapper package (no Husky). The tracked source of truth
   is `.githooks/` — `pre-commit` (runs `lint-staged`, which runs `eslint --fix` on staged
   files) and `commit-msg` (runs `commitlint` against `@commitlint/config-conventional`, so

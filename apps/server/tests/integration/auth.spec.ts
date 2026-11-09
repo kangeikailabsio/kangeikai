@@ -1,38 +1,44 @@
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql'
 import type { Server as HttpServer } from 'node:http'
 import type { AuthConfig } from '../../src/auth/auth-config'
-import process from 'node:process'
 import express from 'express'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { createAuth } from '../../src/auth/auth'
 import { createDb } from '../../src/db/client'
-import { runMigrations } from '../../src/db/migrate'
 import { DEV_USER_PASSWORD, DEV_USERS, seedDevUsers } from '../../src/db/seed-users'
 import { registerAuthRoutes } from '../../src/http/auth-route'
+import { createTestDb } from './support/create-test-db'
+import { truncateAll } from './support/truncate-test-db'
 
-// Needs a real PostgreSQL (docker compose -f docker-compose.dev.yml up postgres); skipped without one.
-const databaseUrl = process.env.DATABASE_URL
 const CLIENT_ORIGIN = 'http://localhost:5173'
+const EVIL_ORIGIN = 'https://evil.example.com'
+const email = 'ana@example.com'
+const password = 'correct horse battery'
 
-describe.skipIf(!databaseUrl)('auth routes against postgres (issue #231)', () => {
+// Runs against a PostgreSQL container started here (needs Docker); every test starts from empty tables.
+describe('auth routes against postgres (issue #231)', () => {
+  let container: StartedPostgreSqlContainer
   let server: HttpServer
   let baseUrl: string
   let pool: ReturnType<typeof createDb>['pool']
-  let seedAuth: ReturnType<typeof createAuth>
-  let seedDb: ReturnType<typeof createDb>['db']
-  const run = Date.now()
+  let db: ReturnType<typeof createDb>['db']
+  let auth: ReturnType<typeof createAuth>
 
   beforeAll(async () => {
-    await runMigrations(databaseUrl!)
+    container = await createTestDb()
     const config: AuthConfig = {
-      databaseUrl: databaseUrl!,
+      databaseUrl: container.getConnectionUri(),
       secret: 'integration-test-secret-at-least-32-chars',
       baseUrl: 'http://localhost',
       clientOrigins: [CLIENT_ORIGIN],
       cookieDomain: undefined,
       google: { clientId: 'id', clientSecret: 'secret' },
     }
-    const created = createDb(databaseUrl!)
+    const created = createDb(config.databaseUrl)
     pool = created.pool
+    db = created.db
+    auth = createAuth(config, db)
+
     const app = express()
     // Stands in for Colyseus, which sets these on every response before Express runs.
     app.use((req, res, next) => {
@@ -40,19 +46,22 @@ describe.skipIf(!databaseUrl)('auth routes against postgres (issue #231)', () =>
       res.setHeader('Access-Control-Allow-Credentials', 'true')
       next()
     })
-    seedDb = created.db
-    seedAuth = createAuth(config, created.db)
-    registerAuthRoutes(app, seedAuth, config)
+    registerAuthRoutes(app, auth, config)
     await new Promise<void>((resolve) => {
       server = app.listen(0, () => resolve())
     })
     const address = server.address()
     baseUrl = `http://localhost:${typeof address === 'object' && address ? address.port : 0}`
+  }, 60_000)
+
+  afterEach(async () => {
+    await truncateAll(db)
   })
 
   afterAll(async () => {
     await new Promise<void>(resolve => server.close(() => resolve()))
     await pool.end()
+    await container.stop()
   })
 
   function post(path: string, body: object, headers: Record<string, string> = {}) {
@@ -63,11 +72,10 @@ describe.skipIf(!databaseUrl)('auth routes against postgres (issue #231)', () =>
     })
   }
 
-  const email = `ana-${run}@example.com`
-  const password = 'correct horse battery'
+  const signUpAna = () => post('/sign-up/email', { name: 'Ana', email, password })
 
   it('signs up with email and password and sets a session cookie', async () => {
-    const response = await post('/sign-up/email', { name: 'Ana', email, password })
+    const response = await signUpAna()
 
     expect(response.status).toBe(200)
     expect(response.headers.get('set-cookie')).toContain('better-auth.session_token')
@@ -75,34 +83,34 @@ describe.skipIf(!databaseUrl)('auth routes against postgres (issue #231)', () =>
     expect(body.user).toMatchObject({ email, name: 'Ana', spriteType: 'man' })
   })
 
-  it('gives users integer, incrementing ids', async () => {
-    const first = await post('/sign-up/email', { name: 'One', email: `one-${run}@example.com`, password })
-    const second = await post('/sign-up/email', { name: 'Two', email: `two-${run}@example.com`, password })
+  it('gives users integer ids that start at 1 and increment', async () => {
+    const first = await post('/sign-up/email', { name: 'One', email: 'one@example.com', password })
+    const second = await post('/sign-up/email', { name: 'Two', email: 'two@example.com', password })
 
-    const firstId = ((await first.json()) as { user: { id: string } }).user.id
-    const secondId = ((await second.json()) as { user: { id: string } }).user.id
-    expect(firstId).toMatch(/^\d+$/)
-    expect(secondId).toMatch(/^\d+$/)
-    expect(Number(secondId)).toBe(Number(firstId) + 1)
+    expect(((await first.json()) as { user: { id: string } }).user.id).toBe('1')
+    expect(((await second.json()) as { user: { id: string } }).user.id).toBe('2')
   })
 
   it('rejects a second sign up with the same email', async () => {
-    const response = await post('/sign-up/email', { name: 'Ana again', email, password })
+    await signUpAna()
+
+    const response = await signUpAna()
 
     expect(response.status).toBe(422)
   })
 
   it('rejects a password shorter than the minimum', async () => {
-    const response = await post('/sign-up/email', { name: 'Short', email: `short-${run}@example.com`, password: 'short' })
+    const response = await post('/sign-up/email', { name: 'Short', email: 'short@example.com', password: 'short' })
 
     expect(response.status).toBe(400)
   })
 
   it('signs in, and the cookie it sets identifies the session', async () => {
+    await signUpAna()
+
     const signIn = await post('/sign-in/email', { email, password })
     expect(signIn.status).toBe(200)
     const cookie = (signIn.headers.get('set-cookie') ?? '').split(';')[0]
-
     const session = await fetch(`${baseUrl}/api/auth/get-session`, { headers: { Cookie: cookie, Origin: CLIENT_ORIGIN } })
 
     const body = await session.json() as { user: { email: string } }
@@ -110,6 +118,8 @@ describe.skipIf(!databaseUrl)('auth routes against postgres (issue #231)', () =>
   })
 
   it('rejects a wrong password without saying which part was wrong', async () => {
+    await signUpAna()
+
     const response = await post('/sign-in/email', { email, password: 'wrong password!' })
 
     expect(response.status).toBe(401)
@@ -120,7 +130,7 @@ describe.skipIf(!databaseUrl)('auth routes against postgres (issue #231)', () =>
   it('rejects a sign up that tries to write the avatar fields', async () => {
     const response = await post('/sign-up/email', {
       name: 'Eve',
-      email: `eve-${run}@example.com`,
+      email: 'eve@example.com',
       password,
       spriteType: 'woman',
       characterSelection: '{"body":9}',
@@ -142,16 +152,17 @@ describe.skipIf(!databaseUrl)('auth routes against postgres (issue #231)', () =>
   // better-auth skips its own origin check when NODE_ENV=test, so the 403 for an untrusted origin is
   // only observable on the running server; what is ours to assert here is the CORS header.
   it('grants no CORS to another origin, even when the layer in front echoes it', async () => {
-    const response = await post('/sign-in/email', { email, password }, { Origin: 'https://evil.example.com' })
+    const response = await post('/sign-in/email', { email, password }, { Origin: EVIL_ORIGIN })
 
     expect(response.headers.get('access-control-allow-origin')).toBeNull()
     expect(response.headers.get('access-control-allow-credentials')).toBeNull()
   })
 
   it('seeds the dev users once, and they can sign in with the shared password', async () => {
-    await seedDevUsers(seedAuth, seedDb)
-    const second = await seedDevUsers(seedAuth, seedDb)
+    const first = await seedDevUsers(auth, db)
+    const second = await seedDevUsers(auth, db)
 
+    expect(first).toEqual(DEV_USERS.map(dev => dev.email))
     expect(second).toEqual([])
     for (const dev of DEV_USERS) {
       const response = await post('/sign-in/email', { email: dev.email, password: DEV_USER_PASSWORD })

@@ -31,8 +31,10 @@
   "devDependencies": {
     "@colyseus/sdk": "^0.17.43",
     "@colyseus/testing": "^0.17.11",
+    "@testcontainers/postgresql": "^12.2.1",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/node": "26.2.0",
     "@types/pg": "^8.23.1",
     "drizzle-kit": "^0.31.11",
     "esbuild": "^0.28.2",

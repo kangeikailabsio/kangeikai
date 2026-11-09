@@ -7,14 +7,29 @@ interface E2eHook {
   activeRoom: () => 'office' | 'private'
 }
 
-/** Goes through the entry form (name and a generated avatar come from the account) and waits for the game HUD. */
-export async function enterTheOffice(page: Page): Promise<void> {
+/** Puts the entry screen's switch for a device on or off and waits for it to say so. */
+export async function setEntrySwitch(page: Page, device: 'Camera' | 'Microphone', on: boolean): Promise<void> {
+  const toggle = page.getByRole('switch', { name: device })
+  if ((await toggle.getAttribute('aria-checked')) !== String(on))
+    await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', String(on))
+}
+
+/**
+ * Goes through the entry form (name and a generated avatar come from the account) and waits for the game HUD. Both
+ * devices start on in the preview; the switches are set as asked before "Enter", because that is the state the person
+ * enters with. By default the camera enters off and the microphone on, which is what the specs were written against.
+ */
+export async function enterTheOffice(page: Page, options: { camera?: boolean, microphone?: boolean } = {}): Promise<void> {
+  const { camera = false, microphone = true } = options
   await page.goto('/room')
   await expect(page.getByRole('heading', { name: 'Join the space' })).toBeVisible()
   // The avatar of a new account is generated in the browser; "Edit avatar" appears once it is ready.
   await expect(page.getByRole('button', { name: 'Edit avatar' })).toBeVisible()
+  await setEntrySwitch(page, 'Camera', camera)
+  await setEntrySwitch(page, 'Microphone', microphone)
   await page.getByRole('button', { name: 'Enter' }).click()
-  await expect(page.getByRole('button', { name: /Mute|Unmute/ })).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByRole('button', { name: /Mute|Unmute|Mic unavailable/ })).toBeVisible({ timeout: 30_000 })
   await page.waitForFunction(() => '__kangeikaiE2E' in window)
 }
 

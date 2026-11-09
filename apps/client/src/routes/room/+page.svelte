@@ -1,5 +1,7 @@
 <script lang='ts'>
   import type { AccountUser } from '$lib/account/account-profile'
+  import type { DeviceKind } from '$lib/av/devices/device-choice-store'
+  import type { MediaIntent } from '$lib/av/devices/media-intent'
   import type { MediaControls } from '$lib/av/media-controls'
   import type { ScreenShareQualityTier } from '$lib/av/screen-share-quality'
   import type { Profile } from '$lib/entry/profile-schema'
@@ -13,6 +15,9 @@
   import AvatarVideoOverlay from '$lib/av/avatar-video-overlay.svelte'
   import BusyOverlay from '$lib/av/busy-overlay.svelte'
   import ConnectionQualityIndicator from '$lib/av/connection-quality-indicator.svelte'
+  import { DeviceChoiceStore } from '$lib/av/devices/device-choice-store'
+  import { chooseDevice } from '$lib/av/devices/device-menu-model'
+  import DeviceSplitButton from '$lib/av/devices/device-split-button.svelte'
   import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
   import ScreenShareOverlay from '$lib/av/screen-share-overlay.svelte'
   import ScreenShareQualityPopover from '$lib/av/screen-share-quality-popover.svelte'
@@ -49,6 +54,7 @@
 
   const accountApi = createAccountApi(AUTH_URL)
   const screenShareQualityStore = new ScreenShareQualityStore()
+  const deviceChoiceStore = new DeviceChoiceStore()
 
   // The signed-in account's name and avatar, which pre-fill the entry form (issue #232). `checking`
   // until the session is known; `unreachable` when the server could not be asked at all.
@@ -139,7 +145,7 @@
    * Saves the confirmed profile to the account, gets a join ticket, and only then mounts the game
    * (FR-009) — see `EntryForm` below. The form stays up (pending) during the two requests.
    */
-  async function handleEntryConfirm(profile: Profile): Promise<void> {
+  async function handleEntryConfirm(profile: Profile, media: MediaIntent): Promise<void> {
     joinError = undefined
     connecting = true
 
@@ -182,6 +188,7 @@
       spriteType: profile.avatarType,
       ticket,
       customAvatarSheets: profile.character?.sheets,
+      initialMedia: media,
     })
 
     rosterState.reset()
@@ -279,6 +286,15 @@
     await mediaControls.setMicrophoneEnabled(!micEnabled)
     micEnabled = mediaControls.microphoneEnabled
     micUnavailable = mediaControls.microphoneUnavailable
+  }
+
+  /** Picks a microphone or camera from the HUD menu (issue #247): remembered, and switched on the current room. */
+  async function selectDevice(kind: DeviceKind, deviceId: string): Promise<void> {
+    if (localPresence === 'busy' || !mediaControls)
+      return
+    await chooseDevice(mediaControls, (deviceKind, id) => deviceChoiceStore.choose(deviceKind, id), kind, deviceId)
+    micUnavailable = mediaControls.microphoneUnavailable
+    cameraUnavailable = mediaControls.cameraUnavailable
   }
 
   async function toggleCamera(): Promise<void> {
@@ -404,22 +420,28 @@
   <EntryForm initialProfile={accountProfile} onConfirm={handleEntryConfirm} onSignOut={signOut} {joinError} pending={connecting} />
 {:else}
   <div class='media-controls'>
-    <button
-      type='button'
-      disabled={!mediaControls || micUnavailable || localPresence === 'busy'}
+    <DeviceSplitButton
+      device='audioinput'
+      label={micUnavailable ? '🔇 Mic unavailable' : micEnabled ? '🎤 Mute' : '🔇 Unmute'}
+      toggleDisabled={!mediaControls || micUnavailable || localPresence === 'busy'}
+      menuDisabled={!mediaControls || localPresence === 'busy'}
       title={localPresence === 'busy' ? 'Turn off Busy to use Mute' : undefined}
-      onclick={toggleMicrophone}
-    >
-      {micUnavailable ? '🔇 Mic unavailable' : micEnabled ? '🎤 Mute' : '🔇 Unmute'}
-    </button>
-    <button
-      type='button'
-      disabled={!mediaControls || cameraUnavailable || localPresence === 'busy'}
+      failure={micUnavailable ? mediaControls?.microphoneFailure : undefined}
+      loadChoice={() => deviceChoiceStore.load()}
+      onToggle={toggleMicrophone}
+      onSelect={deviceId => selectDevice('audioinput', deviceId)}
+    />
+    <DeviceSplitButton
+      device='videoinput'
+      label={cameraUnavailable ? '📷 Camera unavailable' : cameraEnabled ? '📷 Turn camera off' : '📷 Turn camera on'}
+      toggleDisabled={!mediaControls || cameraUnavailable || localPresence === 'busy'}
+      menuDisabled={!mediaControls || localPresence === 'busy'}
       title={localPresence === 'busy' ? 'Turn off Busy to use Camera' : undefined}
-      onclick={toggleCamera}
-    >
-      {cameraUnavailable ? '📷 Camera unavailable' : cameraEnabled ? '📷 Turn camera off' : '📷 Turn camera on'}
-    </button>
+      failure={cameraUnavailable ? mediaControls?.cameraFailure : undefined}
+      loadChoice={() => deviceChoiceStore.load()}
+      onToggle={toggleCamera}
+      onSelect={deviceId => selectDevice('videoinput', deviceId)}
+    />
     <button
       type='button'
       aria-pressed={shareEnabled}

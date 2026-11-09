@@ -1,9 +1,12 @@
 import type { PrivateZone } from '@kangeikai/shared'
 import type { Room } from 'livekit-client'
+import type { DeviceChoice } from './devices/device-choice-store'
 import type { AvatarPosition, ProximityAudioControllerOptions } from './proximity-audio-controller'
 import { PUBLIC_LIVEKIT_TOKEN_ENDPOINT } from '$env/static/public'
 import { Room as LiveKitRoom } from 'livekit-client'
 import { attachRemoteAudioElements } from './attach-remote-audio'
+import { DeviceChoiceStore } from './devices/device-choice-store'
+import { applyDeviceChoice } from './devices/room-device-options'
 import { fetchLiveKitToken } from './livekit-token-client'
 import { resolvePrivateZoneOccupancy } from './private-room-occupancy'
 
@@ -55,7 +58,7 @@ export class PrivateRoomController {
   private readonly tokenEndpoint: string
   private readonly retryDelayMs: number
 
-  constructor(tokenEndpoint: string = DEFAULT_TOKEN_ENDPOINT, retryDelayMs: number = DEFAULT_RETRY_DELAY_MS) {
+  constructor(tokenEndpoint: string = DEFAULT_TOKEN_ENDPOINT, retryDelayMs: number = DEFAULT_RETRY_DELAY_MS, private readonly loadDeviceChoice: () => DeviceChoice = () => new DeviceChoiceStore().load()) {
     this.tokenEndpoint = tokenEndpoint
     this.retryDelayMs = retryDelayMs
   }
@@ -146,6 +149,8 @@ export class PrivateRoomController {
         let room: Room
         try {
           const candidate = new LiveKitRoom()
+          // Each private room captures on its own, so it has to be told which devices the person chose (issue #245).
+          applyDeviceChoice(candidate, this.loadDeviceChoice())
           attachRemoteAudioElements(candidate)
           const { token, url } = await fetchLiveKitToken(this.tokenEndpoint, { ...options, room: roomNameForZone(zoneId) })
           await candidate.connect(url, token)

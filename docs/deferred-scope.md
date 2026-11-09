@@ -185,3 +185,40 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   clipes de proximidade só funcionam no chão aberto entre as mesas e a sala de estar; e quem fecha
   o navegador à força fica um tempo na sala e aparece como tile no clipe seguinte. O crédito da arte
   do mapa (LimeZu) continua pendente, como registrado.
+- **Módulo de dispositivos só com a base** — [#245](https://github.com/kangeikailabsio/kangeikai/issues/245),
+  parte do épico [#244](https://github.com/kangeikailabsio/kangeikai/issues/244): `lib/av/devices/` lista
+  microfones e câmeras (`Room.getLocalDevices` sem sala, sem pedir permissão), guarda a escolha no
+  `localStorage` por navegador (validada com Valibot), traduz o erro em "bloqueado", "não encontrado" ou
+  "em uso", e aplica o dispositivo escolhido nas duas salas (as opções `audioCaptureDefaults` e
+  `videoCaptureDefaults` do `Room`, lidas de novo a cada volta ao escritório porque o `Room` é
+  reaproveitado). O `MediaControls` ganha o motivo da falha e `switchDevice`, que troca ao vivo quando o
+  microfone ou a câmera está ligado e, desligado, só aponta a próxima captura. Um dispositivo salvo que
+  sumiu não impede ninguém de entrar: o LiveKit tenta de novo sem exigir o dispositivo exato. Ficaram de
+  fora: qualquer tela (a de entrada é a #246 e o menu da sala é a #247), a saída de áudio (alto-falante),
+  avisar quando o dispositivo em uso é desplugado e testar a troca entre dois dispositivos reais no e2e
+  (o Chromium só oferece um microfone e uma câmera falsos; isso e os pedidos de permissão se conferem à
+  mão). Achado lateral, fora do épico: ao ir do escritório para uma sala privada o app desconecta a sala
+  antiga sem esperar o microfone ser liberado (o #137 só cobre a volta), então a corrida de "dispositivo
+  ocupado" ainda é possível nessa direção.
+
+- **Tela de entrada com prévia de dispositivos, sem teste** — [#246](https://github.com/kangeikailabsio/kangeikai/issues/246),
+  parte do épico [#244](https://github.com/kangeikailabsio/kangeikai/issues/244): a tela "Join the space"
+  liga microfone e câmera sozinha, mostra a prévia da câmera e deixa escolher o dispositivo de cada um com
+  um interruptor liga/desliga; o estado dos interruptores é como a pessoa entra na sala. A prévia é
+  independente da sala (`DevicePreview`): ela é parada ao clicar em "Enter" e a sala captura de novo com o
+  dispositivo escolhido, porque o LiveKit para as faixas ao desconectar e não dá para entregá-las. Ficaram
+  de fora: medidor de volume do microfone e botão de teste (viram a modal da #248), saída de áudio, e
+  trocar o dispositivo dentro da sala (#247). Dispositivo bloqueado, ausente ou em uso é explicado na
+  tela, mas nunca impede de entrar. No e2e só dá para testar com o microfone e a câmera falsos do
+  Chromium; a troca entre dispositivos reais e os pedidos de permissão se conferem à mão.
+
+- **Menu de dispositivos na sala, sem avisos de desplugar** — [#247](https://github.com/kangeikailabsio/kangeikai/issues/247),
+  parte do épico [#244](https://github.com/kangeikailabsio/kangeikai/issues/244): os botões de microfone e
+  câmera do HUD viram botões divididos. A parte principal continua ligando e desligando; a seta abre um
+  menu (`role='menu'`, setas e Escape) com os dispositivos e o atual marcado. Escolher um dispositivo o
+  guarda para as próximas salas e visitas e troca na sala atual (ao vivo só se estiver ligado; desligado,
+  só aponta a próxima captura). O menu fica desligado em "Busy", atualiza no `devicechange` e, sem
+  dispositivos, explica o motivo. Ficaram de fora: a saída de áudio (alto-falante) e avisar quando o
+  dispositivo em uso é desplugado. O e2e só enxerga o microfone e a câmera falsos do Chromium; trocar
+  entre dois dispositivos reais, um fone Bluetooth conectando com o menu aberto e trocar numa sala
+  privada e sair andando se conferem à mão.

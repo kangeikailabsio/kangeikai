@@ -91,3 +91,19 @@ export function describeAuthError(error: unknown): string {
     return 'Too many attempts. Wait a moment and try again.'
   return 'Something went wrong. Try again.'
 }
+
+/**
+ * The message for the `?error=` code better-auth appends when a Google sign in fails and sends the
+ * person back to the form (`errorCallbackURL`). The code is never shown as is. Empty when there is
+ * no error. `account_not_linked` is the common one: better-auth refuses to attach Google to an
+ * existing account whose email was never verified, and there is no email verification yet.
+ */
+export function describeOAuthError(code: string | null): string {
+  if (!code)
+    return ''
+  if (code === 'account_not_linked')
+    return 'An account with this email already exists. Sign in with your email and password instead.'
+  if (code === 'access_denied')
+    return 'Google sign-in was cancelled.'
+  return 'Couldn\'t sign in with Google. Try again.'
+}

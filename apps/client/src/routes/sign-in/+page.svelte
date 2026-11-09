@@ -1,17 +1,19 @@
 <script lang='ts'>
   import { goto } from '$app/navigation'
+  import { page } from '$app/state'
   import { authClient } from '$lib/auth/auth-client'
   import AuthField from '$lib/auth/auth-field.svelte'
-  import { describeAuthError, validateSignIn } from '$lib/auth/auth-form'
+  import { describeAuthError, describeOAuthError, validateSignIn } from '$lib/auth/auth-form'
   import AuthForm from '$lib/auth/auth-form.svelte'
   import AuthPage from '$lib/auth/auth-page.svelte'
-  import { POST_AUTH_PATH, SIGN_UP_PATH } from '$lib/auth/auth-routes'
+  import { POST_AUTH_PATH, SIGN_IN_PATH, SIGN_UP_PATH } from '$lib/auth/auth-routes'
   import { onMount } from 'svelte'
 
   let email = $state('')
   let password = $state('')
   let errors = $state<{ email?: string, password?: string }>({})
-  let formError = $state('')
+  // Set when a Google sign in failed and better-auth sent the person back here with `?error=`.
+  let formError = $state(describeOAuthError(page.url.searchParams.get('error')))
   let pending = $state(false)
 
   // Already signed in: nothing to do here. A failed lookup (server down) just shows the form.
@@ -53,7 +55,8 @@
     try {
       // Absolute: the OAuth round trip finishes on the server's origin, which then redirects back.
       const callbackURL = new URL(POST_AUTH_PATH, window.location.origin).href
-      const { error } = await authClient.signIn.social({ provider: 'google', callbackURL })
+      const errorCallbackURL = new URL(SIGN_IN_PATH, window.location.origin).href
+      const { error } = await authClient.signIn.social({ provider: 'google', callbackURL, errorCallbackURL })
       if (error)
         formError = describeAuthError(error)
     }

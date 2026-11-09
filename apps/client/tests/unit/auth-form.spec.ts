@@ -1,4 +1,4 @@
-import { describeAuthError, MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, validateSignIn, validateSignUp } from '$lib/auth/auth-form'
+import { describeAuthError, describeOAuthError, MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, validateSignIn, validateSignUp } from '$lib/auth/auth-form'
 import { MAX_NAME_LENGTH } from '@kangeikai/shared'
 import { describe, expect, it } from 'vitest'
 
@@ -93,5 +93,25 @@ describe('describeAuthError (issue #232)', () => {
   it('falls back to a generic message and never echoes server text', () => {
     expect(describeAuthError({ status: 500, message: 'SELECT * FROM user failed' })).toBe('Something went wrong. Try again.')
     expect(describeAuthError(null)).toBe('Something went wrong. Try again.')
+  })
+})
+
+describe('describeOAuthError (issue #232)', () => {
+  it('shows nothing when the page was not reached through a failed Google sign in', () => {
+    expect(describeOAuthError(null)).toBe('')
+    expect(describeOAuthError('')).toBe('')
+  })
+
+  it('tells the person to use their password when the email already has a password account', () => {
+    expect(describeOAuthError('account_not_linked')).toBe('An account with this email already exists. Sign in with your email and password instead.')
+  })
+
+  it('says so when the person cancelled at Google', () => {
+    expect(describeOAuthError('access_denied')).toBe('Google sign-in was cancelled.')
+  })
+
+  it('falls back to a generic message for any other code and never echoes it', () => {
+    expect(describeOAuthError('internal_server_error')).toBe('Couldn\'t sign in with Google. Try again.')
+    expect(describeOAuthError('<script>alert(1)</script>')).toBe('Couldn\'t sign in with Google. Try again.')
   })
 })

@@ -185,3 +185,18 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   clipes de proximidade só funcionam no chão aberto entre as mesas e a sala de estar; e quem fecha
   o navegador à força fica um tempo na sala e aparece como tile no clipe seguinte. O crédito da arte
   do mapa (LimeZu) continua pendente, como registrado.
+- **Módulo de dispositivos só com a base** — [#245](https://github.com/kangeikailabsio/kangeikai/issues/245),
+  parte do épico [#244](https://github.com/kangeikailabsio/kangeikai/issues/244): `lib/av/devices/` lista
+  microfones e câmeras (`Room.getLocalDevices` sem sala, sem pedir permissão), guarda a escolha no
+  `localStorage` por navegador (validada com Valibot), traduz o erro em "bloqueado", "não encontrado" ou
+  "em uso", e aplica o dispositivo escolhido nas duas salas (as opções `audioCaptureDefaults` e
+  `videoCaptureDefaults` do `Room`, lidas de novo a cada volta ao escritório porque o `Room` é
+  reaproveitado). O `MediaControls` ganha o motivo da falha e `switchDevice`, que troca ao vivo quando o
+  microfone ou a câmera está ligado e, desligado, só aponta a próxima captura. Um dispositivo salvo que
+  sumiu não impede ninguém de entrar: o LiveKit tenta de novo sem exigir o dispositivo exato. Ficaram de
+  fora: qualquer tela (a de entrada é a #246 e o menu da sala é a #247), a saída de áudio (alto-falante),
+  avisar quando o dispositivo em uso é desplugado e testar a troca entre dois dispositivos reais no e2e
+  (o Chromium só oferece um microfone e uma câmera falsos; isso e os pedidos de permissão se conferem à
+  mão). Achado lateral, fora do épico: ao ir do escritório para uma sala privada o app desconecta a sala
+  antiga sem esperar o microfone ser liberado (o #137 só cobre a volta), então a corrida de "dispositivo
+  ocupado" ainda é possível nessa direção.

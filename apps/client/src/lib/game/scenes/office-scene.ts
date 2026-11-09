@@ -38,6 +38,7 @@ import { AutoWalkController } from '$lib/game/input/auto-walk-controller'
 import { DoubleClickDetector } from '$lib/game/input/double-click-detector'
 import { FollowController } from '$lib/game/input/follow-controller'
 import { MovementController } from '$lib/game/input/movement-controller'
+import { applyPositionCorrection } from '$lib/game/input/position-correction'
 import { queueActiveMapLoad } from '$lib/game/map/active-map'
 import { resolveApproachPoint } from '$lib/game/map/approach-point'
 import { buildPathfindingGrid, findPath } from '$lib/game/map/pathfinding'
@@ -556,6 +557,7 @@ export class OfficeScene extends Phaser.Scene {
     this.roomConnection.onRemoteAvatarChange((sessionId, state) => this.updateRemoteAvatar(sessionId, state))
     this.roomConnection.onRemoteAvatarRemove(sessionId => this.removeRemoteAvatar(sessionId))
     this.roomConnection.onInteractionReceived(payload => this.handleInteractionReceived(payload))
+    this.roomConnection.onCorrectPosition(position => applyPositionCorrection(this.avatar, this.autoWalkController, position))
     this.game.events.emit(ROOM_CONNECTION_READY_EVENT, this.roomConnection)
     this.presence = this.busyPresenceStore.load()
     this.avatarNameLabel.setPresence(this.presence)

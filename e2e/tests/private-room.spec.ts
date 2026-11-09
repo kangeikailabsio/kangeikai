@@ -47,11 +47,10 @@ test('leaving a private room keeps each person\'s microphone as it was (issue #2
   await bruno.context.close()
 })
 
-// Found by this suite. Leaving a private room within about a second of joining it brings the person
-// back to the office with the microphone off (the client logs "microphone unavailable ... Cancelled
-// publication by calling unpublish"): a publish that is still in flight is cancelled by the room
-// switch. The #222 fix reads the state from the published track, which lags the person's intent.
-// Remove `fixme` once the microphone state is kept as the person's intent.
+// Found by this suite (issue #239). Leaving a private room within about a second of joining it
+// brings the person back to the office with the microphone off; the client logs "microphone
+// unavailable ... Cancelled publication by calling unpublish". The cause is not confirmed yet.
+// Remove `fixme` once #239 is fixed.
 test.fixme('leaving a private room right after joining it keeps the microphone on', async ({ browser }) => {
   const ana = await newPlayer(browser, 'Ana')
   const bruno = await newPlayer(browser, 'Bruno')

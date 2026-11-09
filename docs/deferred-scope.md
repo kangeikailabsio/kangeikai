@@ -166,7 +166,7 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   outros depois de 15 s (teste de 15 s, melhor com relógio simulado). Um cenário está marcado
   como `fixme` porque **o aplicativo tem o problema**: sair de uma sala privada até cerca de
   1 s depois de entrar leva o microfone desligado ao escritório (o cliente registra
-  `Cancelled publication by calling unpublish`), porque a correção do #222 lê o estado da track
-  publicada, que fica atrás da intenção da pessoa. A saída é guardar a intenção no
-  `MediaControls` (a "opção B" do #222) e tirar o `fixme`. Os testes da sala privada
+  `Cancelled publication by calling unpublish`). A causa exata não está confirmada e está
+  descrita, com as hipóteses, em [#239](https://github.com/kangeikailabsio/kangeikai/issues/239);
+  o `fixme` sai quando ela for corrigida. Os testes da sala privada
   compartilham a sala `office` do LiveKit de desenvolvimento.

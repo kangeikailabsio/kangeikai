@@ -1,4 +1,5 @@
-import { FEATURES, GITHUB_URL, HERO, LICENSE_URL, STEPS } from '$lib/landing/landing-content'
+import { existsSync } from 'node:fs'
+import { FEATURES, GITHUB_URL, HERO, LICENSE_URL, mediaSources, STEPS } from '$lib/landing/landing-content'
 import { describe, expect, it } from 'vitest'
 
 describe('landing content (issue #229)', () => {
@@ -19,13 +20,28 @@ describe('landing content (issue #229)', () => {
     expect(STEPS).toHaveLength(3)
   })
 
-  it('only uses public paths for media that has been added', () => {
-    const media = [HERO.media, ...FEATURES.map(feature => feature.media)]
+  it('resolves a clip name to its MP4, WebM and poster under /landing', () => {
+    expect(mediaSources('hero')).toEqual({
+      mp4: '/landing/hero.mp4',
+      webm: '/landing/hero.webm',
+      poster: '/landing/hero-poster.jpg',
+    })
+  })
 
-    for (const item of media) {
-      if (item.src !== undefined)
-        expect(item.src.startsWith('/')).toBe(true)
+  it('has every clip it names in static/landing, in all three files (issue #242)', () => {
+    const clips = [HERO.media, ...FEATURES.map(feature => feature.media)].flatMap(media => (media.clip ? [media.clip] : []))
+
+    expect(clips.length).toBeGreaterThan(0)
+    for (const clip of clips) {
+      for (const path of Object.values(mediaSources(clip)))
+        expect(existsSync(new URL(`../../static${path}`, import.meta.url)), path).toBe(true)
     }
+  })
+
+  it('gives each clip to one place only', () => {
+    const clips = [HERO.media, ...FEATURES.map(feature => feature.media)].flatMap(media => (media.clip ? [media.clip] : []))
+
+    expect(new Set(clips).size).toBe(clips.length)
   })
 
   it('links the footer to the repository and the AGPL-3.0 text', () => {

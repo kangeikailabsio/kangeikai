@@ -16,14 +16,14 @@ export default defineConfig({
     baseURL: CLIENT_URL,
     trace: 'retain-on-failure',
     video: 'retain-on-failure',
-    // Chromium's fake camera and microphone: the media state is real, nothing needs hardware.
     permissions: ['microphone', 'camera'],
+    // Chromium's fake camera and microphone: the media state is real, nothing needs hardware.
     launchOptions: { args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] },
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  // Needs the compose stack up (`pnpm dev:infra`): PostgreSQL for the accounts, LiveKit for the calls.
   webServer: [
     {
-      // Needs the compose stack up (`pnpm dev:infra`): PostgreSQL for the accounts, LiveKit for the calls.
       command: 'node support/prepare-database.mjs && pnpm --filter @kangeikai/server exec tsx src/index.ts',
       url: `${SERVER_URL}/api/auth/ok`,
       timeout: 90_000,

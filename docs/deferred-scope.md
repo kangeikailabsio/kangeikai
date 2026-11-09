@@ -106,13 +106,16 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   mas deixa texto e código mais borrados enquanto a conexão estiver apertada. Ficou de fora uma
   opção "Content" no popover de qualidade ("Smooth" para jogos e vídeo, "Sharp" para documentos e
   código, voltando ao padrão do SDK, que prioriza a resolução). Só vale a pena se alguém reclamar.
-- **Mic e câmera ao sair de sala privada vêm de um snapshot** — [#222](https://github.com/kangeikailabsio/kangeikai/issues/222)
-  lê o estado de microfone e câmera antes do `room.disconnect()` e o repassa ao `onDisconnect`, para
-  o escritório (ou a próxima sala privada) reconectar como a pessoa estava. Ficou de fora guardar a
-  intenção do usuário no `MediaControls`, em vez de derivá-la da track do LiveKit. Seria mais robusto
-  contra qualquer desconexão futura, mas é uma mudança maior. O estado de busy iniciado dentro de uma
-  sala privada deve ser corrigido de carona, porque o `beginBusy` passa a ler o valor certo, mas não
-  há teste automatizado: depende da `OfficeScene`, que não tem testes. Vale conferir no browser.
+- **Mic e câmera entre salas seguem a intenção da pessoa** — [#222](https://github.com/kangeikailabsio/kangeikai/issues/222)
+  e [#239](https://github.com/kangeikailabsio/kangeikai/issues/239): o `MediaControls` guarda o que
+  a pessoa pediu (`microphoneIntent` e `cameraIntent`), registrado na hora do pedido e não quando a
+  publicação termina, e a `OfficeScene` repassa isso em toda troca de sala. A primeira versão do
+  #222 lia o estado da track antes do `disconnect()`, o que falhava se a pessoa saísse enquanto a
+  publicação ainda estava em andamento (#239); essa leitura foi removida. O Busy usa o valor que o
+  `endBusy` vai restaurar. Ficou de fora: tentar publicar de novo no escritório quando a
+  publicação falha de verdade (permissão negada ou sem dispositivo): a intenção é mantida e
+  repassada, mas o botão continua mostrando "Mic unavailable" até a pessoa agir. O fluxo de busy
+  dentro de uma sala privada não tem teste e2e próprio.
 - **Falha de conexão na sala privada: recuperação local, sem avisar os outros** — [#225](https://github.com/kangeikailabsio/kangeikai/issues/225)
   faz o cliente tentar mais 2 vezes (1 s de intervalo) antes de mostrar "Couldn't connect", dá um
   botão "Try again" ao tile de erro, tira o erro quando a outra pessoa sai da zona e esconde o
@@ -157,16 +160,11 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   sessão expirada além de voltar para o login, limite de tentativas no endpoint do ticket e do
   perfil, e rodar o Playwright contra o fluxo completo (#227). O botão de sair existe só como
   link no formulário de entrada.
-- **Suíte e2e com Playwright só localmente e com um caso conhecido falhando** — [#227](https://github.com/kangeikailabsio/kangeikai/issues/227)
+- **Suíte e2e com Playwright só localmente** — [#227](https://github.com/kangeikailabsio/kangeikai/issues/227)
   traz o pacote `e2e/` (Chromium, servidor e cliente próprios nas portas 2667 e 5273, banco
   recriado a cada execução, câmera e microfone falsos) com os cenários de cadastro, teclado,
   dois jogadores, mesma conta em duas abas, microfone ao sair da sala privada (#222) e falha de
-  conexão com "Try again" (#225). Ficaram de fora: rodar no GitHub Actions (#236), Firefox e
+  conexão com "Try again" (#225), incluindo sair da zona no meio da conexão da sala privada (#239). Ficaram de fora: rodar no GitHub Actions (#236), Firefox e
   WebKit, o login com o Google (exige o provedor real) e o desaparecimento do spinner dos
-  outros depois de 15 s (teste de 15 s, melhor com relógio simulado). Um cenário está marcado
-  como `fixme` porque **o aplicativo tem o problema**: sair de uma sala privada até cerca de
-  1 s depois de entrar leva o microfone desligado ao escritório (o cliente registra
-  `Cancelled publication by calling unpublish`). A causa exata não está confirmada e está
-  descrita, com as hipóteses, em [#239](https://github.com/kangeikailabsio/kangeikai/issues/239);
-  o `fixme` sai quando ela for corrigida. Os testes da sala privada
+  outros depois de 15 s (teste de 15 s, melhor com relógio simulado). Os testes da sala privada
   compartilham a sala `office` do LiveKit de desenvolvimento.

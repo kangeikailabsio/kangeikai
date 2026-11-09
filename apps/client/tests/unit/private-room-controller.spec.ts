@@ -38,6 +38,13 @@ vi.mock('$lib/av/attach-remote-audio', () => ({
   attachRemoteAudioElements: vi.fn(),
 }))
 
+/** Makes the next `times` token requests reject (one-shot, so nothing leaks into later tests). */
+function failFetch(times: number) {
+  for (let i = 0; i < times; i++) {
+    vi.mocked(fetchLiveKitToken).mockRejectedValueOnce(new Error('network down'))
+  }
+}
+
 const zones: PrivateZone[] = [
   { id: 1, name: 'desk-01', x: 0, y: 0, width: 100, height: 100 },
 ]
@@ -87,9 +94,9 @@ describe('privateRoomController connection failure (issue #142)', () => {
     return { onConnect: vi.fn(), onDisconnect: vi.fn(), onError: vi.fn() }
   }
 
-  it('calls onError and stays disconnected when the connection attempt fails', async () => {
-    vi.mocked(fetchLiveKitToken).mockRejectedValueOnce(new Error('network down'))
-    const controller = new PrivateRoomController('http://fake/livekit-token')
+  it('calls onError and stays disconnected when every connection attempt fails', async () => {
+    failFetch(3)
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0)
     controller.setZones(zones)
     const h = handlers()
 
@@ -100,9 +107,9 @@ describe('privateRoomController connection failure (issue #142)', () => {
     expect(controller.connectedZoneId).toBeNull()
   })
 
-  it('does not retry on the next frame while still in the zone that just failed (no automatic retry)', async () => {
-    vi.mocked(fetchLiveKitToken).mockRejectedValueOnce(new Error('network down'))
-    const controller = new PrivateRoomController('http://fake/livekit-token')
+  it('does not retry on the next frame while still in the zone that just failed (bounded retry, not per-frame)', async () => {
+    failFetch(3)
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0)
     controller.setZones(zones)
     const h = handlers()
     const remotePositions = new Map([['remote-1', pos(60, 60)]])
@@ -113,13 +120,13 @@ describe('privateRoomController connection failure (issue #142)', () => {
     // Same zone, same occupancy, next frame.
     await controller.update(options, pos(50, 50), remotePositions, h, () => {})
 
-    expect(fetchLiveKitToken).toHaveBeenCalledTimes(1)
+    expect(fetchLiveKitToken).toHaveBeenCalledTimes(3)
     expect(h.onError).toHaveBeenCalledTimes(1)
   })
 
   it('retries after leaving and re-entering the zone (a fresh threshold crossing)', async () => {
-    vi.mocked(fetchLiveKitToken).mockRejectedValueOnce(new Error('network down'))
-    const controller = new PrivateRoomController('http://fake/livekit-token')
+    failFetch(3)
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0)
     controller.setZones(zones)
     const h = handlers()
     const remotePositions = new Map([['remote-1', pos(60, 60)]])
@@ -133,7 +140,95 @@ describe('privateRoomController connection failure (issue #142)', () => {
     // Re-enters — fetchLiveKitToken now resolves normally (the mocked rejection was one-time).
     await controller.update(options, pos(50, 50), remotePositions, h, () => {})
 
+    expect(fetchLiveKitToken).toHaveBeenCalledTimes(4)
+    expect(h.onConnect).toHaveBeenCalledOnce()
+    expect(controller.connectedZoneId).toBe(1)
+  })
+})
+
+describe('privateRoomController bounded retry and manual retry (issue #225)', () => {
+  afterEach(() => {
+    events.length = 0
+    vi.clearAllMocks()
+  })
+
+  const remoteInZone = new Map([['remote-1', pos(60, 60)]])
+
+  function handlers() {
+    return { onConnect: vi.fn(), onDisconnect: vi.fn(), onError: vi.fn() }
+  }
+
+  it('connects without reporting an error when a transient failure is followed by a success', async () => {
+    failFetch(1)
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0)
+    controller.setZones(zones)
+    const h = handlers()
+
+    await controller.update(options, pos(50, 50), remoteInZone, h, () => {})
+
     expect(fetchLiveKitToken).toHaveBeenCalledTimes(2)
+    expect(h.onError).not.toHaveBeenCalled()
+    expect(h.onConnect).toHaveBeenCalledOnce()
+    expect(controller.connectedZoneId).toBe(1)
+  })
+
+  it('reports one error after 1 attempt plus 2 retries all fail', async () => {
+    failFetch(3)
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0)
+    controller.setZones(zones)
+    const h = handlers()
+
+    await controller.update(options, pos(50, 50), remoteInZone, h, () => {})
+
+    expect(fetchLiveKitToken).toHaveBeenCalledTimes(3)
+    expect(h.onError).toHaveBeenCalledExactlyOnceWith(1)
+    expect(h.onConnect).not.toHaveBeenCalled()
+  })
+
+  it('flushes the local position before every attempt, retries included', async () => {
+    failFetch(2)
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0)
+    controller.setZones(zones)
+    const flush = vi.fn()
+
+    await controller.update(options, pos(50, 50), remoteInZone, handlers(), flush)
+
+    expect(flush).toHaveBeenCalledTimes(3)
+  })
+
+  it('waits the retry delay between attempts', async () => {
+    vi.useFakeTimers()
+    try {
+      failFetch(1)
+      const controller = new PrivateRoomController('http://fake/livekit-token', 1000)
+      controller.setZones(zones)
+      const h = handlers()
+
+      const pending = controller.update(options, pos(50, 50), remoteInZone, h, () => {})
+      await vi.advanceTimersByTimeAsync(999)
+      expect(fetchLiveKitToken).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(1)
+      await pending
+      expect(fetchLiveKitToken).toHaveBeenCalledTimes(2)
+      expect(h.onConnect).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('retryFailedConnection() lets the next frame try again in the same zone', async () => {
+    failFetch(3)
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0)
+    controller.setZones(zones)
+    const h = handlers()
+    await controller.update(options, pos(50, 50), remoteInZone, h, () => {})
+    expect(h.onError).toHaveBeenCalledOnce()
+
+    controller.retryFailedConnection()
+    await controller.update(options, pos(50, 50), remoteInZone, h, () => {})
+
     expect(h.onConnect).toHaveBeenCalledOnce()
     expect(controller.connectedZoneId).toBe(1)
   })

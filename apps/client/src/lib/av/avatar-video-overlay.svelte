@@ -33,6 +33,7 @@
           </div>
         </div>
         <span class='name-label'>Couldn't connect</span>
+        <button class='retry-button' type='button' onclick={() => videoOverlayState.retryPrivateRoomConnection()}>Try again</button>
       </div>
     {:else if tile.kind === 'screen'}
       <!-- Click to expand into the full-screen grid (#100) — the only interactive tile kind. -->
@@ -238,6 +239,25 @@
     color: #fff;
     font-size: 28px;
     font-weight: 600;
+  }
+
+  /* The strip is `pointer-events: none`; this is the one control on an error tile (issue #225). */
+  .retry-button {
+    position: absolute;
+    right: 6px;
+    bottom: 6px;
+    padding: 2px 8px;
+    border: 0;
+    border-radius: 4px;
+    background: #3b82f6;
+    color: #fff;
+    cursor: pointer;
+    font-size: 12px;
+    pointer-events: auto;
+  }
+
+  .retry-button:hover {
+    background: #2563eb;
   }
 
   .name-label {

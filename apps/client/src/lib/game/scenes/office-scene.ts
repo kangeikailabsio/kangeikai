@@ -411,6 +411,8 @@ export class OfficeScene extends Phaser.Scene {
    * handling here beyond `handlePrivateRoomConnect` clearing it for hygiene.
    */
   private localPrivateRoomConnectErrorZoneId: number | null = null
+  /** "Try again" was pressed and the new attempt hasn't connected or failed yet (issue #225) — the local tile goes back to the connecting spinner meanwhile. */
+  private localPrivateRoomRetrying = false
 
   constructor() {
     super('office')
@@ -584,6 +586,7 @@ export class OfficeScene extends Phaser.Scene {
         this.game.events.emit(ROOM_JOIN_FAILED_EVENT)
       })
 
+    videoOverlayState.setRetryHandler(() => this.retryPrivateRoomConnection())
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.tableGlows.forEach(glow => glow.destroy())
       this.tableGlows.clear()
@@ -598,6 +601,7 @@ export class OfficeScene extends Phaser.Scene {
       this.roomConnection.disconnect()
       this.proximityAudioController.disconnect()
       this.privateRoomController.disconnect()
+      videoOverlayState.setRetryHandler(null)
       videoOverlayState.set([])
     })
   }
@@ -771,6 +775,7 @@ export class OfficeScene extends Phaser.Scene {
     // A retry (after a previous attempt in this same zone failed) succeeded — hygiene only,
     // `connectedPrivateRoom` truthy already takes priority over the error state in `update()`.
     this.localPrivateRoomConnectErrorZoneId = null
+    this.localPrivateRoomRetrying = false
     void this.connectPrivateRoomWithScreenShareHandoff(room)
   }
 
@@ -782,6 +787,15 @@ export class OfficeScene extends Phaser.Scene {
    */
   private handlePrivateRoomConnectError(zoneId: number): void {
     this.localPrivateRoomConnectErrorZoneId = zoneId
+    this.localPrivateRoomRetrying = false
+  }
+
+  /** The error tile's "Try again" button (issue #225): the controller lifts its block on the failed zone and the next frame reconnects. */
+  private retryPrivateRoomConnection(): void {
+    if (this.localPrivateRoomConnectErrorZoneId === null)
+      return
+    this.localPrivateRoomRetrying = true
+    this.privateRoomController.retryFailedConnection()
   }
 
   private async connectPrivateRoomWithScreenShareHandoff(room: Room): Promise<void> {
@@ -976,6 +990,7 @@ export class OfficeScene extends Phaser.Scene {
           // real state, not a view write, so it is never throttled: delaying it would keep a stale
           // error tile alive after the avatar has already left the zone.
           this.localPrivateRoomConnectErrorZoneId = null
+          this.localPrivateRoomRetrying = false
           if (refreshOverlay)
             this.updateVideoOverlay(nearbySessionIds, this.proximityAudioController.liveKitRoom)
         }
@@ -1191,11 +1206,10 @@ export class OfficeScene extends Phaser.Scene {
       return
     }
 
-    const local: VideoOverlayParticipant[] = [{
-      sessionId: this.roomConnection.sessionId ?? 'local',
-      name: this.displayName,
-      error: true,
-    }]
+    const localSessionId = this.roomConnection.sessionId ?? 'local'
+    const local: VideoOverlayParticipant[] = [this.localPrivateRoomRetrying
+      ? { sessionId: localSessionId, name: this.displayName, pending: true }
+      : { sessionId: localSessionId, name: this.displayName, error: true }]
 
     const remotes: RemoteVideoOverlayCandidate[] = occupantSessionIds
       .filter(sessionId => this.remoteAvatars.get(sessionId)?.presence !== 'busy')

@@ -1,5 +1,6 @@
 <script lang='ts'>
   import type { AccountUser } from '$lib/account/account-profile'
+  import type { MediaIntent } from '$lib/av/devices/media-intent'
   import type { MediaControls } from '$lib/av/media-controls'
   import type { ScreenShareQualityTier } from '$lib/av/screen-share-quality'
   import type { Profile } from '$lib/entry/profile-schema'
@@ -139,7 +140,7 @@
    * Saves the confirmed profile to the account, gets a join ticket, and only then mounts the game
    * (FR-009) — see `EntryForm` below. The form stays up (pending) during the two requests.
    */
-  async function handleEntryConfirm(profile: Profile): Promise<void> {
+  async function handleEntryConfirm(profile: Profile, media: MediaIntent): Promise<void> {
     joinError = undefined
     connecting = true
 
@@ -182,6 +183,7 @@
       spriteType: profile.avatarType,
       ticket,
       customAvatarSheets: profile.character?.sheets,
+      initialMedia: media,
     })
 
     rosterState.reset()

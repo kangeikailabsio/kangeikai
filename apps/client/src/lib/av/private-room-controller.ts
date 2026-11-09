@@ -15,11 +15,17 @@ function roomNameForZone(zoneId: number): string {
   return `private-${zoneId}`
 }
 
+/** The local mic/camera state as it was right before the private room was torn down (issue #222). */
+export interface LocalMediaSnapshot {
+  microphoneEnabled: boolean
+  cameraEnabled: boolean
+}
+
 export interface PrivateRoomTransitionHandlers {
   /** The private room just became active (2nd person entered the zone) — callers should drop `office` audio and point media controls/video overlay at `room` for as long as it stays connected. */
   onConnect: (room: Room, zoneId: number) => void
-  /** The private room just ended (dropped back under 2 people, or the local avatar left the zone) — callers should reconnect `office` audio. */
-  onDisconnect: () => void
+  /** The private room just ended (dropped back under 2 people, or the local avatar left the zone) — callers should reconnect `office` audio, carrying `media` forward (read before the room's tracks were stopped, so it is what the person actually had on). */
+  onDisconnect: (media: LocalMediaSnapshot) => void
   /** The connection attempt itself failed — `fetchLiveKitToken` or `room.connect` (issue #142) — instead of just `console.warn`ing silently. */
   onError: (zoneId: number) => void
 }
@@ -146,12 +152,20 @@ export class PrivateRoomController {
    * "device busy" error, leaving the mic reported as unavailable for the rest of the session
    * (issue #137) — intermittent, since it depends on how fast the browser/OS releases the
    * device relative to the new capture attempt.
+   *
+   * That same disconnect leaves `localParticipant.isMicrophoneEnabled`/`isCameraEnabled` always
+   * `false`, so the mic/camera state `onDisconnect` must carry forward is read *before* it and
+   * handed over as a snapshot (issue #222).
    */
   private async teardown(onDisconnect?: PrivateRoomTransitionHandlers['onDisconnect']): Promise<void> {
     const room = this.room
     this.room = null
     this.connectedZoneIdInternal = null
+    const media: LocalMediaSnapshot = {
+      microphoneEnabled: room?.localParticipant.isMicrophoneEnabled ?? true,
+      cameraEnabled: room?.localParticipant.isCameraEnabled ?? false,
+    }
     await room?.disconnect()
-    onDisconnect?.()
+    onDisconnect?.(media)
   }
 }

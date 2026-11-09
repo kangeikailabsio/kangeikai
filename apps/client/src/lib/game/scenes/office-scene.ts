@@ -1,4 +1,5 @@
 import type { ScreenShareHandoff } from '$lib/av/media-controls'
+import type { LocalMediaSnapshot } from '$lib/av/private-room-controller'
 import type { AvatarPosition, ProximityAudioControllerOptions } from '$lib/av/proximity-audio-controller'
 import type { ScreenShareQualityTier } from '$lib/av/screen-share-quality'
 import type { RemoteVideoOverlayCandidate, VideoOverlayParticipant } from '$lib/av/video-overlay-tiles'
@@ -826,11 +827,12 @@ export class OfficeScene extends Phaser.Scene {
    * direction; the HUD button and full-screen overlay resolve on their own once
    * `screenShareEnabled` goes back to `false`, the same way they do for a manual "Stop sharing".
    */
-  private handlePrivateRoomDisconnect(): void {
-    const micEnabled = this.mediaControls?.microphoneEnabled ?? true
-    const cameraEnabled = this.mediaControls?.cameraEnabled ?? false
+  private handlePrivateRoomDisconnect(media: LocalMediaSnapshot): void {
+    // `this.mediaControls` still points at the just-disconnected private room, whose tracks are
+    // gone — it would always report mic/camera off, so the controller's pre-disconnect snapshot
+    // is the source of truth (issue #222).
     this.connectedPrivateRoom = null
-    this.connectProximityAudio(micEnabled, cameraEnabled, false)
+    this.connectProximityAudio(media.microphoneEnabled, media.cameraEnabled, false)
   }
 
   update(time: number, delta: number): void {
@@ -931,7 +933,7 @@ export class OfficeScene extends Phaser.Scene {
       const options: ProximityAudioControllerOptions = { identity: sessionId, name: this.displayName, proof: sessionProof ?? '' }
       void this.privateRoomController.update(options, localPosition, remotePositions, {
         onConnect: room => this.handlePrivateRoomConnect(room),
-        onDisconnect: () => this.handlePrivateRoomDisconnect(),
+        onDisconnect: media => this.handlePrivateRoomDisconnect(media),
         onError: zoneId => this.handlePrivateRoomConnectError(zoneId),
       }, () => this.roomConnection.flushPendingState())
     }

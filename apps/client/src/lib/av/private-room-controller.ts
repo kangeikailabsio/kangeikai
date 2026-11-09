@@ -108,8 +108,10 @@ export class PrivateRoomController {
     }
 
     // No longer standing in the zone a previous attempt failed for — forget it, so walking back
-    // in later (a fresh threshold crossing) can retry instead of staying blocked forever.
-    if (zoneId !== this.failedZoneId) {
+    // in later (a fresh threshold crossing) can retry instead of staying blocked forever. Same
+    // when the other person leaves it (issue #225): with nobody left to talk to the failure is
+    // moot, and whoever enters next must get a fresh attempt instead of inheriting the block.
+    if (zoneId !== this.failedZoneId || occupantSessionIds.length < 1) {
       this.failedZoneId = null
     }
 

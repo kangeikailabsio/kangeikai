@@ -232,6 +232,25 @@ describe('privateRoomController bounded retry and manual retry (issue #225)', ()
     expect(h.onConnect).toHaveBeenCalledOnce()
     expect(controller.connectedZoneId).toBe(1)
   })
+
+  it('forgets the failure once the other person leaves the zone, so their return connects again', async () => {
+    failFetch(3)
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0)
+    controller.setZones(zones)
+    const h = handlers()
+    await controller.update(options, pos(50, 50), remoteInZone, h, () => {})
+    expect(h.onError).toHaveBeenCalledOnce()
+
+    // The other person leaves while the local avatar stays in the zone: nothing to connect to.
+    await controller.update(options, pos(50, 50), new Map(), h, () => {})
+    expect(h.onConnect).not.toHaveBeenCalled()
+
+    // Someone enters again: a fresh attempt, no manual retry needed.
+    await controller.update(options, pos(50, 50), remoteInZone, h, () => {})
+
+    expect(h.onConnect).toHaveBeenCalledOnce()
+    expect(controller.connectedZoneId).toBe(1)
+  })
 })
 
 describe('privateRoomController media state hand-off on leave (issue #222)', () => {

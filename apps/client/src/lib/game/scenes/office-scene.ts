@@ -980,7 +980,9 @@ export class OfficeScene extends Phaser.Scene {
 
       if (this.localPrivateRoomConnectErrorZoneId !== null) {
         const { zoneId, occupantSessionIds } = resolvePrivateZoneOccupancy(this.privateZones, localPosition, remotePositions)
-        if (zoneId === this.localPrivateRoomConnectErrorZoneId) {
+        // Also gone once everybody else left the zone (issue #225): nobody to talk to, nothing to
+        // retry — `PrivateRoomController` forgets its block on the same condition.
+        if (zoneId === this.localPrivateRoomConnectErrorZoneId && occupantSessionIds.length >= 1) {
           if (refreshOverlay)
             this.updateVideoOverlayForLocalConnectError(occupantSessionIds)
         }

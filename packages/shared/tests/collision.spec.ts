@@ -1,6 +1,6 @@
-import type { CollisionRect } from '@kangeikai/shared'
-import { collidesWithAny, rectsOverlap } from '@kangeikai/shared'
+import type { CollisionRect } from '../src/movement'
 import { describe, expect, it } from 'vitest'
+import { collidesWithAny, rectsOverlap } from '../src/movement'
 
 describe('rectsOverlap', () => {
   it('detects overlapping rects', () => {

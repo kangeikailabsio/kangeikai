@@ -1,6 +1,6 @@
-import type { RespawnRect } from '@kangeikai/shared'
-import { resolveRespawnPoint } from '@kangeikai/shared'
+import type { RespawnRect } from '../src/respawn-point'
 import { describe, expect, it } from 'vitest'
+import { resolveRespawnPoint } from '../src/respawn-point'
 
 function sequence(values: number[]): () => number {
   let index = 0

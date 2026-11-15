@@ -1,6 +1,5 @@
-import { MAX_NAME_LENGTH } from '@kangeikai/shared'
+import { characterSelectionSchema, MAX_NAME_LENGTH, spriteTypeSchema } from '@kangeikai/shared'
 import * as v from 'valibot'
-import { characterSelectionSchema, spriteTypeSchema } from '../rooms/message-schemas'
 
 /**
  * What a person may change about their own account's avatar (`PUT /api/profile`, issue #232).

@@ -2,52 +2,20 @@ import type { Position } from '$lib/network/position-message'
 import type { MapSchema } from '@colyseus/schema'
 import type { Room } from '@colyseus/sdk'
 import type { PoolCommand, PoolEvent } from '@kangeikai/game-pool/protocol'
-import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, CharacterSelection } from '@kangeikai/shared'
+import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, CharacterSelection, InteractionKind, OfficeJoinOptions, OfficePayload, ToClientMessageName } from '@kangeikai/shared'
 import { PUBLIC_COLYSEUS_URL } from '$env/static/public'
 import { parsePosition } from '$lib/network/position-message'
 import { Client, getStateCallbacks } from '@colyseus/sdk'
 import { POOL_COMMAND, POOL_EVENT } from '@kangeikai/game-pool/protocol'
-import { CLOSE_CODE_SESSION_REPLACED } from '@kangeikai/shared'
+import { CLOSE_CODE_SESSION_REPLACED, sendToServer } from '@kangeikai/shared'
 import { PendingUpdateStateSender } from './pending-update-state-sender'
 
-/**
- * Mirrors contracts/office-room-protocol.md's OfficeJoinOptions — keep in sync with
- * apps/server's message-schemas.ts if this shape changes (contract's "Stability" section).
- *
- * Name and avatar are no longer sent (issue #232): the server takes them from the account behind
- * `ticket`, so a client cannot claim another identity.
- */
-export interface OfficeJoinOptions {
-  /** Short-lived pass from `POST /api/session-ticket` (see `lib/account/account-api.ts`). */
-  ticket: string
-  presence?: AvatarPresence
-}
-
-/** Mirrors contracts/office-room-protocol.md's UpdateStatePayload. */
-export interface UpdateStatePayload {
-  x: number
-  y: number
-  direction: AvatarDirection
-  motionState: AvatarMotionState
-}
+export type { InteractionKind, OfficeJoinOptions } from '@kangeikai/shared'
+export type UpdateStatePayload = OfficePayload<'updateState'>
+export type InteractionReceivedPayload = OfficePayload<'interactionReceived'>
 
 /** `replaced`: the same account joined from another tab or device, so the server closed this connection (issue #232). */
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'replaced'
-
-/**
- * Mirrors apps/server's message-schemas.ts InteractionPayload's `kind` — a generic point-to-
- * point nudge. Only `'hello'` (issue #157, "Say Hello") is acted on by any client feature today;
- * `'attention'` is reserved for a planned follow-up issue ("chamar atenção") that reuses this
- * exact same message/handler shape.
- */
-export type InteractionKind = 'hello' | 'attention'
-
-/** Mirrors apps/server's `interactionReceived` message payload. */
-export interface InteractionReceivedPayload {
-  kind: InteractionKind
-  fromSessionId: string
-  fromDisplayName: string
-}
 
 type ConnectionStateListener = (state: ConnectionState) => void
 type RemoteAvatarListener = (sessionId: string, avatar: AvatarState) => void
@@ -152,7 +120,7 @@ export class RoomConnection {
   private readonly interactionReceivedListeners = new Set<InteractionReceivedListener>()
   private readonly correctPositionListeners = new Set<(position: Position) => void>()
 
-  private readonly stateSender = new PendingUpdateStateSender(payload => this.room?.send('updateState', payload))
+  private readonly stateSender = new PendingUpdateStateSender(payload => this.room && sendToServer(this.room, 'updateState', payload))
   private proof: string | undefined
   private spawn: Position | undefined
 
@@ -233,10 +201,10 @@ export class RoomConnection {
       this.bindRemoteAvatarEvents(room)
       this.bindInteractionEvents(room)
       // Same tick as the join, like the session proof: registered before anything can be missed.
-      room.onMessage('spawn', (payload: unknown) => {
+      this.onServerMessage(room, 'spawn', (payload) => {
         this.spawn = parsePosition(payload)
       })
-      room.onMessage('correctPosition', (payload: unknown) => {
+      this.onServerMessage(room, 'correctPosition', (payload) => {
         const position = parsePosition(payload)
         if (position) {
           for (const listener of this.correctPositionListeners)
@@ -265,9 +233,9 @@ export class RoomConnection {
         resolve()
       }, SESSION_PROOF_TIMEOUT_MS)
 
-      room.onMessage<{ proof: string }>('sessionProof', (payload) => {
+      this.onServerMessage(room, 'sessionProof', (payload) => {
         clearTimeout(timeout)
-        this.proof = payload.proof
+        this.proof = (payload as OfficePayload<'sessionProof'>).proof
         resolve()
       })
     })
@@ -303,12 +271,14 @@ export class RoomConnection {
   }
 
   sendPresence(presence: AvatarPresence): void {
-    this.room?.send('setPresence', { presence })
+    if (this.room)
+      sendToServer(this.room, 'setPresence', { presence })
   }
 
   /** Sends a point-to-point interaction (issue #157's "Say Hello") to `targetSessionId` — the server revalidates both sides' presence before relaying it, so this is a no-op rather than a client-side guarantee. */
   sendInteraction(kind: InteractionKind, targetSessionId: string): void {
-    this.room?.send('interaction', { kind, targetSessionId })
+    if (this.room)
+      sendToServer(this.room, 'interaction', { kind, targetSessionId })
   }
 
   private bindRemoteAvatarEvents(room: Room<OfficeRoomLike, OfficeRoomStateShape>): void {
@@ -333,11 +303,16 @@ export class RoomConnection {
   }
 
   private bindInteractionEvents(room: Room<OfficeRoomLike, OfficeRoomStateShape>): void {
-    room.onMessage<InteractionReceivedPayload>('interactionReceived', (payload) => {
+    this.onServerMessage(room, 'interactionReceived', (payload) => {
       for (const listener of this.interactionReceivedListeners) {
-        listener(payload)
+        listener(payload as InteractionReceivedPayload)
       }
     })
+  }
+
+  /** Registers a listener for a server→client message of the office protocol; the name must be one the server sends. */
+  private onServerMessage<N extends ToClientMessageName>(room: Room<OfficeRoomLike, OfficeRoomStateShape>, name: N, handler: (payload: unknown) => void): void {
+    room.onMessage(name, handler)
   }
 
   private emitRemoteAvatar(listeners: Set<RemoteAvatarListener>, sessionId: string, avatar: AvatarSchemaLike): void {

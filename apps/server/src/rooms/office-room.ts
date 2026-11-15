@@ -1,15 +1,15 @@
+import type { OfficePayload, ToServerMessageName } from '@kangeikai/shared'
 import type { Client } from 'colyseus'
 import type { AuthenticatedUser, Authenticator } from '../auth/authenticator'
 import process from 'node:process'
 import { POOL_COMMAND, POOL_EVENT } from '@kangeikai/game-pool/protocol'
 import { PoolManager } from '@kangeikai/game-pool/server'
-import { CLOSE_CODE_SESSION_REPLACED, privateZoneAt, resolveRespawnPoint } from '@kangeikai/shared'
+import { CLOSE_CODE_SESSION_REPLACED, officeJoinOptionsSchema, parseOfficeMessage, privateZoneAt, resolveRespawnPoint, sendToClient } from '@kangeikai/shared'
 import { CloseCode, Room } from 'colyseus'
 import * as v from 'valibot'
 import { colliders, gameTables, mapSize, privateZones, respawnAreas } from '../map-zones'
 import { acceptMove, newBudget } from '../movement/movement-guard'
 import { computeSessionProof } from '../session-proof'
-import { interactionPayloadSchema, officeJoinOptionsSchema, setPresencePayloadSchema, updateStatePayloadSchema } from './message-schemas'
 import { AvatarSchema } from './schema/avatar-schema'
 import { OfficeRoomState } from './schema/office-room-state'
 
@@ -51,12 +51,7 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
     })
     this.setSimulationInterval(delta => this.pool.tick(delta), 1000 / 60)
 
-    this.onMessage('updateState', (client, message) => {
-      const result = v.safeParse(updateStatePayloadSchema, message)
-      if (!result.success) {
-        return
-      }
-
+    this.onClientMessage('updateState', (client, payload) => {
       const avatar = this.state.players.get(client.sessionId)
       if (!avatar) {
         return
@@ -66,28 +61,23 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
         return
       }
 
-      if (!this.allowTeleport && !this.acceptMovement(client, avatar, result.output)) {
+      if (!this.allowTeleport && !this.acceptMovement(client, avatar, payload)) {
         return
       }
 
-      avatar.x = result.output.x
-      avatar.y = result.output.y
-      avatar.direction = result.output.direction
-      avatar.motionState = result.output.motionState
+      avatar.x = payload.x
+      avatar.y = payload.y
+      avatar.direction = payload.direction
+      avatar.motionState = payload.motionState
     })
 
-    this.onMessage('setPresence', (client, message) => {
-      const result = v.safeParse(setPresencePayloadSchema, message)
-      if (!result.success) {
-        return
-      }
-
+    this.onClientMessage('setPresence', (client, payload) => {
       const avatar = this.state.players.get(client.sessionId)
       if (!avatar) {
         return
       }
 
-      avatar.presence = result.output.presence
+      avatar.presence = payload.presence
     })
 
     /**
@@ -98,32 +88,40 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
      * than trusting the client's own busy-hidden button, same guard style as `updateState`/
      * `setPresence` above: either side missing or busy is a silent no-op.
      */
-    this.onMessage('interaction', (client, message) => {
-      const result = v.safeParse(interactionPayloadSchema, message)
-      if (!result.success) {
-        return
-      }
-
+    this.onClientMessage('interaction', (client, payload) => {
       const sender = this.state.players.get(client.sessionId)
       if (!sender || sender.presence === 'busy') {
         return
       }
 
-      const target = this.state.players.get(result.output.targetSessionId)
+      const target = this.state.players.get(payload.targetSessionId)
       if (!target || target.presence === 'busy') {
         return
       }
 
-      const targetClient = this.clients.getById(result.output.targetSessionId)
+      const targetClient = this.clients.getById(payload.targetSessionId)
       if (!targetClient) {
         return
       }
 
-      targetClient.send('interactionReceived', {
-        kind: result.output.kind,
+      sendToClient(targetClient, 'interactionReceived', {
+        kind: payload.kind,
         fromSessionId: client.sessionId,
         fromDisplayName: sender.displayName,
       })
+    })
+  }
+
+  /**
+   * Registers a handler for a client→server message of the office protocol. A payload that does not
+   * match the message's schema is dropped silently, like any other malformed input.
+   */
+  private onClientMessage<N extends ToServerMessageName>(name: N, handler: (client: Client, payload: OfficePayload<N>) => void): void {
+    this.onMessage(name, (client, message) => {
+      const payload = parseOfficeMessage(name, message)
+      if (payload !== undefined) {
+        handler(client, payload)
+      }
     })
   }
 
@@ -170,14 +168,14 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
 
     this.state.players.set(client.sessionId, avatar)
     avatar.movement = newBudget(Date.now())
-    client.send('spawn', spawn)
+    sendToClient(client, 'spawn', spawn)
 
     // Lets /livekit-token (spec 003) confirm this identity really went through onJoin, instead
     // of accepting any identity/name unauthenticated (security review finding). Best-effort:
     // a missing SESSION_SIGNING_SECRET degrades to "no proximity audio/video" rather than
     // blocking the room join itself (FR-009's movement/presence independence).
     try {
-      client.send('sessionProof', { proof: computeSessionProof(client.sessionId) })
+      sendToClient(client, 'sessionProof', { proof: computeSessionProof(client.sessionId) })
     }
     catch (error) {
       console.warn('kangeikai: failed to send session proof (SESSION_SIGNING_SECRET missing?)', error)
@@ -196,7 +194,7 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
       return true
     }
 
-    client.send('correctPosition', { x: avatar.x, y: avatar.y })
+    sendToClient(client, 'correctPosition', { x: avatar.x, y: avatar.y })
     if (now - avatar.lastRejectLoggedAt > 5000) {
       avatar.lastRejectLoggedAt = now
       console.warn(`kangeikai: rejected an impossible movement of ${avatar.displayName} to (${to.x}, ${to.y}); sent back to (${avatar.x}, ${avatar.y})`)

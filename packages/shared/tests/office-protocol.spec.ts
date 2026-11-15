@@ -1,11 +1,16 @@
 import * as v from 'valibot'
 import { describe, expect, it } from 'vitest'
+import { AVATAR_DIRECTIONS, AVATAR_MOTION_STATES, AVATAR_PRESENCES, AVATAR_SPRITE_TYPES } from '../src/avatar'
 import {
-  interactionPayloadSchema,
+  INTERACTION_KINDS,
+  OFFICE_MESSAGES,
   officeJoinOptionsSchema,
-  setPresencePayloadSchema,
-  updateStatePayloadSchema,
-} from '../../src/rooms/message-schemas'
+  parseOfficeMessage,
+} from '../src/office-protocol'
+
+const interactionPayloadSchema = OFFICE_MESSAGES.interaction.schema
+const setPresencePayloadSchema = OFFICE_MESSAGES.setPresence.schema
+const updateStatePayloadSchema = OFFICE_MESSAGES.updateState.schema
 
 const baseJoinOptions = { ticket: '42.1700000060000.signature' }
 
@@ -108,5 +113,70 @@ describe('updateStatePayloadSchema', () => {
 
     expect(result).toEqual(baseUpdateState)
     expect('presence' in result).toBe(false)
+  })
+})
+
+describe('the office protocol table', () => {
+  const samples = {
+    updateState: { x: 10, y: 20, direction: 'left', motionState: 'walking' },
+    setPresence: { presence: 'busy' },
+    interaction: { kind: 'hello', targetSessionId: 'abc' },
+    interactionReceived: { kind: 'attention', fromSessionId: 'abc', fromDisplayName: 'Ana' },
+    spawn: { x: 300, y: 2300 },
+    correctPosition: { x: 1, y: 2 },
+    sessionProof: { proof: 'signature' },
+  } as const
+
+  it('has a sample for every message, so a new message cannot skip the contract tests', () => {
+    expect(Object.keys(samples).sort()).toEqual(Object.keys(OFFICE_MESSAGES).sort())
+  })
+
+  it('round-trips every message through its own schema', () => {
+    for (const name of Object.keys(OFFICE_MESSAGES) as (keyof typeof OFFICE_MESSAGES)[]) {
+      expect(parseOfficeMessage(name, samples[name])).toEqual(samples[name])
+    }
+  })
+
+  it('refuses a payload that belongs to another message', () => {
+    expect(parseOfficeMessage('spawn', samples.sessionProof)).toBeUndefined()
+    expect(parseOfficeMessage('sessionProof', samples.spawn)).toBeUndefined()
+    expect(parseOfficeMessage('interaction', samples.interactionReceived)).toBeUndefined()
+    expect(parseOfficeMessage('interactionReceived', samples.interaction)).toBeUndefined()
+  })
+
+  it('refuses anything that is not a payload, without throwing', () => {
+    for (const name of Object.keys(OFFICE_MESSAGES) as (keyof typeof OFFICE_MESSAGES)[]) {
+      for (const bad of [undefined, null, 'x', 42, [], {}])
+        expect(parseOfficeMessage(name, bad)).toBeUndefined()
+    }
+  })
+
+  it('refuses a position that is not finite', () => {
+    expect(parseOfficeMessage('spawn', { x: Number.NaN, y: 1 })).toBeUndefined()
+    expect(parseOfficeMessage('correctPosition', { x: 1, y: Number.POSITIVE_INFINITY })).toBeUndefined()
+  })
+
+  it('refuses an empty session proof', () => {
+    expect(parseOfficeMessage('sessionProof', { proof: '' })).toBeUndefined()
+  })
+
+  it('declares a direction for every message', () => {
+    for (const message of Object.values(OFFICE_MESSAGES))
+      expect(['toServer', 'toClient']).toContain(message.direction)
+  })
+})
+
+describe('the values the schemas allow come from avatar.ts, not from copies', () => {
+  it('accepts every direction, motion state, presence and sprite, and nothing else', () => {
+    for (const direction of AVATAR_DIRECTIONS)
+      expect(parseOfficeMessage('updateState', { x: 0, y: 0, direction, motionState: 'idle' })).toBeDefined()
+    for (const motionState of AVATAR_MOTION_STATES)
+      expect(parseOfficeMessage('updateState', { x: 0, y: 0, direction: 'up', motionState })).toBeDefined()
+    for (const presence of AVATAR_PRESENCES)
+      expect(parseOfficeMessage('setPresence', { presence })).toBeDefined()
+    for (const kind of INTERACTION_KINDS)
+      expect(parseOfficeMessage('interaction', { kind, targetSessionId: 'a' })).toBeDefined()
+    expect(AVATAR_SPRITE_TYPES.length).toBeGreaterThan(0)
+    expect(parseOfficeMessage('updateState', { x: 0, y: 0, direction: 'north', motionState: 'idle' })).toBeUndefined()
   })
 })

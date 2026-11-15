@@ -16,12 +16,14 @@ interface FakeLocalParticipant {
   publishTrack: ReturnType<typeof vi.fn>
   publications: Map<Track.Source, { track: unknown }>
   on: ReturnType<typeof vi.fn>
+  off: ReturnType<typeof vi.fn>
+  connectionQuality?: string
   emit: (event: string, ...args: unknown[]) => void
 }
 
 /**
  * `MediaControls` only ever touches a handful of members on `room.localParticipant` — a fake
- * implementing just those (plus a minimal on/emit pair to drive `LocalTrackUnpublished`) is
+ * implementing just those (plus a minimal on/off/emit set to drive `LocalTrackUnpublished`) is
  * enough to exercise it without a real LiveKit connection. `publications` backs
  * `getTrackPublication` — tests seed it directly to simulate an already-sharing participant
  * (issue #116's detach/adopt handoff).
@@ -45,6 +47,9 @@ function createFakeLocalParticipant(): FakeLocalParticipant {
       const callbacks = listeners.get(event) ?? []
       callbacks.push(callback)
       listeners.set(event, callbacks)
+    }),
+    off: vi.fn((event: string, callback: (...args: unknown[]) => void) => {
+      listeners.set(event, (listeners.get(event) ?? []).filter(existing => existing !== callback))
     }),
     emit(event: string, ...args: unknown[]) {
       for (const callback of listeners.get(event) ?? []) {
@@ -537,5 +542,140 @@ describe('mediaControls failure kinds and device switching (issue #245)', () => 
 
     expect(switched).toBe(false)
     expect(controls.microphoneFailure).toBe('in-use')
+  })
+})
+
+describe('mediaControls switching rooms (issue #264)', () => {
+  function twoRooms() {
+    const office = createFakeLocalParticipant()
+    const priv = createFakeLocalParticipant()
+    return { office, priv, officeRoom: createFakeRoom(office), privateRoom: createFakeRoom(priv) }
+  }
+
+  it('reads and publishes on the new room after the switch, and leaves the old one alone', async () => {
+    const { office, priv, officeRoom, privateRoom } = twoRooms()
+    priv.isMicrophoneEnabled = true
+    const controls = new MediaControls(officeRoom)
+
+    controls.switchRoom(privateRoom)
+    await controls.setMicrophoneEnabled(false)
+
+    expect(controls.microphoneEnabled).toBe(true)
+    expect(priv.setMicrophoneEnabled).toHaveBeenCalledExactlyOnceWith(false)
+    expect(office.setMicrophoneEnabled).not.toHaveBeenCalled()
+  })
+
+  it('keeps what the person asked for: the microphone and camera intent survive the switch (issue #239)', async () => {
+    const { officeRoom, privateRoom } = twoRooms()
+    const controls = new MediaControls(officeRoom)
+    controls.declareIntent({ microphoneEnabled: true, cameraEnabled: false })
+
+    controls.switchRoom(privateRoom)
+
+    expect(controls.microphoneIntent).toBe(true)
+    expect(controls.cameraIntent).toBe(false)
+  })
+
+  it('keeps Busy across the switch, and ending it restores the snapshot on the new room', async () => {
+    const { office, priv, officeRoom, privateRoom } = twoRooms()
+    const controls = new MediaControls(officeRoom)
+    await controls.beginBusy({ microphoneEnabled: true, cameraEnabled: true })
+    office.setMicrophoneEnabled.mockClear()
+    office.setCameraEnabled.mockClear()
+
+    controls.switchRoom(privateRoom)
+    expect(controls.microphoneIntent).toBe(true)
+    expect(controls.cameraIntent).toBe(true)
+    await controls.endBusy()
+
+    expect(priv.setMicrophoneEnabled).toHaveBeenCalledExactlyOnceWith(true)
+    expect(priv.setCameraEnabled).toHaveBeenCalledExactlyOnceWith(true)
+    expect(office.setMicrophoneEnabled).not.toHaveBeenCalled()
+  })
+
+  it('is not busy after a switch when it was not busy before', async () => {
+    const { priv, officeRoom, privateRoom } = twoRooms()
+    const controls = new MediaControls(officeRoom)
+
+    controls.switchRoom(privateRoom)
+    await controls.endBusy()
+
+    expect(priv.setMicrophoneEnabled).not.toHaveBeenCalled()
+  })
+
+  it('forgets why a device failed in the room it left: the new room starts clean', async () => {
+    const { office, officeRoom, privateRoom } = twoRooms()
+    office.setMicrophoneEnabled.mockRejectedValueOnce(Object.assign(new Error('denied'), { name: 'NotAllowedError' }))
+    office.setCameraEnabled.mockRejectedValueOnce(Object.assign(new Error('missing'), { name: 'NotFoundError' }))
+    const controls = new MediaControls(officeRoom)
+    await controls.setMicrophoneEnabled(true)
+    await controls.setCameraEnabled(true)
+    expect(controls.microphoneUnavailable).toBe(true)
+    expect(controls.cameraUnavailable).toBe(true)
+
+    controls.switchRoom(privateRoom)
+
+    expect(controls.microphoneUnavailable).toBe(false)
+    expect(controls.cameraUnavailable).toBe(false)
+    expect(controls.microphoneFailure).toBeUndefined()
+    expect(controls.cameraFailure).toBeUndefined()
+  })
+
+  it('puts the screen-share quality and audio choice back to the defaults: a share only crosses rooms by hand-off', async () => {
+    const { officeRoom, privateRoom } = twoRooms()
+    const controls = new MediaControls(officeRoom)
+    await controls.setScreenShareEnabled(true, '2k', true)
+
+    controls.switchRoom(privateRoom)
+
+    expect(controls.screenShareQuality).toBe('1080p')
+    expect(controls.screenShareAudio).toBe(false)
+  })
+
+  it('still carries a share across with its own quality: detach on the old room, adopt on the new one', async () => {
+    const { office, priv, officeRoom, privateRoom } = twoRooms()
+    const videoTrack = { kind: 'video' }
+    office.publications.set(Track.Source.ScreenShare, { track: videoTrack })
+    const controls = new MediaControls(officeRoom)
+    await controls.setScreenShareEnabled(true, '720p')
+
+    const handoff = await controls.detachScreenShareTrack()
+    controls.switchRoom(privateRoom)
+    await controls.adoptScreenShareTrack(handoff!)
+
+    expect(office.unpublishTrack).toHaveBeenCalledWith(videoTrack, false)
+    expect(priv.publishTrack).toHaveBeenCalledWith(videoTrack, resolveScreenShareQuality('720p', false).publishOptions)
+    expect(controls.screenShareQuality).toBe('720p')
+  })
+
+  it('stops listening to the room it left: a late screen-share end from it is ignored, one from the new room is not', () => {
+    const { office, priv, officeRoom, privateRoom } = twoRooms()
+    const onScreenShareEnded = vi.fn()
+    const controls = new MediaControls(officeRoom, onScreenShareEnded)
+
+    controls.switchRoom(privateRoom)
+    office.emit(ParticipantEvent.LocalTrackUnpublished, { source: Track.Source.ScreenShare })
+    expect(onScreenShareEnded).not.toHaveBeenCalled()
+
+    priv.emit(ParticipantEvent.LocalTrackUnpublished, { source: Track.Source.ScreenShare })
+    expect(onScreenShareEnded).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports the new room\'s connection quality straight away, and ignores the old room\'s from then on', () => {
+    const { office, priv, officeRoom, privateRoom } = twoRooms()
+    office.connectionQuality = 'excellent'
+    priv.connectionQuality = 'poor'
+    const onQuality = vi.fn()
+    const controls = new MediaControls(officeRoom, undefined, onQuality)
+    expect(onQuality).toHaveBeenLastCalledWith('excellent')
+
+    controls.switchRoom(privateRoom)
+    expect(onQuality).toHaveBeenLastCalledWith('poor')
+
+    onQuality.mockClear()
+    office.emit(ParticipantEvent.ConnectionQualityChanged, 'lost')
+    expect(onQuality).not.toHaveBeenCalled()
+    priv.emit(ParticipantEvent.ConnectionQualityChanged, 'good')
+    expect(onQuality).toHaveBeenCalledExactlyOnceWith('good')
   })
 })

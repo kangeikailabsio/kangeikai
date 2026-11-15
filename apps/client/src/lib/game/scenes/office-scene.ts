@@ -51,7 +51,7 @@ import { feetHitbox, isValidCharacterSelection, privateZoneAt, resolveGameTables
 import { Track } from 'livekit-client'
 import Phaser from 'phaser'
 
-/** Emitted on `game.events` once `MediaControls` is ready (T017 — see +page.svelte). */
+/** Emitted on `game.events` with the session's `MediaControls` once a room's media is applied: the first time, and again after every room switch (T017 — see +page.svelte). */
 export const MEDIA_CONTROLS_READY_EVENT = 'mediacontrols-ready'
 
 /** Emitted on `game.events` when local presence changes (busy unpublish / restore). */
@@ -66,8 +66,8 @@ export const SCREEN_SHARE_ENDED_EVENT = 'screen-share-ended'
 
 /**
  * Emitted on `game.events` with the local participant's current `ConnectionQuality` (issue
- * #132) whenever `MediaControls`'s own LiveKit listener fires — including once immediately on
- * every `MediaControls` construction (room switch), not just on a genuine change.
+ * #132) whenever `MediaControls`'s own LiveKit listener fires — including once immediately each
+ * time it starts on a room (the first one and every `switchRoom`), not just on a genuine change.
  */
 export const CONNECTION_QUALITY_CHANGED_EVENT = 'connection-quality-changed'
 
@@ -627,8 +627,9 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   /**
-   * (Re-)creates `MediaControls` for whichever LiveKit room is now active — `office` or a
-   * private zone's isolated room — and applies the given mic/camera/screen-share state to it.
+   * Points the session's one `MediaControls` at whichever LiveKit room is now active — `office`
+   * or a private zone's isolated room (creating it the first time) — and applies the given
+   * mic/camera/screen-share state to it.
    * A denied permission or missing device (US3) never throws here — `MediaControls` records it
    * as `microphoneUnavailable`/`cameraUnavailable` instead (a failed screen-share attempt is
    * just logged and left retriable — issue #115). Screen share is never (re)started while busy
@@ -645,18 +646,22 @@ export class OfficeScene extends Phaser.Scene {
    * a genuine failure unlike a normal "share attempt failed, stay retriable" swallow).
    */
   private async applyMediaControls(room: Room, micEnabled: boolean, cameraEnabled: boolean, screenShareEnabled: boolean, screenShareQuality?: ScreenShareQualityTier, screenShareAudio = false, screenShareHandoff?: ScreenShareHandoff): Promise<{ screenShareHandoffFailed: boolean }> {
-    const previous = this.mediaControls
-    const next = new MediaControls(
-      room,
-      () => this.game.events.emit(SCREEN_SHARE_ENDED_EVENT),
-      quality => this.game.events.emit(CONNECTION_QUALITY_CHANGED_EVENT, quality),
-    )
-    next.adoptBusyState(previous)
+    let next = this.mediaControls
+    if (next) {
+      next.switchRoom(room)
+    }
+    else {
+      next = new MediaControls(
+        room,
+        () => this.game.events.emit(SCREEN_SHARE_ENDED_EVENT),
+        quality => this.game.events.emit(CONNECTION_QUALITY_CHANGED_EVENT, quality),
+      )
+      this.mediaControls = next
+    }
     // Before the first publish starts: the next room switch reads the person's intent from here,
     // and a publish still in flight must not make it look like the microphone or camera is off
     // (issue #239).
     next.declareIntent({ microphoneEnabled: micEnabled, cameraEnabled })
-    this.mediaControls = next
     let screenShareHandoffFailed = false
     if (this.presence === 'busy') {
       await next.beginBusy({ microphoneEnabled: micEnabled, cameraEnabled })

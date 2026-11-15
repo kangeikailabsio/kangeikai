@@ -240,3 +240,17 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   `toServer`; o `RoomConnection` fala com um `Client` real do Colyseus e não tem fake). Um
   `sessionProof` inválido agora é descartado e o client espera os 5 s do timeout em vez de aceitar o
   valor, o que só acontece com um servidor quebrado.
+
+- **Seams de `Room` e estado de erro da sala privada, sem o resto do estado espelhado** — [#263](https://github.com/kangeikailabsio/kangeikai/issues/263),
+  parte do épico [#262](https://github.com/kangeikailabsio/kangeikai/issues/262): o `PrivateRoomController`
+  e o `ProximityAudioController` recebem uma fábrica de `Room` (`lib/av/room-factory.ts`, o `Room` real
+  por padrão), e o erro de conexão da sala privada e o "Try again" (`connectError`, com `retrying`)
+  passam a ter uma única fonte, o controller, em vez de uma cópia na `OfficeScene`. Ficaram de fora:
+  um tipo `RoomLike` (o `Room` é repassado intacto ao `MediaControls` e ao overlay, então um tipo
+  parcial só obrigaria a casts; os fakes dos testes fazem o cast, como o `media-controls.spec.ts` já
+  fazia) e os campos `connectedPrivateRoom` e `localMediaConnecting` da cena. Eles não espelham o
+  controller de forma fiel: `connectedPrivateRoom` só vale depois do `await` do `detachScreenShareTrack` e
+  só some depois do `disconnect()` da sala, e `localMediaConnecting` dura até o `applyMediaControls`
+  terminar. Mover os dois para o controller mudaria quando a cena troca de ramo no `update()`; quem sabe
+  essa sequência é a sessão local de AV (#265). `onError` do `PrivateRoomTransitionHandlers` virou
+  opcional, e a cena deixou de usá-lo.

@@ -1,10 +1,9 @@
 import type { AvatarSpriteType, CharacterSelection } from '@kangeikai/shared'
 import type { Db } from '../db/client'
-import { MAX_NAME_LENGTH } from '@kangeikai/shared'
+import { characterSelectionSchema, MAX_NAME_LENGTH, spriteTypeSchema } from '@kangeikai/shared'
 import { eq } from 'drizzle-orm'
 import * as v from 'valibot'
 import { user } from '../db/schema'
-import { characterSelectionSchema, spriteTypeSchema } from '../rooms/message-schemas'
 import { verifySessionTicket } from './session-ticket'
 
 /** What the room needs to know about a person, taken from their account. */

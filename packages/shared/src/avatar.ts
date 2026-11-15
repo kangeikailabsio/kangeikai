@@ -1,9 +1,15 @@
 import type { CharacterSelection } from './character'
 
-export type AvatarDirection = 'up' | 'down' | 'left' | 'right'
-export type AvatarMotionState = 'idle' | 'walking' | 'sprinting'
-export type AvatarSpriteType = 'man' | 'woman'
-export type AvatarPresence = 'available' | 'busy'
+/** The allowed values live here once; the types below and the office protocol's schemas derive from them. */
+export const AVATAR_DIRECTIONS = ['up', 'down', 'left', 'right'] as const
+export const AVATAR_MOTION_STATES = ['idle', 'walking', 'sprinting'] as const
+export const AVATAR_SPRITE_TYPES = ['man', 'woman'] as const
+export const AVATAR_PRESENCES = ['available', 'busy'] as const
+
+export type AvatarDirection = (typeof AVATAR_DIRECTIONS)[number]
+export type AvatarMotionState = (typeof AVATAR_MOTION_STATES)[number]
+export type AvatarSpriteType = (typeof AVATAR_SPRITE_TYPES)[number]
+export type AvatarPresence = (typeof AVATAR_PRESENCES)[number]
 
 export const MAX_NAME_LENGTH = 24
 

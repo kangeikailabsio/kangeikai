@@ -293,3 +293,14 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   que já preserva o `sessionId`) pediria entregar ao client um token de reconexão, ou um endpoint que o
   entregue só a quem tem o cookie da conta; foi descartado por ora porque a tela de entrada continua e
   porque o ganho seria só o assento no pool.
+
+- **Entrar já dentro de uma zona privada: a conexão do escritório em andamento não é abortada** — [#272](https://github.com/kangeikailabsio/kangeikai/issues/272):
+  quem nasce numa zona privada com alguém (por exemplo, depois de um refresh no meio de uma conversa, desde
+  a [#259](https://github.com/kangeikailabsio/kangeikai/issues/259)) entra na sala privada antes de o escritório
+  terminar de aplicar a mídia. O `LocalAvSession` agora guarda o que foi escolhido na tela de entrada (a sala
+  privada começa dali, e não dos padrões) e numera a primeira conexão do escritório como qualquer troca, então
+  o escritório não aplica sua mídia por cima da sala privada. Ficou de fora: abortar a conexão do escritório que
+  ainda está em andamento quando a sala privada assume (o `office.disconnect()` durante o `connect()` do LiveKit
+  pode registrar um aviso no console). O e2e de refresh dentro da conversa cobre o caminho de ponta a ponta, mas
+  no ambiente de teste o escritório costuma terminar antes da sala privada; quem prova a corrida são os testes
+  unitários da sessão, que seguram a conexão do escritório.

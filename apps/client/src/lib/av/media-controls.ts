@@ -89,12 +89,19 @@ export class MediaControls {
     this.onConnectionQualityChanged?.(quality)
   }
 
-  constructor(private readonly room: Room, private readonly onScreenShareEnded?: () => void, private readonly onConnectionQualityChanged?: (quality: ConnectionQuality) => void) {
-    this.room.localParticipant.on(ParticipantEvent.LocalTrackUnpublished, this.handleLocalTrackUnpublished)
-    this.room.localParticipant.on(ParticipantEvent.ConnectionQualityChanged, this.handleConnectionQualityChanged)
+  private readonly room: Room
+
+  constructor(room: Room, private readonly onScreenShareEnded?: () => void, private readonly onConnectionQualityChanged?: (quality: ConnectionQuality) => void) {
+    this.room = room
+    this.listenToRoom(room)
     // Reports the room's already-current reading immediately, rather than leaving the caller at
     // `ConnectionQuality.Unknown` until the next actual change fires.
     this.onConnectionQualityChanged?.(this.connectionQuality)
+  }
+
+  private listenToRoom(room: Room): void {
+    room.localParticipant.on(ParticipantEvent.LocalTrackUnpublished, this.handleLocalTrackUnpublished)
+    room.localParticipant.on(ParticipantEvent.ConnectionQualityChanged, this.handleConnectionQualityChanged)
   }
 
   get microphoneEnabled(): boolean {

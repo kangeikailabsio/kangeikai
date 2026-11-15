@@ -47,8 +47,8 @@ export interface CallTilesInput {
 export interface CallTilesOutput {
   /** The strip of tiles at the top of the screen. */
   strip: VideoOverlayEntry[]
-  /** Every screen share, for the full-screen grid. `null`: leave the grid as it is. */
-  grid: ScreenShareGridTile[] | null
+  /** Every screen share, for the full-screen grid. */
+  grid: ScreenShareGridTile[]
 }
 
 /**
@@ -70,10 +70,8 @@ export class CallTiles {
     const { situation } = input
     if (situation.kind === 'error')
       return this.computeError(input, situation)
-    if (input.localBusy) {
-      // In a private room only the strip is cleared; in the office the grid is too.
-      return { strip: [], grid: situation.kind === 'private' ? null : [] }
-    }
+    if (input.localBusy)
+      return { strip: [], grid: [] }
     return situation.kind === 'private' ? this.computePrivate(input, situation) : this.computeOffice(input, situation)
   }
 

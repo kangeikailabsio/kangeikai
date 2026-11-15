@@ -159,14 +159,14 @@ describe('callTiles in a private room', () => {
     expect(strip).toEqual([])
   })
 
-  it('clears the strip, and leaves the grid as it is, when the local person is Busy', () => {
+  it('clears the strip and the share grid when the local person is Busy: nobody else\'s share stays on screen', () => {
     const output = new CallTiles().compute(input({
       localBusy: true,
       situation: { kind: 'private', room: room(participant('me'), participant('ana', { screenTrack: track })), occupants: ['ana'] },
       people: new Map([['ana', person('Ana', 30)]]),
     }))
 
-    expect(output).toEqual({ strip: [], grid: null })
+    expect(output).toEqual({ strip: [], grid: [] })
   })
 })
 

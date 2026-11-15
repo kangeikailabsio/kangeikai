@@ -852,8 +852,7 @@ export class OfficeScene extends Phaser.Scene {
       now,
     })
     videoOverlayState.set(strip)
-    if (grid)
-      screenShareGridState.set(grid)
+    screenShareGridState.set(grid)
   }
 
   /** Everyone else on the map, with the distance the strip sorts them by (Euclidean, in map pixels). */

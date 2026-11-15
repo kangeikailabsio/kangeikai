@@ -1,0 +1,145 @@
+name: ci
+
+# Every pull request (into any branch, so epic/* branches are covered) and every push to main.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+# A newer push to the same pull request replaces the run in progress; runs on main always finish.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Lint and the type checks (svelte-check for the client, tsc for the rest).
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm lint
+      - run: pnpm check
+
+  # The production bundles: the static client (with the pre-rendered landing and the 200.html
+  # fallback) and the server.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Build the client
+        # The PUBLIC_* values are baked into the bundle at build time; these are placeholders.
+        env:
+          PUBLIC_COLYSEUS_URL: wss://server.example.test
+          PUBLIC_LIVEKIT_TOKEN_ENDPOINT: https://server.example.test/livekit-token
+          PUBLIC_AUTH_URL: https://server.example.test
+        run: pnpm build
+      - name: Check the static host's two entry points exist
+        run: test -f apps/client/build/index.html && test -f apps/client/build/200.html
+      - name: Build the server
+        run: pnpm --filter @kangeikai/server build
+
+  # Unit tests of every package, no external services. Coverage is checked against the thresholds
+  # in each package's Vitest config (90% of lines, statements and functions, 85% of branches).
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Unit tests with coverage (client, shared, pool)
+        run: pnpm --filter @kangeikai/client --filter @kangeikai/shared --filter @kangeikai/game-pool test:coverage
+      - name: Unit tests (server)
+        run: pnpm --filter @kangeikai/server test:unit
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: coverage-unit
+          path: |
+            apps/client/coverage
+            packages/shared/coverage
+            packages/games/pool/coverage
+          retention-days: 7
+
+  # The server's whole suite: the Colyseus rooms, the LiveKit token route and the auth routes
+  # against a real PostgreSQL started by Testcontainers (Docker is on the runner). It runs the
+  # unit tests too, because the server's coverage needs both.
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Server tests with coverage
+        run: pnpm --filter @kangeikai/server test:coverage
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: coverage-server
+          path: apps/server/coverage
+          retention-days: 7
+
+  # The Playwright suite against the real app with several people at once. It needs PostgreSQL and
+  # LiveKit from the compose file; the suite creates its own database and starts its own server and client.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      - name: Start PostgreSQL and LiveKit
+        run: docker compose -f docker-compose.dev.yml up -d --wait
+
+      - name: Resolve the Playwright version
+        id: playwright
+        run: echo "version=$(pnpm --filter @kangeikai/e2e exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Cache the browsers
+        id: browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - name: Download Chromium and its system libraries
+        if: steps.browsers.outputs.cache-hit != 'true'
+        run: pnpm --filter @kangeikai/e2e exec playwright install --with-deps chromium
+      - name: Install Chromium's system libraries
+        if: steps.browsers.outputs.cache-hit == 'true'
+        run: pnpm --filter @kangeikai/e2e exec playwright install-deps chromium
+
+      - name: Run the end-to-end tests
+        run: pnpm test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          retention-days: 7
+
+      - name: Show the compose logs
+        if: failure()
+        run: docker compose -f docker-compose.dev.yml logs --no-color --tail 200
+
+  # The pull request title becomes the commit on main, and release-please reads it, so it has to
+  # follow Conventional Commits like every other commit message.
+  pr-title:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Check the title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$PR_TITLE" | pnpm exec commitlint

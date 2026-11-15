@@ -45,6 +45,13 @@ chat. See `docs/mvp-plan.md` for the product plan.
   Tests that need PostgreSQL use Testcontainers (`@testcontainers/postgresql`): a throwaway
   container per test file, tables truncated between tests, nothing but Docker required. Never
   point a test at the developer's own database.
+  `pnpm test:unit` and `pnpm test:integration` run each kind on its own; `pnpm test:coverage` checks
+  the thresholds (90% of lines, statements and functions, 85% of branches) on the logic only. What a
+  package leaves out of coverage is listed, with the reason, in its Vitest config: a new exclusion
+  needs the same. A test of code in `packages/shared` lives in `packages/shared/tests`.
+- **CI**: `.github/workflows/ci.yml` runs on every pull request and on pushes to `main`: `check`
+  (lint and type checks), `build`, `unit`, `integration`, `e2e` and `pr-title` (the title follows
+  Conventional Commits). See `docs/workflows/ci.md`; `release-please.yml` is separate.
 - **Git hooks**: native git hooks, no wrapper package (no Husky). The tracked source of truth
   is `.githooks/` — `pre-commit` (runs `lint-staged`, which runs `eslint --fix` on staged
   files) and `commit-msg` (runs `commitlint` against `@commitlint/config-conventional`, so

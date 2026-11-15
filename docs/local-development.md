@@ -47,6 +47,18 @@ test file starts its own throwaway PostgreSQL container (`postgres:17-alpine`, t
 the compose file), applies the migrations, and empties the tables between tests. They only need
 Docker running: no compose stack and no `DATABASE_URL`, and your own database is never touched.
 
+```sh
+pnpm test:unit          # every package's unit tests, no Docker
+pnpm test:integration   # the server's rooms and routes, with PostgreSQL in Docker
+pnpm test               # all of them
+pnpm test:coverage      # with coverage; fails below 90% (lines, statements, functions) or 85% (branches)
+```
+
+Coverage counts the logic only: each package's Vitest config lists what it leaves out and why (the
+Phaser scene and views, the `$state` stores, thin SDK adapters, entry points and generated code). The
+HTML report is in `<package>/coverage/index.html`. The server's coverage runs its whole suite, so it
+needs Docker too. Everything here also runs on every pull request: see `docs/workflows/ci.md`.
+
 ## End-to-end tests
 
 The Playwright suite in `e2e/` drives the real app with several people at once (sign up, the room,

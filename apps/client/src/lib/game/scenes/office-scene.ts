@@ -1,22 +1,20 @@
+import type { CallPerson, CallSituation } from '$lib/av/call-tiles'
 import type { MediaIntent } from '$lib/av/devices/media-intent'
 import type { AvatarPosition } from '$lib/av/proximity-audio-controller'
-import type { RemoteVideoOverlayCandidate, VideoOverlayParticipant } from '$lib/av/video-overlay-tiles'
 import type { HoverTarget } from '$lib/game/entities/avatar-hover'
 import type { PathfindingGrid } from '$lib/game/map/pathfinding'
 import type { InteractionReceivedPayload } from '$lib/network/room-connection'
 import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, CharacterSelection, CollisionRect, GameTable, PrivateZone, TiledSpaceObject } from '@kangeikai/shared'
-import type { LocalVideoTrack, RemoteVideoTrack, Room } from 'livekit-client'
 import avatarManIdleUrl from '$lib/assets/sprites/avatar-man-idle.png?url'
 import avatarManWalkUrl from '$lib/assets/sprites/avatar-man-walk.png?url'
 import avatarWomanIdleUrl from '$lib/assets/sprites/avatar-woman-idle.png?url'
 import avatarWomanWalkUrl from '$lib/assets/sprites/avatar-woman-walk.png?url'
+import { CallTiles } from '$lib/av/call-tiles'
 import { LocalAvSession } from '$lib/av/local-av-session'
-import { PendingTileTimeout } from '$lib/av/pending-tile-timeout'
-import { buildScreenShareGridTiles } from '$lib/av/screen-share-grid'
+import { snapshotRoom } from '$lib/av/room-snapshot'
 import { screenShareGridState } from '$lib/av/screen-share-grid-state.svelte'
 import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
 import { videoOverlayState } from '$lib/av/video-overlay-state.svelte'
-import { buildVideoOverlayTiles } from '$lib/av/video-overlay-tiles'
 import { buildCharacterManifest } from '$lib/character/character-pieces'
 import { composeCharacterSheets, loadImageElement } from '$lib/character/compose-character'
 import { BusyPresenceStore } from '$lib/entry/busy-presence-store'
@@ -42,7 +40,6 @@ import { followState } from '$lib/people/follow-state.svelte'
 import { attentionModalState } from '$lib/ui/attention-modal-state.svelte'
 import { toastState } from '$lib/ui/toast-state.svelte'
 import { feetHitbox, isValidCharacterSelection, privateZoneAt, resolveGameTables, resolvePrivateZones, selectGameTable, tableContains } from '@kangeikai/shared'
-import { Track } from 'livekit-client'
 import Phaser from 'phaser'
 
 /** Emitted on `game.events` with the session's `MediaControls` once a room's media is applied: the first time, and again after every room switch (T017 — see +page.svelte). */
@@ -96,14 +93,6 @@ export const HELLO_RECEIVED_EVENT = 'hello-received'
  * it (#158's grill: shake first, modal only after).
  */
 export const ATTENTION_RECEIVED_EVENT = 'attention-received'
-
-/**
- * Cap on remote video tiles shown in the strip at once — beyond this, the closest
- * `MAX_REMOTE_VIDEO_TILES` remain visible and the rest collapse into a single "+N" overflow
- * tile (`updateVideoOverlay`). Keeps tiles legible regardless of how many participants share a
- * zone/proximity radius; audio (`ProximityAudioController`) is unaffected by this cap.
- */
-const MAX_REMOTE_VIDEO_TILES = 4
 
 const KEY_TO_DIRECTION: Record<string, AvatarDirection> = {
   ArrowUp: 'up',
@@ -357,9 +346,7 @@ export class OfficeScene extends Phaser.Scene {
       onScreenShareEnded: () => this.game.events.emit(SCREEN_SHARE_ENDED_EVENT),
       onConnectionQualityChanged: quality => this.game.events.emit(CONNECTION_QUALITY_CHANGED_EVENT, quality),
       onScreenShareHandoffFailed: () => toastState.show('Couldn\'t continue screen share — try sharing again'),
-      onPrivateRoomConnect: () => {
-        this.pendingTileTimeout = new PendingTileTimeout()
-      },
+      onPrivateRoomConnect: () => this.callTiles.reset(),
     },
   })
 
@@ -400,8 +387,7 @@ export class OfficeScene extends Phaser.Scene {
   /** The zone the local avatar was in as of the last frame, or `null` — only redraws/re-fades the spotlight on a change, not every frame. */
   private currentSpotlightZoneId: number | null = null
   private spotlightTween: Phaser.Tweens.Tween | undefined
-  /** Hides a remote person's pending tile after they have been connecting for too long (issue #225); recreated on every private-room connect. */
-  private pendingTileTimeout = new PendingTileTimeout()
+  private readonly callTiles = new CallTiles()
 
   constructor() {
     super('office')
@@ -768,50 +754,8 @@ export class OfficeScene extends Phaser.Scene {
 
     this.avSession.update(localPosition, remotePositions)
 
-    const { privateRoom } = this.avSession
-    if (privateRoom) {
-      // Isolated, small room — everyone in it is "in the call", no distance falloff needed.
-      // Local busy still hides the strip here: this path lists all remoteParticipants, not nearby.
-      if (this.presence === 'busy') {
-        if (refreshOverlay)
-          videoOverlayState.set([])
-      }
-      else if (refreshOverlay) {
-        // `occupantSessionIds` (Colyseus position, always accurate) is who's expected in this
-        // zone's call; `remoteParticipants` (LiveKit) is who's actually connected so far — the
-        // gap between the two is exactly who gets a pending placeholder (issue #141). The session
-        // has the occupancy of this very frame: its `update()` computes it before anything async.
-        const { zoneOccupantSessionIds: occupantSessionIds } = this.avSession
-        // Occupants not (yet) in the LiveKit room are the pending ones; the ones pending for too
-        // long are dropped (issue #225) — a remote failure can't be told apart from a slow
-        // connect, and a spinner that never resolves misleads. They reappear as real tiles if
-        // they connect later, since this is recomputed every refresh.
-        const { remoteParticipants } = privateRoom
-        const pendingSessionIds = this.pendingTileTimeout.visible(
-          occupantSessionIds.filter(sessionId => !remoteParticipants.has(sessionId)),
-          time,
-        )
-        const expectedSessionIds = new Set([...pendingSessionIds, ...remoteParticipants.keys()])
-        this.updateVideoOverlay(expectedSessionIds, privateRoom, pendingSessionIds)
-      }
-    }
-    else {
-      // The session updates proximity audio every frame in the office, whatever the error branch
-      // below shows (office is still the active room whenever a private-room attempt fails).
-      const { nearbySessionIds } = this.avSession
-
-      // `PrivateRoomController` already dropped its failure on this frame if the avatar left the
-      // zone or the other person did (issue #142, #225), so what it reports here is current.
-      const { connectError } = this.avSession
-      if (connectError) {
-        const { zoneOccupantSessionIds: occupantSessionIds } = this.avSession
-        if (refreshOverlay)
-          this.updateVideoOverlayForLocalConnectError(occupantSessionIds, connectError.retrying)
-      }
-      else if (refreshOverlay) {
-        this.updateVideoOverlay(nearbySessionIds, this.avSession.officeRoom)
-      }
-    }
+    if (refreshOverlay)
+      this.refreshCallTiles(time)
 
     this.updateRemoteAvatarViews(delta / 1000)
     this.updateHoverRing()
@@ -884,166 +828,45 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   /**
-   * Refreshes `videoOverlayState` (T015/T016) with a fixed-position strip: the local
-   * participant's tile(s) ("You") first, then the `MAX_REMOTE_VIDEO_TILES` closest nearby
-   * ("close enough to hear", `ProximityAudioController.update()`'s return value — same
-   * condition per spec.md's US2 acceptance scenarios) remote tiles, screen-share tiles ahead of
-   * camera tiles within that cap (#98). Busy identities never appear: a busy local hides the
-   * strip entirely, and a busy remote is omitted before tiles (so a camera-off placeholder is
-   * not reused as a mute tile). Every visible participant always gets a `kind: 'camera'` tile —
-   * camera on or off, a camera-off tile still renders as a placeholder — plus a *second*,
-   * separate `kind: 'screen'` tile when that person is sharing their screen (screen share never
-   * replaces the camera tile, per #94's grill Q6). Any remaining nearby tiles beyond the cap
-   * collapse into a single "+N" overflow tile (still audible/visible in the full grid later —
-   * this cap only affects the strip). The strip itself (including "You") is hidden entirely
-   * while alone — it only appears once at least one other participant is nearby. `room` is
-   * whichever LiveKit room is currently active — `office`, or a private zone's isolated room
-   * while one is connected (see `update()`). Also refreshes `screenShareGridState` (#99) from
-   * the exact same candidate lists, for the full-screen grid overlay (#100) — every active
-   * screen share nearby, with no cap (unlike the strip above).
-   *
-   * `pendingSessionIds` (issue #141) — only ever non-empty for the private-room call above —
-   * marks which of `nearbySessionIds` are expected occupants without a `RemoteParticipant` yet:
-   * those get a pending placeholder tile instead of being silently skipped. Omitted (empty) for
-   * the general office/proximity call, which keeps its original behavior unchanged: a nearby
-   * session without a `RemoteParticipant` yet is just skipped, same as before this issue.
+   * Redraws the call strip and the screen-share grid (T015/T016, #99, #100). Which tiles show is
+   * `CallTiles`' call; this only says where the person is (the office, a private room, or a private
+   * room that failed to connect), hands over what the scene knows, and writes the result.
    */
-  private updateVideoOverlay(nearbySessionIds: ReadonlySet<string>, room: Room, pendingSessionIds: ReadonlySet<string> = new Set()): void {
-    if (this.presence === 'busy') {
-      videoOverlayState.set([])
-      screenShareGridState.set([])
-      return
-    }
+  private refreshCallTiles(now: number): void {
+    const { privateRoom, connectError, nearbySessionIds, officeRoom, zoneOccupantSessionIds, mediaConnecting } = this.avSession
+    let situation: CallSituation
+    if (privateRoom)
+      situation = { kind: 'private', room: snapshotRoom(privateRoom), occupants: zoneOccupantSessionIds }
+    else if (connectError)
+      situation = { kind: 'error', occupants: zoneOccupantSessionIds, retrying: connectError.retrying }
+    else
+      situation = { kind: 'office', room: snapshotRoom(officeRoom), nearby: nearbySessionIds }
 
-    const visibleSessionIds = [...nearbySessionIds].filter(
-      sessionId => this.remoteAvatars.get(sessionId)?.presence !== 'busy',
-    )
-
-    const { localParticipant } = room
-
-    const remotes: RemoteVideoOverlayCandidate[] = []
-    for (const sessionId of visibleSessionIds) {
-      const participant = room.remoteParticipants.get(sessionId)
-      if (!participant) {
-        if (pendingSessionIds.has(sessionId)) {
-          remotes.push({
-            sessionId,
-            name: this.remoteAvatars.get(sessionId)?.displayName ?? sessionId,
-            pending: true,
-            distance: this.distanceToLocal(sessionId),
-          })
-        }
-        continue
-      }
-
-      const name = participant.name || sessionId
-      const distance = this.distanceToLocal(sessionId)
-
-      remotes.push({
-        sessionId,
-        name,
-        kind: 'camera',
-        cameraEnabled: participant.isCameraEnabled,
-        micEnabled: participant.isMicrophoneEnabled,
-        speaking: participant.isSpeaking,
-        videoTrack: participant.getTrackPublication(Track.Source.Camera)?.track as RemoteVideoTrack | undefined,
-        distance,
-      })
-
-      const screenShareTrack = participant.getTrackPublication(Track.Source.ScreenShare)?.track as RemoteVideoTrack | undefined
-      if (screenShareTrack) {
-        remotes.push({
-          sessionId,
-          name,
-          kind: 'screen',
-          cameraEnabled: participant.isCameraEnabled,
-          micEnabled: participant.isMicrophoneEnabled,
-          speaking: participant.isSpeaking,
-          videoTrack: screenShareTrack,
-          distance,
-        })
-      }
-    }
-
-    const localName = localParticipant.name ?? 'You'
-    // While the local person's own getUserMedia/media-controls setup is still in flight (issue
-    // #141, only true during the private-room connect window), `localParticipant` exists but has
-    // no published tracks yet — a real tile here would misleadingly look like a deliberate
-    // camera/mic-off choice rather than "still connecting". Screen share can't be relevant yet
-    // either (it can't start until this same setup finishes), so this is the tile's only slot.
-    const local: VideoOverlayParticipant[] = this.avSession.mediaConnecting
-      ? [{ sessionId: localParticipant.identity, name: localName, pending: true }]
-      : [{
-          sessionId: localParticipant.identity,
-          name: localName,
-          kind: 'camera',
-          cameraEnabled: localParticipant.isCameraEnabled,
-          micEnabled: localParticipant.isMicrophoneEnabled,
-          speaking: localParticipant.isSpeaking,
-          videoTrack: localParticipant.getTrackPublication(Track.Source.Camera)?.track as LocalVideoTrack | undefined,
-        }]
-
-    const localScreenShareTrack = this.avSession.mediaConnecting
-      ? undefined
-      : localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track as LocalVideoTrack | undefined
-    if (localScreenShareTrack) {
-      local.push({
-        sessionId: localParticipant.identity,
-        name: localName,
-        kind: 'screen',
-        cameraEnabled: localParticipant.isCameraEnabled,
-        micEnabled: localParticipant.isMicrophoneEnabled,
-        speaking: localParticipant.isSpeaking,
-        videoTrack: localScreenShareTrack,
-      })
-    }
-
-    videoOverlayState.set(buildVideoOverlayTiles(local, remotes, MAX_REMOTE_VIDEO_TILES))
-    // Full-screen grid overlay (#100): every active share nearby, uncapped — built from the
-    // exact same candidate lists as the strip above, just filtered down to the screen ones.
-    screenShareGridState.set(buildScreenShareGridTiles(local, remotes))
+    const { strip, grid } = this.callTiles.compute({
+      situation,
+      localBusy: this.presence === 'busy',
+      localSessionId: this.roomConnection.sessionId ?? 'local',
+      localName: this.displayName,
+      mediaConnecting,
+      people: this.callPeople(),
+      now,
+    })
+    videoOverlayState.set(strip)
+    if (grid)
+      screenShareGridState.set(grid)
   }
 
-  /**
-   * The local person's own private-room connection attempt failed (issue #142) — no `Room` to
-   * read `localParticipant`/`remoteParticipants` from at all, unlike `updateVideoOverlay`, so
-   * this builds tiles straight from Colyseus data instead: the local tile shows the error,
-   * `occupantSessionIds` (who the zone expects, same source `updateVideoOverlay`'s pending tiles
-   * use) all render pending — with no `Room` of our own, whether they've actually connected on
-   * their end is unknowable from here either way, so pending is the only honest answer.
-   */
-  private updateVideoOverlayForLocalConnectError(occupantSessionIds: readonly string[], retrying: boolean): void {
-    if (this.presence === 'busy') {
-      videoOverlayState.set([])
-      screenShareGridState.set([])
-      return
+  /** Everyone else on the map, with the distance the strip sorts them by (Euclidean, in map pixels). */
+  private callPeople(): ReadonlyMap<string, CallPerson> {
+    const people = new Map<string, CallPerson>()
+    for (const [sessionId, entry] of this.remoteAvatars) {
+      people.set(sessionId, {
+        displayName: entry.displayName,
+        presence: entry.presence,
+        distance: Math.hypot(entry.avatar.x - this.avatar.x, entry.avatar.y - this.avatar.y),
+      })
     }
-
-    const localSessionId = this.roomConnection.sessionId ?? 'local'
-    const local: VideoOverlayParticipant[] = [retrying
-      ? { sessionId: localSessionId, name: this.displayName, pending: true }
-      : { sessionId: localSessionId, name: this.displayName, error: true }]
-
-    const remotes: RemoteVideoOverlayCandidate[] = occupantSessionIds
-      .filter(sessionId => this.remoteAvatars.get(sessionId)?.presence !== 'busy')
-      .map(sessionId => ({
-        sessionId,
-        name: this.remoteAvatars.get(sessionId)?.displayName ?? sessionId,
-        pending: true,
-        distance: this.distanceToLocal(sessionId),
-      }))
-
-    videoOverlayState.set(buildVideoOverlayTiles(local, remotes, MAX_REMOTE_VIDEO_TILES))
-    screenShareGridState.set([])
-  }
-
-  /** Euclidean distance in map pixels between the local avatar and a remote avatar. */
-  private distanceToLocal(sessionId: string): number {
-    const remote = this.remoteAvatars.get(sessionId)?.avatar
-    if (!remote) {
-      return Infinity
-    }
-    return Math.hypot(remote.x - this.avatar.x, remote.y - this.avatar.y)
+    return people
   }
 
   private spawnRemoteAvatar(sessionId: string, state: AvatarState): void {

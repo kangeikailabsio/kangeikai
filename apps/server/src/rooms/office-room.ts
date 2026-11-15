@@ -1,6 +1,7 @@
 import type { OfficePayload, ToServerMessageName } from '@kangeikai/shared'
 import type { Client } from 'colyseus'
 import type { AuthenticatedUser, Authenticator } from '../auth/authenticator'
+import type { MovementRules, Point } from '../movement/movement-guard'
 import process from 'node:process'
 import { POOL_COMMAND, POOL_EVENT } from '@kangeikai/game-pool/protocol'
 import { PoolManager } from '@kangeikai/game-pool/server'
@@ -8,8 +9,9 @@ import { CLOSE_CODE_SESSION_REPLACED, officeJoinOptionsSchema, parseOfficeMessag
 import { CloseCode, Room } from 'colyseus'
 import * as v from 'valibot'
 import { colliders, gameTables, mapSize, privateZones, respawnAreas } from '../map-zones'
-import { acceptMove, newBudget } from '../movement/movement-guard'
+import { acceptMove, isWalkable, newBudget } from '../movement/movement-guard'
 import { computeSessionProof } from '../session-proof'
+import { LastPositionStore } from './last-position-store'
 import { AvatarSchema } from './schema/avatar-schema'
 import { OfficeRoomState } from './schema/office-room-state'
 
@@ -22,6 +24,19 @@ let authenticator: Authenticator | null = null
 export function setOfficeRoomAuthenticator(next: Authenticator | null): void {
   authenticator = next
 }
+
+let lastPositions = new LastPositionStore()
+
+/**
+ * Swaps the memory of where each account last was (issue #259). It is process-wide on purpose: the
+ * office room is disposed when it empties, and the memory has to outlast it. Tests set a fresh one.
+ */
+export function setOfficeRoomLastPositions(next: LastPositionStore): void {
+  lastPositions = next
+}
+
+/** What a position is checked against: the map's size and its `collisions` layer (issue #255). */
+const movementRules: MovementRules = { colliders, mapWidth: mapSize.width, mapHeight: mapSize.height }
 
 /** Bounded reconnection grace period for an ungraceful disconnect (FR-005, FR-008, FR-009). */
 const RECONNECTION_GRACE_PERIOD_SECONDS = 15
@@ -146,8 +161,10 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
     // One avatar per account (issue #232): a join from another tab or device replaces the earlier
     // one. The old avatar is dropped synchronously and its connection closed with a dedicated code,
     // instead of leaving both on the map until `onLeave`/the grace period catches up (issue #178).
+    let replacedAt: Point | undefined
     for (const [existingSessionId, existingAvatar] of this.state.players.entries()) {
       if (existingAvatar.userId === auth.userId) {
+        replacedAt = { x: existingAvatar.x, y: existingAvatar.y }
         this.state.players.delete(existingSessionId)
         this.clients.getById(existingSessionId)?.leave(CLOSE_CODE_SESSION_REPLACED)
         break
@@ -160,9 +177,9 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
     avatar.presence = presence
     avatar.characterSelection = auth.characterSelection ? JSON.stringify(auth.characterSelection) : ''
     avatar.userId = auth.userId
-    // The server chooses where a person starts, from the map's `respawn` layer (issue #254), and
-    // tells the client, which has no say in it.
-    const spawn = resolveRespawnPoint(respawnAreas, { x: mapSize.width / 2, y: mapSize.height / 2 })
+    // The server chooses where a person starts and tells the client, which has no say in it.
+    const { point: spawn, how } = this.startingPoint(auth.userId, replacedAt)
+    console.warn(`kangeikai: ${auth.displayName} starts at (${Math.round(spawn.x)}, ${Math.round(spawn.y)}): ${how}`)
     avatar.x = spawn.x
     avatar.y = spawn.y
 
@@ -183,6 +200,20 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
   }
 
   /**
+   * Where a joining account starts (issues #254, #259): where it was the last time (the avatar it
+   * just replaced, else what was remembered when it left), if that spot is still somewhere an
+   * avatar can stand, and otherwise a point of the map's `respawn` layer. A remembered position is
+   * checked again here, because the map may have changed since it was saved.
+   */
+  private startingPoint(userId: string, replacedAt: Point | undefined): { point: Point, how: string } {
+    const before = replacedAt ?? lastPositions.recall(userId)
+    if (before && isWalkable(before, movementRules))
+      return { point: before, how: replacedAt ? 'where its other tab was' : 'where it left' }
+    const how = before ? 'respawn (the remembered spot is not somewhere an avatar can stand)' : 'respawn (nothing remembered for this account)'
+    return { point: resolveRespawnPoint(respawnAreas, { x: mapSize.width / 2, y: mapSize.height / 2 }), how }
+  }
+
+  /**
    * Checks a reported position against the map and the speed limit (issue #255). An impossible
    * one is not stored: the sender is told where to go back to (the last valid position) and
    * nobody else ever sees it. Nobody is kicked; a laggy client only gets pulled back a little.
@@ -190,7 +221,7 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
   private acceptMovement(client: Client, avatar: AvatarSchema, to: { x: number, y: number }): boolean {
     const now = Date.now()
     avatar.movement ??= newBudget(now)
-    if (acceptMove(avatar.movement, { x: avatar.x, y: avatar.y }, to, { colliders, mapWidth: mapSize.width, mapHeight: mapSize.height }, now)) {
+    if (acceptMove(avatar.movement, { x: avatar.x, y: avatar.y }, to, movementRules, now)) {
       return true
     }
 
@@ -223,6 +254,10 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
 
   async onLeave(client: Client, code?: number): Promise<void> {
     const avatar = this.state.players.get(client.sessionId)
+    // However the person left (a refresh, a closed tab, a dropped connection), remember where, so
+    // the next join of this account starts there (issue #259).
+    if (avatar)
+      lastPositions.remember(avatar.userId, { x: avatar.x, y: avatar.y })
     this.state.players.delete(client.sessionId)
 
     if (!avatar || code === CloseCode.CONSENTED) {

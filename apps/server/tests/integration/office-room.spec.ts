@@ -8,8 +8,9 @@ import { Server } from 'colyseus'
 import express from 'express'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerLiveKitTokenRoute } from '../../src/http/livekit-token'
-import { respawnAreas } from '../../src/map-zones'
-import { OfficeRoom, setOfficeRoomAuthenticator } from '../../src/rooms/office-room'
+import { colliders, respawnAreas } from '../../src/map-zones'
+import { LastPositionStore } from '../../src/rooms/last-position-store'
+import { OfficeRoom, setOfficeRoomAuthenticator, setOfficeRoomLastPositions } from '../../src/rooms/office-room'
 import { AvatarSchema } from '../../src/rooms/schema/avatar-schema'
 import { computeSessionProof } from '../../src/session-proof'
 import { fakeAuthenticator, INVALID_TICKET, joinAs } from './support/fake-auth'
@@ -25,6 +26,8 @@ beforeAll(async () => {
 
 beforeEach(() => {
   process.env.SESSION_SIGNING_SECRET = 'test-secret'
+  // What the server remembers outlives a room, so each test starts from nothing.
+  setOfficeRoomLastPositions(new LastPositionStore())
 })
 
 afterEach(async () => {
@@ -83,6 +86,10 @@ function waitFor(client: SDKRoom, predicate: () => boolean, timeoutMs = 2000): P
  */
 function nearby(avatar: { x: number, y: number }): { x: number, y: number } {
   return { x: Math.round(avatar.x), y: Math.round(avatar.y) }
+}
+
+function insideARespawnArea(point: { x: number, y: number }): boolean {
+  return respawnAreas.some(area => point.x >= area.x && point.x <= area.x + area.width && point.y >= area.y && point.y <= area.y + area.height)
 }
 
 describe('officeRoom', () => {
@@ -313,10 +320,6 @@ describe('officeRoom', () => {
   })
 
   describe('spawn point (issue #254)', () => {
-    function insideARespawnArea(point: { x: number, y: number }): boolean {
-      return respawnAreas.some(area => point.x >= area.x && point.x <= area.x + area.width && point.y >= area.y && point.y <= area.y + area.height)
-    }
-
     it('places a joining avatar inside a respawn area of the map', async () => {
       const room = await colyseus.createRoom('office', joinAs('Alice', 'man'))
       const client = await colyseus.connectTo(room, joinAs('Alice', 'man'))
@@ -336,6 +339,129 @@ describe('officeRoom', () => {
 
       const avatar = room.state.players.get(client.sessionId)
       expect(spawn).toEqual({ x: avatar!.x, y: avatar!.y })
+    })
+  })
+
+  describe('coming back where the person was (issue #259)', () => {
+    function spawnOf(client: SDKRoom): Promise<{ x: number, y: number }> {
+      return new Promise(resolve => client.onMessage<{ x: number, y: number }>('spawn', payload => resolve(payload)))
+    }
+
+    /**
+     * A room with a bystander in it, so it stays open while the account under test leaves (an empty
+     * office room is disposed), and an account that has walked a little: its position is then
+     * neither the spawn point nor anything the respawn layer would pick.
+     */
+    async function roomWithAnaMoved() {
+      const room = await colyseus.createRoom('office', joinAs('Observer', 'man'))
+      const observer = await colyseus.connectTo(room, joinAs('Observer', 'man'))
+      const ana = await colyseus.connectTo(room, joinAs('Ana', 'woman', { userId: 'ana' }))
+      const target = nearby(room.state.players.get(ana.sessionId)!)
+      ana.send('updateState', { ...target, direction: 'right', motionState: 'walking' })
+      await waitFor(observer, () => observer.state.players.get(ana.sessionId)?.x === target.x)
+      return { room, observer, ana, target }
+    }
+
+    const returningAna = () => joinAs('Ana', 'woman', { userId: 'ana' })
+
+    it('starts a returning account where it left, after a clean leave', async () => {
+      const { room, observer, ana, target } = await roomWithAnaMoved()
+      await ana.leave()
+      await waitFor(observer, () => !observer.state.players.has(ana.sessionId))
+
+      const again = await colyseus.connectTo(room, returningAna())
+
+      expect(await spawnOf(again)).toEqual(target)
+      expect({ x: room.state.players.get(again.sessionId)!.x, y: room.state.players.get(again.sessionId)!.y }).toEqual(target)
+    })
+
+    it('starts there after a refresh, while the old connection is still inside its grace period', async () => {
+      const { room, observer, ana, target } = await roomWithAnaMoved()
+      // A page refresh closes the socket without the leave handshake.
+      await ana.leave(false)
+      await waitFor(observer, () => !observer.state.players.has(ana.sessionId))
+
+      const again = await colyseus.connectTo(room, returningAna())
+
+      expect(await spawnOf(again)).toEqual(target)
+      expect([...room.state.players.values()].filter(player => player.userId === 'ana')).toHaveLength(1)
+    })
+
+    it('starts the account\'s new tab where its other tab was, when that one is still open', async () => {
+      const { room, target } = await roomWithAnaMoved()
+
+      const secondTab = await colyseus.connectTo(room, returningAna())
+
+      expect(await spawnOf(secondTab)).toEqual(target)
+    })
+
+    it('starts a different account at the respawn layer, not at someone else\'s place', async () => {
+      const { room, observer, ana } = await roomWithAnaMoved()
+      await ana.leave()
+      await waitFor(observer, () => !observer.state.players.has(ana.sessionId))
+
+      const bruno = await colyseus.connectTo(room, joinAs('Bruno', 'man', { userId: 'bruno' }))
+
+      const avatar = room.state.players.get(bruno.sessionId)!
+      expect(insideARespawnArea({ x: avatar.x, y: avatar.y })).toBe(true)
+    })
+
+    it('falls back to the respawn layer when the remembered place is not somewhere an avatar can stand any more', async () => {
+      const wall = colliders.find(rect => rect.width > 0 && rect.height > 0)!
+      const store = new LastPositionStore()
+      store.remember('ana', { x: wall.x + wall.width / 2, y: wall.y + wall.height / 2 })
+      setOfficeRoomLastPositions(store)
+      const room = await colyseus.createRoom('office', returningAna())
+
+      const client = await colyseus.connectTo(room, returningAna())
+
+      const avatar = room.state.players.get(client.sessionId)!
+      expect(insideARespawnArea({ x: avatar.x, y: avatar.y })).toBe(true)
+    })
+
+    it('says in the log where it started the account and why', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const { room, observer, ana } = await roomWithAnaMoved()
+        await ana.leave()
+        await waitFor(observer, () => !observer.state.players.has(ana.sessionId))
+        await colyseus.connectTo(room, returningAna())
+
+        const messages = warn.mock.calls.map(([message]) => String(message))
+        expect(messages.some(message => message.includes('Ana starts at') && message.includes('respawn (nothing remembered'))).toBe(true)
+        expect(messages.some(message => message.includes('Ana starts at') && message.includes('where it left'))).toBe(true)
+      }
+      finally {
+        warn.mockRestore()
+      }
+    })
+
+    it('falls back to the respawn layer for a position outside the map', async () => {
+      const store = new LastPositionStore()
+      store.remember('ana', { x: -50, y: 99_999 })
+      setOfficeRoomLastPositions(store)
+      const room = await colyseus.createRoom('office', returningAna())
+
+      const client = await colyseus.connectTo(room, returningAna())
+
+      const avatar = room.state.players.get(client.sessionId)!
+      expect(insideARespawnArea({ x: avatar.x, y: avatar.y })).toBe(true)
+    })
+
+    it('remembers across rooms: the office room is disposed when it empties, the memory is not', async () => {
+      const first = await colyseus.createRoom('office', returningAna())
+      const ana = await colyseus.connectTo(first, returningAna())
+      const target = nearby(first.state.players.get(ana.sessionId)!)
+      ana.send('updateState', { ...target, direction: 'right', motionState: 'walking' })
+      await waitFor(ana, () => first.state.players.get(ana.sessionId)?.x === target.x)
+      await ana.leave()
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      const second = await colyseus.createRoom('office', returningAna())
+      const again = await colyseus.connectTo(second, returningAna())
+
+      expect(second.roomId).not.toBe(first.roomId)
+      expect(await spawnOf(again)).toEqual(target)
     })
   })
 

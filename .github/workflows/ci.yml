@@ -33,6 +33,16 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm lint
       - run: pnpm check
+      - name: Every e2e spec file belongs to a CI group
+        run: |
+          missing=0
+          for spec in e2e/tests/*.spec.ts; do
+            if ! grep -q "tests/$(basename "$spec")" .github/workflows/ci.yml; then
+              echo "::error file=.github/workflows/ci.yml::$spec is not in any e2e group of the workflow"
+              missing=1
+            fi
+          done
+          exit $missing
 
   # The production bundles: the static client (with the pre-rendered landing and the 200.html
   # fallback) and the server.
@@ -91,9 +101,25 @@ jobs:
 
   # The Playwright suite against the real app with several people at once. It needs PostgreSQL and
   # LiveKit from the compose file; the suite creates its own database and starts its own server and client.
+  # Its tests share one `office` room, so they run one at a time: to be quicker the spec files are
+  # split into groups of about the same duration, each on a runner of its own with its own stack.
+  # A new spec file has to be added to a group (the `check` job fails if one is missing).
   e2e:
+    name: e2e (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: private rooms, microphone and camera
+            files: tests/private-room-media.spec.ts
+          - name: private rooms, connection
+            files: tests/private-room-connection.spec.ts tests/movement.spec.ts tests/access.spec.ts
+          - name: accounts and presence
+            files: tests/presence.spec.ts tests/resume.spec.ts tests/account-flow.spec.ts
+          - name: devices
+            files: tests/device-menu.spec.ts tests/entry-devices.spec.ts
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -118,12 +144,12 @@ jobs:
         run: pnpm --filter @kangeikai/e2e exec playwright install-deps chromium
 
       - name: Run the end-to-end tests
-        run: pnpm test:e2e
+        run: pnpm test:e2e ${{ matrix.files }}
 
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-report
+          name: playwright-report-${{ strategy.job-index }}
           path: |
             e2e/playwright-report
             e2e/test-results

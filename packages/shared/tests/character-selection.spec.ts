@@ -1,6 +1,6 @@
-import type { CharacterManifest } from '@kangeikai/shared'
-import { isValidCharacterSelection, nearestVariant, randomCharacterSelection, stylesOf, variantsOf } from '@kangeikai/shared'
+import type { CharacterManifest } from '../src/character'
 import { describe, expect, it } from 'vitest'
+import { isValidCharacterSelection, nearestVariant, randomCharacterSelection, stylesOf, variantsOf } from '../src/character'
 
 const manifest: CharacterManifest = {
   body: [1, 2, 3],

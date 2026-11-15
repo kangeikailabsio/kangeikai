@@ -18,7 +18,9 @@
   },
   "scripts": {
     "check": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "peerDependencies": {
     "phaser": "^4.2.1"
@@ -28,6 +30,7 @@
     "valibot": "^1.4.2"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.0",
     "phaser": "^4.2.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.0"

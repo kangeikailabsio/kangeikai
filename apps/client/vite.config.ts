@@ -32,5 +32,30 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/unit/**/*.spec.ts'],
+    coverage: {
+      provider: 'v8',
+      include: ['src/lib/**/*.ts'],
+      // What the unit tests cannot reach, and why. The app is checked by the Playwright suite (`e2e/`)
+      // and, for how it looks, by hand in a browser (AGENTS.md: no assertions on canvas pixels).
+      exclude: [
+        // The Phaser scene and the views it owns: rendering and input glue.
+        'src/lib/game/scenes/**',
+        'src/lib/game/entities/**',
+        'src/lib/game/games/table-glow.ts',
+        'src/lib/character/compose-character.ts',
+        'src/lib/character/character-portrait.ts',
+        // Reactive stores (`$state`) the Svelte components read: they hold values and have no rules of their own.
+        '**/*.svelte.ts',
+        // Thin adapters over the Colyseus, LiveKit, better-auth and Vite SDKs.
+        'src/lib/network/room-connection.ts',
+        'src/lib/av/livekit-token-client.ts',
+        'src/lib/av/attach-video-track.ts',
+        'src/lib/game/map/active-map.ts',
+        'src/lib/account/auth-client.ts',
+        'src/lib/account/auth-routes.ts',
+      ],
+      reporter: ['text-summary', 'html'],
+      thresholds: { lines: 90, statements: 90, functions: 90, branches: 85 },
+    },
   },
 })

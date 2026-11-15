@@ -11,6 +11,9 @@ build/
 .env.*
 !.env.example
 
+# Test coverage reports (pnpm test:coverage)
+coverage/
+
 # Logs
 *.log
 

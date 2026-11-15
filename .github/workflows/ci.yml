@@ -1,0 +1,160 @@
+name: ci
+
+# Every pull request (into any branch, so epic/* branches are covered) and every push to main.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+# A newer push to the same pull request replaces the run in progress; runs on main always finish.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+# The client reads these three at build time (`$env/static/public`): SvelteKit generates the types
+# of the type check from them, and the bundle bakes them in. Locally they come from
+# apps/client/.env; these are placeholders for a checkout that has no .env.
+env:
+  PUBLIC_COLYSEUS_URL: wss://server.example.test
+  PUBLIC_LIVEKIT_TOKEN_ENDPOINT: https://server.example.test/livekit-token
+  PUBLIC_AUTH_URL: https://server.example.test
+
+jobs:
+  # Lint and the type checks (svelte-check for the client, tsc for the rest).
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm lint
+      - run: pnpm check
+      - name: Every e2e spec file belongs to a CI group
+        run: |
+          missing=0
+          for spec in e2e/tests/*.spec.ts; do
+            if ! grep -q "tests/$(basename "$spec")" .github/workflows/ci.yml; then
+              echo "::error file=.github/workflows/ci.yml::$spec is not in any e2e group of the workflow"
+              missing=1
+            fi
+          done
+          exit $missing
+
+  # The production bundles: the static client (with the pre-rendered landing and the 200.html
+  # fallback) and the server.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Build the client
+        run: pnpm build
+      - name: Check the static host's two entry points exist
+        run: test -f apps/client/build/index.html && test -f apps/client/build/200.html
+      - name: Build the server
+        run: pnpm --filter @kangeikai/server build
+
+  # Unit tests of every package, no external services. Coverage is checked against the thresholds
+  # in each package's Vitest config (90% of lines, statements and functions, 85% of branches).
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Unit tests with coverage (client, shared, pool)
+        run: pnpm --filter @kangeikai/client --filter @kangeikai/shared --filter @kangeikai/game-pool test:coverage
+      - name: Unit tests (server)
+        run: pnpm --filter @kangeikai/server test:unit
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: coverage-unit
+          path: |
+            apps/client/coverage
+            packages/shared/coverage
+            packages/games/pool/coverage
+          retention-days: 7
+
+  # The server's whole suite: the Colyseus rooms, the LiveKit token route and the auth routes
+  # against a real PostgreSQL started by Testcontainers (Docker is on the runner). It runs the
+  # unit tests too, because the server's coverage needs both.
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Server tests with coverage
+        run: pnpm --filter @kangeikai/server test:coverage
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: coverage-server
+          path: apps/server/coverage
+          retention-days: 7
+
+  # The Playwright suite against the real app with several people at once. It needs PostgreSQL and
+  # LiveKit from the compose file; the suite creates its own database and starts its own server and client.
+  # Its tests share one `office` room, so they run one at a time: to be quicker the spec files are
+  # split into groups of about the same duration, each on a runner of its own with its own stack.
+  # A new spec file has to be added to a group (the `check` job fails if one is missing).
+  e2e:
+    name: e2e (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: private rooms, microphone and camera
+            files: tests/private-room-media.spec.ts
+          - name: private rooms, connection
+            files: tests/private-room-connection.spec.ts tests/movement.spec.ts tests/access.spec.ts
+          - name: accounts and presence
+            files: tests/presence.spec.ts tests/resume.spec.ts tests/account-flow.spec.ts
+          - name: devices
+            files: tests/device-menu.spec.ts tests/entry-devices.spec.ts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      - name: Start PostgreSQL and LiveKit
+        run: docker compose -f docker-compose.dev.yml up -d --wait
+
+      - name: Resolve the Playwright version
+        id: playwright
+        run: echo "version=$(pnpm --filter @kangeikai/e2e exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Cache the browsers
+        id: browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - name: Download Chromium and its system libraries
+        if: steps.browsers.outputs.cache-hit != 'true'
+        run: pnpm --filter @kangeikai/e2e exec playwright install --with-deps chromium
+      - name: Install Chromium's system libraries
+        if: steps.browsers.outputs.cache-hit == 'true'
+        run: pnpm --filter @kangeikai/e2e exec playwright install-deps chromium
+
+      - name: Run the end-to-end tests
+        run: pnpm test:e2e ${{ matrix.files }}
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-${{ strategy.job-index }}
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          retention-days: 7
+
+      - name: Show the compose logs
+        if: failure()
+        run: docker compose -f docker-compose.dev.yml logs --no-color --tail 200

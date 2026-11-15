@@ -315,3 +315,15 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   stores, que continuam na cena, e qualquer mudança no visual ou no número de tiles. O ramo da sala
   privada em Busy deixava a grade de compartilhamento como estava (só limpava a faixa); agora limpa as duas,
   como nos outros caminhos.
+
+- **CI: só o essencial, sem branch protection, SHA nas actions nem matriz** — [#236](https://github.com/kangeikailabsio/kangeikai/issues/236):
+  `.github/workflows/ci.yml` roda em todo pull request e em push na `main` os jobs `check` (lint e type
+  checks), `build`, `unit`, `integration` (o servidor inteiro com cobertura, Postgres via Testcontainers)
+  e `e2e` (Playwright contra o compose, com Chromium em cache e o relatório como artefato quando falha). A cobertura (`test:coverage` por pacote, 90% de lines, statements e
+  functions e 85% de branches) conta só a lógica; cada exclusão está no config do Vitest com o motivo. Ficaram
+  de fora: marcar os jobs como obrigatórios (é configuração do repositório, não do workflow; o `e2e` fica de
+  fora até se provar estável no runner do GitHub), fixar as actions por SHA, matriz de versões do Node ou de
+  navegadores (só Chromium), enviar a cobertura a um serviço, cobertura da cena do Phaser, dos componentes
+  Svelte e dos adapters de SDK (checados à mão e pelo e2e) e subir o limite de branches para 90%
+  (hoje o client está em 89,7% e o servidor em 89,6%). O comando `pnpm lint` falhava na `main` por causa dos
+  nomes `bug_report.md` e `feature_request.md` dos templates de issue; a regra agora os aceita.

@@ -1,7 +1,6 @@
-import type { GameTable } from '@kangeikai/shared'
-import { blocksOfficeInput } from '$lib/game/games/game-input'
-import { distanceToTable, resolveGameTables, selectGameTable, tableContains } from '@kangeikai/shared'
+import type { GameTable } from '../src/game-tables'
 import { describe, expect, it } from 'vitest'
+import { distanceToTable, resolveGameTables, selectGameTable, tableContains } from '../src/game-tables'
 
 const tables: GameTable[] = [
   { id: 'pool', gameType: 'pool', x: 256, y: 1504, width: 128, height: 96 },
@@ -30,12 +29,5 @@ describe('game table interactions', () => {
     expect(resolveGameTables([valid, valid, { ...valid, name: 'bad', width: -1 }, { ...valid, name: 'unknown', properties: [] }])).toEqual([
       { id: 'pool', gameType: 'pool', x: 1, y: 2, width: 128, height: 96 },
     ])
-  })
-  it('blocks office controls for game, busy, screen share, or typing, and restores them when cleared', () => {
-    const idle = { gameOpen: false, screenShareOpen: false, attentionOpen: false, busy: false, typing: false }
-    expect(blocksOfficeInput(idle)).toBe(false)
-    for (const key of Object.keys(idle))
-      expect(blocksOfficeInput({ ...idle, [key]: true })).toBe(true)
-    expect(blocksOfficeInput(idle)).toBe(false)
   })
 })

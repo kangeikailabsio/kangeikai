@@ -1,6 +1,6 @@
-import type { TiledSpaceObject } from '@kangeikai/shared'
-import { privateZoneAt, resolvePrivateZones } from '@kangeikai/shared'
+import type { TiledSpaceObject } from '../src/private-zones'
 import { describe, expect, it } from 'vitest'
+import { privateZoneAt, resolvePrivateZones } from '../src/private-zones'
 
 describe('resolvePrivateZones', () => {
   it('keeps objects flagged private: true', () => {

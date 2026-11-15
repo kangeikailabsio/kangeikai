@@ -12,7 +12,10 @@
     "db:generate": "drizzle-kit generate",
     "db:seed": "node --env-file-if-exists=.env --import tsx src/db/seed-cli.ts",
     "db:migrate": "node --env-file-if-exists=.env --import tsx src/db/migrate-cli.ts",
-    "db:generate-auth-schema": "npx auth@latest generate --config src/auth/auth-cli.ts --output src/db/schema.ts -y && eslint --fix src/db/schema.ts"
+    "db:generate-auth-schema": "npx auth@latest generate --config src/auth/auth-cli.ts --output src/db/schema.ts -y && eslint --fix src/db/schema.ts",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@colyseus/schema": "^4.0.31",
@@ -36,6 +39,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "26.2.0",
     "@types/pg": "^8.23.1",
+    "@vitest/coverage-v8": "^4.1.0",
     "drizzle-kit": "^0.31.11",
     "esbuild": "^0.28.2",
     "tsx": "^4.23.12",

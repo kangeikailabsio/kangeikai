@@ -3,10 +3,10 @@ import type { ColyseusTestServer } from '@colyseus/testing'
 import type { Server as HttpServer } from 'node:http'
 import { boot } from '@colyseus/testing'
 import { WebSocketTransport } from '@colyseus/ws-transport'
-import { CLOSE_CODE_SESSION_REPLACED } from '@kangeikai/shared'
+import { CLOSE_CODE_SESSION_REPLACED, OFFICE_MESSAGES } from '@kangeikai/shared'
 import { Server } from 'colyseus'
 import express from 'express'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerLiveKitTokenRoute } from '../../src/http/livekit-token'
 import { respawnAreas } from '../../src/map-zones'
 import { OfficeRoom, setOfficeRoomAuthenticator } from '../../src/rooms/office-room'
@@ -86,6 +86,20 @@ function nearby(avatar: { x: number, y: number }): { x: number, y: number } {
 }
 
 describe('officeRoom', () => {
+  it('handles every client→server message of the office protocol (issue #260)', async () => {
+    const onMessage = vi.spyOn(OfficeRoom.prototype, 'onMessage')
+    try {
+      await colyseus.createRoom('office', joinAs('Alice', 'man'))
+      const handled = onMessage.mock.calls.map(([name]) => name)
+      const expected = Object.entries(OFFICE_MESSAGES).filter(([, message]) => message.direction === 'toServer').map(([name]) => name)
+
+      expect(handled).toEqual(expect.arrayContaining(expected))
+    }
+    finally {
+      onMessage.mockRestore()
+    }
+  })
+
   it('propagates identity and movement state between two connected clients', async () => {
     const room = await colyseus.createRoom('office', joinAs('Alice', 'man'))
     const clientA = await colyseus.connectTo(room, joinAs('Alice', 'man'))

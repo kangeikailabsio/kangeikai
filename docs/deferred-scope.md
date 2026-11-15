@@ -228,3 +228,15 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   punir ou desconectar quem insiste, e checar colisão com outros jogadores ou mesas além do que já existe.
   Os limites são generosos e não foram afinados com dados reais: vale olhar o log do servidor depois do
   deploy.
+
+- **Protocolo do escritório: o pool segue à parte e o client não confere os handlers** — [#260](https://github.com/kangeikailabsio/kangeikai/issues/260)
+  define as mensagens do escritório (`updateState`, `setPresence`, `interaction`, `interactionReceived`,
+  `spawn`, `correctPosition`, `sessionProof`) uma vez em `packages/shared/src/office-protocol.ts`, com
+  nome, direção e schema Valibot; o servidor registra os handlers e o client escuta e envia a partir
+  dessa tabela, e o client descarta com `console.warn` o que chega fora do schema. Ficaram de fora: unir
+  o protocolo do pool (`POOL_COMMAND` e `POOL_EVENT`, em `packages/games/pool/src/protocol.ts`) a este
+  (o pool já tem o seu schema, mas o `PoolEvent` recebido no client ainda não é validado), e um teste
+  que prove que o client escuta toda mensagem `toClient` (o servidor já tem o teste equivalente para as
+  `toServer`; o `RoomConnection` fala com um `Client` real do Colyseus e não tem fake). Um
+  `sessionProof` inválido agora é descartado e o client espera os 5 s do timeout em vez de aceitar o
+  valor, o que só acontece com um servidor quebrado.

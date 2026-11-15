@@ -17,6 +17,7 @@ export const spriteTypeSchema = v.picklist(AVATAR_SPRITE_TYPES)
 export const presenceSchema = v.picklist(AVATAR_PRESENCES)
 
 export const positionSchema = v.object({ x: finiteNumber, y: finiteNumber })
+export type Position = v.InferOutput<typeof positionSchema>
 
 /**
  * Only checks the *shape* of a Character Creator selection (plausible non-negative integers), not

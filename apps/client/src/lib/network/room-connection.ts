@@ -1,10 +1,9 @@
-import type { Position } from '$lib/network/position-message'
 import type { MapSchema } from '@colyseus/schema'
 import type { Room } from '@colyseus/sdk'
 import type { PoolCommand, PoolEvent } from '@kangeikai/game-pool/protocol'
-import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, CharacterSelection, InteractionKind, OfficeJoinOptions, OfficePayload, ToClientMessageName } from '@kangeikai/shared'
+import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, CharacterSelection, InteractionKind, OfficeJoinOptions, OfficePayload, Position } from '@kangeikai/shared'
 import { PUBLIC_COLYSEUS_URL } from '$env/static/public'
-import { parsePosition } from '$lib/network/position-message'
+import { listenToOfficeMessage } from '$lib/network/office-message-listener'
 import { Client, getStateCallbacks } from '@colyseus/sdk'
 import { POOL_COMMAND, POOL_EVENT } from '@kangeikai/game-pool/protocol'
 import { CLOSE_CODE_SESSION_REPLACED, sendToServer } from '@kangeikai/shared'
@@ -201,15 +200,12 @@ export class RoomConnection {
       this.bindRemoteAvatarEvents(room)
       this.bindInteractionEvents(room)
       // Same tick as the join, like the session proof: registered before anything can be missed.
-      this.onServerMessage(room, 'spawn', (payload) => {
-        this.spawn = parsePosition(payload)
+      listenToOfficeMessage(room, 'spawn', (position) => {
+        this.spawn = position
       })
-      this.onServerMessage(room, 'correctPosition', (payload) => {
-        const position = parsePosition(payload)
-        if (position) {
-          for (const listener of this.correctPositionListeners)
-            listener(position)
-        }
+      listenToOfficeMessage(room, 'correctPosition', (position) => {
+        for (const listener of this.correctPositionListeners)
+          listener(position)
       })
       await this.awaitSessionProof(room)
       this.emitConnectionState('connected')
@@ -233,9 +229,9 @@ export class RoomConnection {
         resolve()
       }, SESSION_PROOF_TIMEOUT_MS)
 
-      this.onServerMessage(room, 'sessionProof', (payload) => {
+      listenToOfficeMessage(room, 'sessionProof', (payload) => {
         clearTimeout(timeout)
-        this.proof = (payload as OfficePayload<'sessionProof'>).proof
+        this.proof = payload.proof
         resolve()
       })
     })
@@ -303,16 +299,11 @@ export class RoomConnection {
   }
 
   private bindInteractionEvents(room: Room<OfficeRoomLike, OfficeRoomStateShape>): void {
-    this.onServerMessage(room, 'interactionReceived', (payload) => {
+    listenToOfficeMessage(room, 'interactionReceived', (payload) => {
       for (const listener of this.interactionReceivedListeners) {
-        listener(payload as InteractionReceivedPayload)
+        listener(payload)
       }
     })
-  }
-
-  /** Registers a listener for a server→client message of the office protocol; the name must be one the server sends. */
-  private onServerMessage<N extends ToClientMessageName>(room: Room<OfficeRoomLike, OfficeRoomStateShape>, name: N, handler: (payload: unknown) => void): void {
-    room.onMessage(name, handler)
   }
 
   private emitRemoteAvatar(listeners: Set<RemoteAvatarListener>, sessionId: string, avatar: AvatarSchemaLike): void {

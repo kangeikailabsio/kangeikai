@@ -49,9 +49,9 @@ export interface LocalAvSessionOptions {
  * first publish (#239). Private → office: the private room's `disconnect()` finishes before the
  * office captures the microphone again (#137), and a share does not come along.
  *
- * Switches are not serialised: the hand-off into a private room is not awaited, so it can overlap
- * the teardown that follows if the person leaves right away. The next frame sorts that out, as it
- * always did.
+ * Switches are not queued: the hand-off into a private room is not awaited, so it can overlap the
+ * teardown that follows if the person leaves right away. What keeps that safe is `generation`: a
+ * chain that was overtaken gives up after its next `await` without touching the state (issue #269).
  */
 export class LocalAvSession {
   private readonly office: ProximityAudioController
@@ -61,6 +61,13 @@ export class LocalAvSession {
   private mediaConnectingInternal = false
   private nearby: ReadonlySet<string> = new Set()
   private lastPosition: AvatarPosition | undefined
+  /**
+   * Bumped whenever a switch starts. A switch is a chain of awaits, and a newer one can start
+   * while an older one is still waiting (the person walks out before the screen share finished
+   * detaching, say): each chain remembers its number and gives up if it is no longer the latest,
+   * so a late one never overwrites what the newer one decided (issue #269).
+   */
+  private generation = 0
 
   constructor(private readonly options: LocalAvSessionOptions) {
     this.office = options.office ?? new ProximityAudioController()
@@ -162,14 +169,20 @@ export class LocalAvSession {
    * Connects the office room and applies the given state to it. Also how the person comes back
    * from a private room, carrying the microphone and camera they had there.
    */
-  private connectOffice(micEnabled = true, cameraEnabled = false, screenShareEnabled = false, screenShareQuality?: ScreenShareQualityTier, screenShareAudio = false): void {
+  private connectOffice(micEnabled = true, cameraEnabled = false, screenShareEnabled = false, screenShareQuality?: ScreenShareQualityTier, screenShareAudio = false, generation?: number): void {
     const identity = this.options.identity()
     if (!identity)
       return
 
     this.office
       .connect(identity, this.lastPosition ?? { x: 0, y: 0, presence: this.options.getPresence() })
-      .then(() => this.applyMedia(this.office.liveKitRoom, micEnabled, cameraEnabled, screenShareEnabled, screenShareQuality, screenShareAudio))
+      .then(() => {
+        // Coming back from a private room: if the person went into one again while the office was
+        // still connecting, the media belongs to that room now (issue #269).
+        if (generation !== undefined && generation !== this.generation)
+          return
+        return this.applyMedia(this.office.liveKitRoom, micEnabled, cameraEnabled, screenShareEnabled, screenShareQuality, screenShareAudio)
+      })
       .catch((error: unknown) => {
         console.warn('kangeikai: failed to connect proximity audio/video', error)
       })
@@ -235,10 +248,10 @@ export class LocalAvSession {
    */
   private handlePrivateRoomConnect(room: Room): void {
     this.options.events.onPrivateRoomConnect()
-    void this.connectPrivateRoomWithScreenShareHandoff(room)
+    void this.connectPrivateRoomWithScreenShareHandoff(room, ++this.generation)
   }
 
-  private async connectPrivateRoomWithScreenShareHandoff(room: Room): Promise<void> {
+  private async connectPrivateRoomWithScreenShareHandoff(room: Room, generation: number): Promise<void> {
     const previous = this.mediaControls
     let screenShareHandoff: ScreenShareHandoff | undefined
     let screenShareHandoffFailed = false
@@ -248,6 +261,14 @@ export class LocalAvSession {
     catch (error) {
       screenShareHandoffFailed = true
       console.warn('kangeikai: failed to detach screen share ahead of a private-room switch', error)
+    }
+    if (generation !== this.generation) {
+      // The person left before this finished: the private room is already gone and the office is
+      // coming back. The share was detached from the office, so nothing owns its tracks any more:
+      // stop them rather than republish on a dead room (issue #269).
+      screenShareHandoff?.videoTrack.stop()
+      screenShareHandoff?.audioTrack?.stop()
+      return
     }
     this.office.disconnect()
     this.privateRoomInternal = room
@@ -262,11 +283,13 @@ export class LocalAvSession {
         false,
         screenShareHandoff,
       )
-      if (screenShareHandoffFailed || result.screenShareHandoffFailed)
+      if ((screenShareHandoffFailed || result.screenShareHandoffFailed) && generation === this.generation)
         this.options.events.onScreenShareHandoffFailed()
     }
     finally {
-      this.mediaConnectingInternal = false
+      // Only the latest switch decides this: an overtaken one must not clear what a newer one set.
+      if (generation === this.generation)
+        this.mediaConnectingInternal = false
     }
   }
 
@@ -283,6 +306,7 @@ export class LocalAvSession {
     const micEnabled = this.mediaControls?.microphoneIntent ?? true
     const cameraEnabled = this.mediaControls?.cameraIntent ?? false
     this.privateRoomInternal = null
-    this.connectOffice(micEnabled, cameraEnabled, false)
+    this.mediaConnectingInternal = false
+    this.connectOffice(micEnabled, cameraEnabled, false, undefined, false, ++this.generation)
   }
 }

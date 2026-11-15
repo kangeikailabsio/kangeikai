@@ -553,6 +553,22 @@ describe('localAvSession private-room connection error', () => {
   })
 })
 
+describe('localAvSession zone occupants (issue #274)', () => {
+  it('passes on who else is in the zone the person stands in, from the same frame', async () => {
+    const { session } = setup()
+    session.connect({ microphoneEnabled: false, cameraEnabled: false })
+    await settle()
+    expect(session.zoneOccupantSessionIds).toEqual([])
+
+    session.update(inZone, withNeighbour)
+    expect(session.zoneOccupantSessionIds).toEqual(['remote-1'])
+
+    session.update(outside, withNeighbour)
+    expect(session.zoneOccupantSessionIds).toEqual([])
+    await settle()
+  })
+})
+
 describe('localAvSession office proximity and Busy', () => {
   it('sets the volume of nearby people in the office each frame', async () => {
     const { session, officeRoom } = setup()

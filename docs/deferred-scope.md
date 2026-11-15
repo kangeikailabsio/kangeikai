@@ -304,3 +304,14 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   pode registrar um aviso no console). O e2e de refresh dentro da conversa cobre o caminho de ponta a ponta, mas
   no ambiente de teste o escritório costuma terminar antes da sala privada; quem prova a corrida são os testes
   unitários da sessão, que seguram a conexão do escritório.
+
+- **Regras dos tiles de vídeo fora da cena; throttle e escrita nos stores ficam nela** — [#274](https://github.com/kangeikailabsio/kangeikai/issues/274):
+  o `CallTiles` (`lib/av/call-tiles.ts`) decide quais tiles aparecem (Busy, o tile pendente que desiste depois
+  de 15 s, o tile de erro e o spinner de "Try again", o tile local "conectando", o limite de 4 remotos e a
+  ordem pelos mais próximos) a partir de dados simples, e o `snapshotRoom` é o único lugar que lê o `Room` do
+  LiveKit para isso. A `OfficeScene` só diz em que situação a pessoa está (escritório, sala privada, sala
+  privada que falhou), entrega o que sabe e escreve o resultado em `videoOverlayState` e
+  `screenShareGridState`. Ficaram de fora: o throttle do redesenho (`nextOverlayRefresh`) e as escritas nos
+  stores, que continuam na cena, e qualquer mudança no visual ou no número de tiles. O ramo da sala
+  privada em Busy deixava a grade de compartilhamento como estava (só limpava a faixa); agora limpa as duas,
+  como nos outros caminhos.

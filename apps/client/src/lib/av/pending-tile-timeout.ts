@@ -14,6 +14,11 @@ export class PendingTileTimeout {
 
   constructor(private readonly timeoutMs: number = DEFAULT_TIMEOUT_MS) {}
 
+  /** Forgets everyone, so the next pending spell of each is timed from scratch. */
+  clear(): void {
+    this.firstPendingAt.clear()
+  }
+
   /**
    * Call once per refresh with everyone currently pending. Returns the ones still worth showing.
    * Anyone missing from `pendingIds` (connected, left the zone, went busy) is forgotten, so

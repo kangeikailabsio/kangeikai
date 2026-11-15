@@ -116,6 +116,11 @@ export class LocalAvSession {
     return this.nearby
   }
 
+  /** Who else is in the private zone the person stands in, as of the last `update()` (empty outside one, or while Busy). */
+  get zoneOccupantSessionIds(): readonly string[] {
+    return this.privateRooms.occupancy.occupantSessionIds
+  }
+
   /** The map's private zones. */
   setZones(zones: readonly PrivateZone[]): void {
     this.privateRooms.setZones(zones)

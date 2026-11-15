@@ -1,6 +1,7 @@
 import type { PrivateZone } from '@kangeikai/shared'
 import type { Room } from 'livekit-client'
 import type { DeviceChoice } from './devices/device-choice-store'
+import type { PrivateZoneOccupancy } from './private-room-occupancy'
 import type { AvatarPosition, ProximityAudioControllerOptions } from './proximity-audio-controller'
 import type { RoomFactory } from './room-factory'
 import { PUBLIC_LIVEKIT_TOKEN_ENDPOINT } from '$env/static/public'
@@ -67,6 +68,7 @@ export class PrivateRoomController {
    * again" lifts the block by setting `retrying`.
    */
   private failure: PrivateRoomConnectError | null = null
+  private lastOccupancy: PrivateZoneOccupancy = { zoneId: null, occupantSessionIds: [] }
   private readonly tokenEndpoint: string
   private readonly retryDelayMs: number
 
@@ -95,6 +97,15 @@ export class PrivateRoomController {
     return this.failure
   }
 
+  /**
+   * The zone the local avatar stands in and who else is in it, as of the last `update()`: what
+   * the controller decided from, for callers that need the same answer in the same frame (the
+   * pending tiles of the call strip).
+   */
+  get occupancy(): Readonly<PrivateZoneOccupancy> {
+    return this.lastOccupancy
+  }
+
   /** The zone currently backing an active private room connection, or `null` if not connected to one. */
   get connectedZoneId(): number | null {
     return this.connectedZoneIdInternal
@@ -113,7 +124,8 @@ export class PrivateRoomController {
     handlers: PrivateRoomTransitionHandlers,
     flushLocalPosition: () => void,
   ): Promise<void> {
-    const { zoneId, occupantSessionIds } = resolvePrivateZoneOccupancy(this.zones, localPosition, remotePositions)
+    this.lastOccupancy = resolvePrivateZoneOccupancy(this.zones, localPosition, remotePositions)
+    const { zoneId, occupantSessionIds } = this.lastOccupancy
 
     // Left the zone we were connected to (or moved straight into a different one) — drop the
     // old room now; if the new zone also warrants a connection, the check below picks it up

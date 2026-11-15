@@ -70,9 +70,8 @@ export class MediaControls {
    * Fires `onScreenShareEnded` when the screen-share track is unpublished for any reason,
    * including the browser's native "Stop sharing" control (LiveKit fires this same event for
    * that case — see `LocalTrackUnpublished`'s docs) — not just when we call
-   * `setScreenShareEnabled(false)` ourselves. No explicit teardown: this instance (and its
-   * `room`) is discarded wholesale on the next room switch (`OfficeScene.applyMediaControls`),
-   * same as every other `MediaControls` listener today.
+   * `setScreenShareEnabled(false)` ourselves. Attached to the active room's local participant and
+   * detached again by `switchRoom`.
    */
   private readonly handleLocalTrackUnpublished = (publication: LocalTrackPublication): void => {
     if (publication.source === Track.Source.ScreenShare) {
@@ -89,12 +88,49 @@ export class MediaControls {
     this.onConnectionQualityChanged?.(quality)
   }
 
-  constructor(private readonly room: Room, private readonly onScreenShareEnded?: () => void, private readonly onConnectionQualityChanged?: (quality: ConnectionQuality) => void) {
-    this.room.localParticipant.on(ParticipantEvent.LocalTrackUnpublished, this.handleLocalTrackUnpublished)
-    this.room.localParticipant.on(ParticipantEvent.ConnectionQualityChanged, this.handleConnectionQualityChanged)
+  private room: Room
+
+  /**
+   * One instance serves the whole session: it starts on `room` and follows the person to whichever
+   * LiveKit room is active (`switchRoom`), so what they asked for (intent, Busy) never has to be
+   * copied from one instance to the next (issue #264).
+   */
+  constructor(room: Room, private readonly onScreenShareEnded?: () => void, private readonly onConnectionQualityChanged?: (quality: ConnectionQuality) => void) {
+    this.room = room
+    this.listenToRoom(room)
     // Reports the room's already-current reading immediately, rather than leaving the caller at
     // `ConnectionQuality.Unknown` until the next actual change fires.
     this.onConnectionQualityChanged?.(this.connectionQuality)
+  }
+
+  /**
+   * Moves to another LiveKit room (`office` ↔ a private zone's room): stops listening to the old
+   * one, listens to the new one and reports its connection quality straight away.
+   *
+   * What the person asked for survives the move: the mic/camera intent and Busy (with the
+   * snapshot `endBusy` will restore). What belongs to the room just left starts over, as it did
+   * when every switch built a new instance: why a microphone or camera failed, and the screen-share
+   * quality and audio choice (a share only crosses rooms through `detachScreenShareTrack` /
+   * `adoptScreenShareTrack`, which carries its own). No track is touched: whoever switches publishes
+   * on the new room itself.
+   */
+  switchRoom(room: Room): void {
+    this.room.localParticipant.off(ParticipantEvent.LocalTrackUnpublished, this.handleLocalTrackUnpublished)
+    this.room.localParticipant.off(ParticipantEvent.ConnectionQualityChanged, this.handleConnectionQualityChanged)
+    this.room = room
+    this.listenToRoom(room)
+    this.micUnavailable = false
+    this.cameraUnavailableFlag = false
+    this.micFailure = undefined
+    this.cameraFailureKind = undefined
+    this.screenShareQualityTier = DEFAULT_SCREEN_SHARE_QUALITY_TIER
+    this.screenShareAudioPreference = false
+    this.onConnectionQualityChanged?.(this.connectionQuality)
+  }
+
+  private listenToRoom(room: Room): void {
+    room.localParticipant.on(ParticipantEvent.LocalTrackUnpublished, this.handleLocalTrackUnpublished)
+    room.localParticipant.on(ParticipantEvent.ConnectionQualityChanged, this.handleConnectionQualityChanged)
   }
 
   get microphoneEnabled(): boolean {
@@ -132,7 +168,7 @@ export class MediaControls {
   }
 
   /**
-   * Sets both intents up front, synchronously. A room hand-off (`OfficeScene.applyMediaControls`)
+   * Sets both intents up front, synchronously. A room switch (`OfficeScene.applyMediaControls`)
    * publishes the microphone, then the camera, one after the other: without this the camera's
    * intent would stay unknown while the microphone publish is still in flight.
    */
@@ -175,9 +211,9 @@ export class MediaControls {
   }
 
   /**
-   * The tier last passed to (or defaulted by) `setScreenShareEnabled` — carried forward across a
-   * room switch mid-share (`OfficeScene.applyMediaControls`) the same way `screenShareEnabled`
-   * itself is, so reconnecting keeps the quality the person picked rather than resetting it.
+   * The tier last passed to (or defaulted by) `setScreenShareEnabled`, or adopted from a hand-off
+   * (`adoptScreenShareTrack`) so a share that crosses rooms keeps the quality the person picked.
+   * `switchRoom` puts it back to the default.
    */
   get screenShareQuality(): ScreenShareQualityTier {
     return this.screenShareQualityTier
@@ -185,7 +221,7 @@ export class MediaControls {
 
   /**
    * The "share audio too" choice last passed to (or defaulted by) `setScreenShareEnabled` —
-   * carried forward across a room switch the same way `screenShareQuality` is (issue #113).
+   * kept across a hand-off the same way `screenShareQuality` is (issue #113).
    */
   get screenShareAudio(): boolean {
     return this.screenShareAudioPreference
@@ -312,20 +348,6 @@ export class MediaControls {
     if (handoff.audioTrack) {
       await this.room.localParticipant.publishTrack(handoff.audioTrack)
     }
-  }
-
-  /**
-   * Copies busy suppression + pre-busy snapshot from a previous instance (room switch).
-   * Does not touch LiveKit tracks.
-   */
-  adoptBusyState(from: MediaControls | undefined): void {
-    if (!from || !from.busySuppression) {
-      return
-    }
-    this.busySuppression = true
-    this.busySnapshot = from.busySnapshot
-      ? { ...from.busySnapshot }
-      : null
   }
 
   /**

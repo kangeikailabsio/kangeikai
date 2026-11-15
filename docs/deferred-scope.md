@@ -254,3 +254,17 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   terminar. Mover os dois para o controller mudaria quando a cena troca de ramo no `update()`; quem sabe
   essa sequência é a sessão local de AV (#265). `onError` do `PrivateRoomTransitionHandlers` virou
   opcional, e a cena deixou de usá-lo.
+
+- **Um `MediaControls` por sessão, com a qualidade da tela zerada a cada troca** — [#264](https://github.com/kangeikailabsio/kangeikai/issues/264),
+  parte do épico [#262](https://github.com/kangeikailabsio/kangeikai/issues/262): o `MediaControls` passa a ser
+  uma instância só, criada na primeira conexão, e `switchRoom(room)` o aponta para a sala ativa (tira os
+  listeners da sala antiga, põe os da nova e reemite a qualidade da conexão). Sai o `adoptBusyState`; a
+  intenção de mic e câmera e o Busy (com o snapshot que o `endBusy` restaura) simplesmente continuam na
+  instância. Ficaram de fora: lembrar a qualidade e o "compartilhar áudio" do screen share entre as salas
+  (como antes, `switchRoom` volta os dois ao padrão, porque um share só atravessa salas pelo
+  `detachScreenShareTrack`/`adoptScreenShareTrack`, que leva a própria qualidade) e os motivos de falha de
+  mic e câmera (também zerados a cada troca, como quando cada troca criava uma instância nova). Como o
+  `MEDIA_CONTROLS_READY_EVENT` agora reemite a mesma referência a cada troca, o `+page.svelte` guarda o motivo
+  da falha (`micFailure`, `cameraFailure`) em estado próprio, porque o template não perceberia um motivo novo
+  lido de uma referência que não mudou. O constructor continua recebendo a primeira sala (o `Room` é só
+  trocado depois); sem a sala no constructor ele precisaria de um estado "sem sala" em todos os getters.

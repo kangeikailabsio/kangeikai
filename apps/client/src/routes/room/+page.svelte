@@ -1,6 +1,7 @@
 <script lang='ts'>
   import type { AccountUser } from '$lib/account/account-profile'
   import type { DeviceKind } from '$lib/av/devices/device-choice-store'
+  import type { MediaFailureKind } from '$lib/av/devices/device-error'
   import type { MediaIntent } from '$lib/av/devices/media-intent'
   import type { MediaControls } from '$lib/av/media-controls'
   import type { ScreenShareQualityTier } from '$lib/av/screen-share-quality'
@@ -73,6 +74,11 @@
   let shareEnabled = $state(false)
   let micUnavailable = $state(false)
   let cameraUnavailable = $state(false)
+  // Why they are unavailable. Kept as state next to the flags because the same `MediaControls` is
+  // announced again after every room switch (issue #264): the reference does not change, so the
+  // template would not notice a new reason read from it.
+  let micFailure: MediaFailureKind | undefined = $state()
+  let cameraFailure: MediaFailureKind | undefined = $state()
   let shareUnsupported = $state(false)
   // True only from the moment the quality popover is confirmed until setScreenShareEnabled(true)
   // resolves/rejects — guards against re-clicking "Share screen" while the native picker from a
@@ -214,6 +220,8 @@
       shareEnabled = controls.screenShareEnabled
       micUnavailable = controls.microphoneUnavailable
       cameraUnavailable = controls.cameraUnavailable
+      micFailure = controls.microphoneFailure
+      cameraFailure = controls.cameraFailure
       shareUnsupported = controls.screenShareUnsupported
     })
 
@@ -286,6 +294,7 @@
     await mediaControls.setMicrophoneEnabled(!micEnabled)
     micEnabled = mediaControls.microphoneEnabled
     micUnavailable = mediaControls.microphoneUnavailable
+    micFailure = mediaControls.microphoneFailure
   }
 
   /** Picks a microphone or camera from the HUD menu (issue #247): remembered, and switched on the current room. */
@@ -295,6 +304,8 @@
     await chooseDevice(mediaControls, (deviceKind, id) => deviceChoiceStore.choose(deviceKind, id), kind, deviceId)
     micUnavailable = mediaControls.microphoneUnavailable
     cameraUnavailable = mediaControls.cameraUnavailable
+    micFailure = mediaControls.microphoneFailure
+    cameraFailure = mediaControls.cameraFailure
   }
 
   async function toggleCamera(): Promise<void> {
@@ -304,6 +315,7 @@
     await mediaControls.setCameraEnabled(!cameraEnabled)
     cameraEnabled = mediaControls.cameraEnabled
     cameraUnavailable = mediaControls.cameraUnavailable
+    cameraFailure = mediaControls.cameraFailure
   }
 
   /**
@@ -426,7 +438,7 @@
       toggleDisabled={!mediaControls || micUnavailable || localPresence === 'busy'}
       menuDisabled={!mediaControls || localPresence === 'busy'}
       title={localPresence === 'busy' ? 'Turn off Busy to use Mute' : undefined}
-      failure={micUnavailable ? mediaControls?.microphoneFailure : undefined}
+      failure={micUnavailable ? micFailure : undefined}
       loadChoice={() => deviceChoiceStore.load()}
       onToggle={toggleMicrophone}
       onSelect={deviceId => selectDevice('audioinput', deviceId)}
@@ -437,7 +449,7 @@
       toggleDisabled={!mediaControls || cameraUnavailable || localPresence === 'busy'}
       menuDisabled={!mediaControls || localPresence === 'busy'}
       title={localPresence === 'busy' ? 'Turn off Busy to use Camera' : undefined}
-      failure={cameraUnavailable ? mediaControls?.cameraFailure : undefined}
+      failure={cameraUnavailable ? cameraFailure : undefined}
       loadChoice={() => deviceChoiceStore.load()}
       onToggle={toggleCamera}
       onSelect={deviceId => selectDevice('videoinput', deviceId)}

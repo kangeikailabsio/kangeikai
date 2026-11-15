@@ -12,7 +12,6 @@ import avatarWomanIdleUrl from '$lib/assets/sprites/avatar-woman-idle.png?url'
 import avatarWomanWalkUrl from '$lib/assets/sprites/avatar-woman-walk.png?url'
 import { LocalAvSession } from '$lib/av/local-av-session'
 import { PendingTileTimeout } from '$lib/av/pending-tile-timeout'
-import { resolvePrivateZoneOccupancy } from '$lib/av/private-room-occupancy'
 import { buildScreenShareGridTiles } from '$lib/av/screen-share-grid'
 import { screenShareGridState } from '$lib/av/screen-share-grid-state.svelte'
 import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
@@ -780,11 +779,9 @@ export class OfficeScene extends Phaser.Scene {
       else if (refreshOverlay) {
         // `occupantSessionIds` (Colyseus position, always accurate) is who's expected in this
         // zone's call; `remoteParticipants` (LiveKit) is who's actually connected so far — the
-        // gap between the two is exactly who gets a pending placeholder (issue #141). Recomputed
-        // independently here rather than threading it out of `avSession.update()`
-        // above: that call is fire-and-forget (its own connect is async), but this needs the
-        // same-frame, synchronous answer `updateVideoOverlay` runs on right below.
-        const { occupantSessionIds } = resolvePrivateZoneOccupancy(this.privateZones, localPosition, remotePositions)
+        // gap between the two is exactly who gets a pending placeholder (issue #141). The session
+        // has the occupancy of this very frame: its `update()` computes it before anything async.
+        const { zoneOccupantSessionIds: occupantSessionIds } = this.avSession
         // Occupants not (yet) in the LiveKit room are the pending ones; the ones pending for too
         // long are dropped (issue #225) — a remote failure can't be told apart from a slow
         // connect, and a spinner that never resolves misleads. They reappear as real tiles if
@@ -807,7 +804,7 @@ export class OfficeScene extends Phaser.Scene {
       // zone or the other person did (issue #142, #225), so what it reports here is current.
       const { connectError } = this.avSession
       if (connectError) {
-        const { occupantSessionIds } = resolvePrivateZoneOccupancy(this.privateZones, localPosition, remotePositions)
+        const { zoneOccupantSessionIds: occupantSessionIds } = this.avSession
         if (refreshOverlay)
           this.updateVideoOverlayForLocalConnectError(occupantSessionIds, connectError.retrying)
       }

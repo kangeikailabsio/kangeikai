@@ -339,6 +339,32 @@ describe('privateRoomController connectError (issue #263)', () => {
   })
 })
 
+describe('privateRoomController occupancy (issue #274)', () => {
+  afterEach(() => {
+    events.length = 0
+    vi.clearAllMocks()
+  })
+
+  it('reports the zone the avatar stands in and who else is there, as of the last update', async () => {
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0)
+    controller.setZones(zones)
+    expect(controller.occupancy).toEqual({ zoneId: null, occupantSessionIds: [] })
+
+    await controller.update(options, pos(50, 50), new Map([['remote-1', pos(60, 60)], ['far', pos(500, 500)]]), { onConnect: vi.fn(), onDisconnect: vi.fn() }, () => {})
+
+    expect(controller.occupancy).toEqual({ zoneId: 1, occupantSessionIds: ['remote-1'] })
+  })
+
+  it('reports nobody while the local person is Busy', async () => {
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0)
+    controller.setZones(zones)
+
+    await controller.update(options, pos(50, 50, 'busy'), new Map([['remote-1', pos(60, 60)]]), { onConnect: vi.fn(), onDisconnect: vi.fn() }, () => {})
+
+    expect(controller.occupancy).toEqual({ zoneId: null, occupantSessionIds: [] })
+  })
+})
+
 describe('privateRoomController leaving into another zone', () => {
   afterEach(() => {
     events.length = 0

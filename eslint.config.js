@@ -32,9 +32,9 @@ export default antfu(
     },
   },
   {
-    // Conventional uppercase filenames mandated by GitHub/npm/Claude Code tooling, not a
-    // project naming choice.
-    files: ['**/AGENTS.md', '**/CLAUDE.md', '**/README.md', '**/README.*.md'],
+    // Conventional filenames mandated by GitHub/npm/Claude Code tooling (the issue templates
+    // use GitHub's own snake_case names), not a project naming choice.
+    files: ['**/AGENTS.md', '**/CLAUDE.md', '**/README.md', '**/README.*.md', '.github/ISSUE_TEMPLATE/*.md'],
     rules: {
       'unicorn/filename-case': 'off',
     },

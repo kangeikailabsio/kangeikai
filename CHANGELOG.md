@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.15.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.14.1...v0.15.0) (2026-11-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* **auth:** joining the office requires an account. The guestId and accessCode join options and the ACCESS_CODE environment variable are removed.
+
+### Features
+
+* **auth:** accounts with better-auth and PostgreSQL; sign in to join the office ([#238](https://github.com/kangeikailabsio/kangeikai/issues/238)) ([8216473](https://github.com/kangeikailabsio/kangeikai/commit/8216473aa5680643f491267a30a0e15a33f4dec9))
+* **av:** choose and test microphone and camera on the entry screen and in the room ([#244](https://github.com/kangeikailabsio/kangeikai/issues/244)) ([#252](https://github.com/kangeikailabsio/kangeikai/issues/252)) ([a32584d](https://github.com/kangeikailabsio/kangeikai/commit/a32584da7e8f42eaf710eacb874ed5d28ceb2f55))
+* **landing:** add the landing page clips and play them lazily ([#243](https://github.com/kangeikailabsio/kangeikai/issues/243)) ([ac82f2a](https://github.com/kangeikailabsio/kangeikai/commit/ac82f2a9bb39ca8790a5edcd1b5ad810bbbf41a6))
+* **server:** a returning account starts where it left ([#259](https://github.com/kangeikailabsio/kangeikai/issues/259)) ([#271](https://github.com/kangeikailabsio/kangeikai/issues/271)) ([40ea531](https://github.com/kangeikailabsio/kangeikai/commit/40ea5311e6e990b7f343b804894b7c237236527e))
+* **server:** the server knows the map and validates movement ([#253](https://github.com/kangeikailabsio/kangeikai/issues/253)) ([#258](https://github.com/kangeikailabsio/kangeikai/issues/258)) ([faacfb1](https://github.com/kangeikailabsio/kangeikai/commit/faacfb1ff386e8ff093afd0977f31d0029af81fd))
+
+
+### Fixes
+
+* **av:** a switch that was overtaken no longer overwrites the newer one ([#269](https://github.com/kangeikailabsio/kangeikai/issues/269)) ([#270](https://github.com/kangeikailabsio/kangeikai/issues/270)) ([a19824c](https://github.com/kangeikailabsio/kangeikai/commit/a19824c102ad41167a3517325a390b953c68ef42))
+* **av:** joining inside a private zone keeps the entry screen's microphone and camera ([#272](https://github.com/kangeikailabsio/kangeikai/issues/272)) ([#273](https://github.com/kangeikailabsio/kangeikai/issues/273)) ([10914d9](https://github.com/kangeikailabsio/kangeikai/commit/10914d99bb9ab0fe97e3b85133384dcd3571b4cf))
+* **av:** keep mic and camera state when leaving a private room ([#222](https://github.com/kangeikailabsio/kangeikai/issues/222)) ([#223](https://github.com/kangeikailabsio/kangeikai/issues/223)) ([6d750a1](https://github.com/kangeikailabsio/kangeikai/commit/6d750a170abc80d15f8882448fcfb9a658e04579))
+* **av:** keep the microphone and camera intent across room switches ([#241](https://github.com/kangeikailabsio/kangeikai/issues/241)) ([cab6335](https://github.com/kangeikailabsio/kangeikai/commit/cab6335811063e7f17b5863f88f60d9f3c4268b6))
+* **av:** recover from private-room connect failures and stop the endless spinner for others ([#226](https://github.com/kangeikailabsio/kangeikai/issues/226)) ([e20770e](https://github.com/kangeikailabsio/kangeikai/commit/e20770e9209d40e6a705d0664f3f2c476b2a95ee))
+
+
+### Improvements
+
+* **av:** one MediaControls for the whole session ([#264](https://github.com/kangeikailabsio/kangeikai/issues/264)) ([#267](https://github.com/kangeikailabsio/kangeikai/issues/267)) ([12faffe](https://github.com/kangeikailabsio/kangeikai/commit/12faffeb0fca3d7c1af004c2bf599a32cfd0045b))
+* **av:** room seams and a single source for the private-room error ([#263](https://github.com/kangeikailabsio/kangeikai/issues/263)) ([#266](https://github.com/kangeikailabsio/kangeikai/issues/266)) ([a3b3b94](https://github.com/kangeikailabsio/kangeikai/commit/a3b3b94e79429cc22392e85b30d97e9f5e72d884))
+* **av:** the local AV session owns the room switch ([#265](https://github.com/kangeikailabsio/kangeikai/issues/265)) ([#268](https://github.com/kangeikailabsio/kangeikai/issues/268)) ([10083f5](https://github.com/kangeikailabsio/kangeikai/commit/10083f563276b0662682a1a625c36a8dcb146368))
+* **av:** the video tile rules leave the scene ([#274](https://github.com/kangeikailabsio/kangeikai/issues/274)) ([#275](https://github.com/kangeikailabsio/kangeikai/issues/275)) ([56d4a06](https://github.com/kangeikailabsio/kangeikai/commit/56d4a06918c1cc658253a2143d3c331fd53c518f))
+* **shared:** one office protocol for Colyseus messages ([#260](https://github.com/kangeikailabsio/kangeikai/issues/260)) ([#261](https://github.com/kangeikailabsio/kangeikai/issues/261)) ([7789a38](https://github.com/kangeikailabsio/kangeikai/commit/7789a38221531ee51c34248d22156f5918451682))
+
 ## [0.14.1](https://github.com/kangeikailabsio/kangeikai/compare/v0.14.0...v0.14.1) (2026-11-01)
 
 

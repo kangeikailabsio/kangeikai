@@ -18,7 +18,6 @@ All jobs share `.github/actions/setup`: pnpm at the version in `packageManager`,
 | `unit` | Unit tests of the client, shared and pool packages with coverage, and the server's unit tests | `pnpm test:unit`, `pnpm test:coverage` |
 | `integration` | The server's whole suite with coverage: Colyseus rooms, the LiveKit token route and the auth routes against PostgreSQL from Testcontainers (Docker is on the runner) | `pnpm --filter @kangeikai/server test:coverage` |
 | `e2e` | The Playwright suite against PostgreSQL and LiveKit from `docker-compose.dev.yml`; Chromium is cached; the report, traces and videos are uploaded when a test fails | `pnpm dev:infra`, then `pnpm test:e2e` |
-| `pr-title` | The pull request title against Conventional Commits (pull requests only): it becomes the commit on `main` and release-please reads it | `echo "feat: ..." \| pnpm exec commitlint` |
 
 ## Coverage
 
@@ -34,7 +33,7 @@ When a threshold fails the job fails; the HTML report is uploaded as an artifact
 ## Required checks
 
 Branch protection is a repository setting, not part of the workflow. Suggested: require `check`,
-`build`, `unit`, `integration` and `pr-title` on `main`, and add `e2e` once it has proved stable on
+`build`, `unit` and `integration` on `main`, and add `e2e` once it has proved stable on
 GitHub's runners (it depends on WebRTC between Chromium and a LiveKit container).
 
 ## Notes

@@ -318,9 +318,8 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
 
 - **CI: só o essencial, sem branch protection, SHA nas actions nem matriz** — [#236](https://github.com/kangeikailabsio/kangeikai/issues/236):
   `.github/workflows/ci.yml` roda em todo pull request e em push na `main` os jobs `check` (lint e type
-  checks), `build`, `unit`, `integration` (o servidor inteiro com cobertura, Postgres via Testcontainers),
-  `e2e` (Playwright contra o compose, com Chromium em cache e o relatório como artefato quando falha) e
-  `pr-title` (commitlint no título). A cobertura (`test:coverage` por pacote, 90% de lines, statements e
+  checks), `build`, `unit`, `integration` (o servidor inteiro com cobertura, Postgres via Testcontainers)
+  e `e2e` (Playwright contra o compose, com Chromium em cache e o relatório como artefato quando falha). A cobertura (`test:coverage` por pacote, 90% de lines, statements e
   functions e 85% de branches) conta só a lógica; cada exclusão está no config do Vitest com o motivo. Ficaram
   de fora: marcar os jobs como obrigatórios (é configuração do repositório, não do workflow; o `e2e` fica de
   fora até se provar estável no runner do GitHub), fixar as actions por SHA, matriz de versões do Node ou de

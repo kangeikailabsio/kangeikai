@@ -478,6 +478,61 @@ describe('localAvSession re-entering the zone before the office finished reconne
   })
 })
 
+describe('localAvSession joining already inside a private zone with someone (issue #272)', () => {
+  it('ends in the private room with the microphone and camera chosen on the entry screen', async () => {
+    const { session, privateRoomsBuilt } = setup()
+
+    session.connect({ microphoneEnabled: true, cameraEnabled: true })
+    // The first frame already sees a neighbour in the zone, before the office finished connecting.
+    session.update(inZone, withNeighbour)
+    await settle()
+
+    const privateParticipant = privateRoomsBuilt[0].localParticipant
+    expect(session.privateRoom).toBe(privateRoomsBuilt[0])
+    expect(session.activeRoom).toBe(privateRoomsBuilt[0])
+    expect(privateParticipant.setMicrophoneEnabled).toHaveBeenLastCalledWith(true)
+    expect(privateParticipant.setCameraEnabled).toHaveBeenLastCalledWith(true)
+    // The camera is never switched on and then off again.
+    expect(privateParticipant.setCameraEnabled).not.toHaveBeenCalledWith(false)
+    expect(session.media?.cameraIntent).toBe(true)
+  })
+
+  it('does not apply the office\'s media on top of the private room\'s', async () => {
+    const { session, officeRoom } = setup()
+
+    session.connect({ microphoneEnabled: true, cameraEnabled: true })
+    session.update(inZone, withNeighbour)
+    await settle()
+
+    expect(officeRoom.localParticipant.setMicrophoneEnabled).not.toHaveBeenCalled()
+    expect(officeRoom.localParticipant.setCameraEnabled).not.toHaveBeenCalled()
+  })
+
+  it('keeps the entry choice of a camera that was off, too', async () => {
+    const { session, privateRoomsBuilt } = setup()
+
+    session.connect({ microphoneEnabled: false, cameraEnabled: false })
+    session.update(inZone, withNeighbour)
+    await settle()
+
+    expect(privateRoomsBuilt[0].localParticipant.setMicrophoneEnabled).toHaveBeenLastCalledWith(false)
+    expect(privateRoomsBuilt[0].localParticipant.setCameraEnabled).toHaveBeenLastCalledWith(false)
+  })
+
+  it('still goes back to the office with what the person had, once they leave', async () => {
+    const { session, officeRoom } = setup()
+    session.connect({ microphoneEnabled: true, cameraEnabled: true })
+    session.update(inZone, withNeighbour)
+    await settle()
+
+    await frame(session, outside, alone)
+
+    expect(session.activeRoom).toBe(officeRoom)
+    expect(officeRoom.localParticipant.setMicrophoneEnabled).toHaveBeenLastCalledWith(true)
+    expect(officeRoom.localParticipant.setCameraEnabled).toHaveBeenLastCalledWith(true)
+  })
+})
+
 describe('localAvSession private-room connection error', () => {
   it('shows the failure, then "Try again", then clears it once connected', async () => {
     const { session } = setup()

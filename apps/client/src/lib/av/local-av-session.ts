@@ -68,6 +68,13 @@ export class LocalAvSession {
    * so a late one never overwrites what the newer one decided (issue #269).
    */
   private generation = 0
+  /**
+   * What the person chose on the entry screen, until the session's `MediaControls` exists and takes
+   * over as the record of what they want. A private room can connect before the office has applied
+   * its first media (someone who joins standing in a zone with a neighbour), and must start from this,
+   * not from the defaults (issue #272).
+   */
+  private entryIntent: MediaIntent | undefined
 
   constructor(private readonly options: LocalAvSessionOptions) {
     this.office = options.office ?? new ProximityAudioController()
@@ -120,7 +127,10 @@ export class LocalAvSession {
    * leaves movement and presence alone.
    */
   connect(initial: MediaIntent): void {
-    this.connectOffice(initial.microphoneEnabled, initial.cameraEnabled)
+    this.entryIntent = initial
+    // Numbered like any switch: if a private room connects before the office has applied its media,
+    // the office must not apply it afterwards on top of the private room's (issue #272).
+    this.connectOffice(initial.microphoneEnabled, initial.cameraEnabled, false, undefined, false, ++this.generation)
   }
 
   /**
@@ -177,8 +187,8 @@ export class LocalAvSession {
     this.office
       .connect(identity, this.lastPosition ?? { x: 0, y: 0, presence: this.options.getPresence() })
       .then(() => {
-        // Coming back from a private room: if the person went into one again while the office was
-        // still connecting, the media belongs to that room now (issue #269).
+        // If the person went into a private room while the office was still connecting (coming back
+        // from one, or joining inside one), the media belongs to that room now (issues #269, #272).
         if (generation !== undefined && generation !== this.generation)
           return
         return this.applyMedia(this.office.liveKitRoom, micEnabled, cameraEnabled, screenShareEnabled, screenShareQuality, screenShareAudio)
@@ -276,8 +286,8 @@ export class LocalAvSession {
     try {
       const result = await this.applyMedia(
         room,
-        previous?.microphoneIntent ?? true,
-        previous?.cameraIntent ?? false,
+        previous?.microphoneIntent ?? this.entryIntent?.microphoneEnabled ?? true,
+        previous?.cameraIntent ?? this.entryIntent?.cameraEnabled ?? false,
         false,
         undefined,
         false,

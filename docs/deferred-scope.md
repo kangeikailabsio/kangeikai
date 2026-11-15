@@ -11,20 +11,6 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   fora de [#144](https://github.com/kangeikailabsio/kangeikai/issues/144) (vazamento acidental,
   não um cliente malicioso) como um projeto maior e separado — exigiria inscrição
   seletiva/mediada pelo servidor em vez de apenas controle de volume no cliente.
-- **Perda de conexão com o servidor falha silenciosamente** — `RoomConnection` já expõe
-  `onConnectionStateChange` (`apps/client/src/lib/network/room-connection.ts:118`), mas nenhum
-  lugar do client escuta esse evento; se o servidor Colyseus cai ou a conexão é perdida, o
-  avatar local continua parecendo totalmente funcional, sem nenhum aviso de que não está mais
-  sincronizado com ninguém. Notado em `docs/mvp-plan.md`, sem issue aberta.
-- **Sem continuidade de sessão/posição ao dar refresh na página** — cada refresh cria uma sessão
-  nova no Colyseus e volta pro spawn point, mesmo o servidor já suportando reconexão
-  (`allowReconnection`/`reconnectionToken`, `office-room.ts:122-138`) — falta o client guardar o
-  token e tentar `reconnect()` antes de criar sessão nova. A duplicata visível que isso causava
-  (avatar antigo nunca some) é corrigida pela
-  [#178](https://github.com/kangeikailabsio/kangeikai/issues/178) via deduplicação por
-  identidade no `onJoin` (hoje pelo id da conta, [#232](https://github.com/kangeikailabsio/kangeikai/issues/232)) — mas isso só limpa a cópia antiga, não retoma a sessão de
-  fato: cada refresh continua sendo um respawn do zero, sem posição/estado preservado. Notado em
-  `docs/mvp-plan.md`, sem issue aberta pra continuidade real.
 - **`privateZoneAt` assume que zonas privadas nunca se sobrepõem** — `packages/shared/src/private-zones.ts:46-48`
   documenta a suposição mas não a garante; se algum mapa no Tiled tiver duas zonas `private`
   sobrepostas, qual delas "vence" é arbitrário e silencioso. Baixa prioridade — depende de erro
@@ -292,3 +278,18 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   "Couldn't continue screen share". Ficaram de fora: serializar as trocas numa fila e cancelar, no nível
   do LiveKit, um `connect()` que já está em andamento (a sala ultrapassada continua conectando até o
   controller derrubá-la no frame seguinte).
+
+- **Voltar ao último ponto: só a posição, só em memória** — [#259](https://github.com/kangeikailabsio/kangeikai/issues/259):
+  o `OfficeRoom` guarda, ao sair (refresh, aba fechada ou conexão caída), a última posição de cada conta
+  num `LastPositionStore` em memória do processo, e `onJoin` põe a conta ali se o ponto ainda for um lugar
+  onde um avatar cabe (senão, no `respawn`). Vale enquanto o servidor estiver no ar: reiniciar zera,
+  e ele guarda no máximo 10 mil contas (sai a que saiu há mais tempo). Quem entra de novo passa pela tela
+  de entrada, como antes. Ficaram de fora: gravar a posição no Postgres para sobreviver a reinícios
+  ([#184](https://github.com/kangeikailabsio/kangeikai/issues/184); o AGENTS.md pede conversar antes de
+  mover estado de jogo para o banco, e o `LastPositionStore` é síncrono, então a troca pediria uma
+  interface assíncrona), a direção do avatar (volta olhando para baixo), o Busy (já é por aba, no
+  `localStorage`) e o assento numa mesa de sinuca: cada entrada é uma sessão nova, com outro `sessionId`,
+  então quem estava sentado precisa sentar de novo. Reaproveitar a sessão do Colyseus (`allowReconnection`,
+  que já preserva o `sessionId`) pediria entregar ao client um token de reconexão, ou um endpoint que o
+  entregue só a quem tem o cookie da conta; foi descartado por ora porque a tela de entrada continua e
+  porque o ganho seria só o assento no pool.

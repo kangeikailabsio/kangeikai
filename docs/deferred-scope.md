@@ -275,9 +275,20 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   troca (intenção de mic e câmera, Busy, passagem do screen share); a `OfficeScene` só chama
   `update(...)` uma vez por frame e lê `privateRoom`, `mediaConnecting`, `connectError`,
   `nearbySessionIds` e `activeRoom`. Ficaram de fora: serializar ou cancelar as trocas (a passagem para a
-  sala privada continua sem `await`, então pode se intercalar com o `teardown` se a pessoa sair logo; o
-  `update()` do frame seguinte resolve, como sempre; um teste fixa a ordem atual: a cena só vê a sala
-  privada depois de o share ser solto do escritório), a política dos tiles do overlay de vídeo (ainda na
+  sala privada continua sem `await`, então pode se intercalar com o `teardown` se a pessoa sair logo; a
+  [#269](https://github.com/kangeikailabsio/kangeikai/issues/269) fez cada troca descartar o que fizer depois
+  de ser ultrapassada por uma mais nova (um contador de geração), sem fila; um teste fixa a ordem do caso
+  normal: a cena só vê a sala privada depois de o share ser solto do escritório), a política dos tiles do overlay de vídeo (ainda na
   cena: filtro de Busy, tile pendente, tile de erro e throttle) e a corrida de "dispositivo ocupado" ao ir
   do escritório para a sala privada (o `office.disconnect()` não é esperado). O `activeRoom` do hook de
   e2e continua lendo `privateRoom`.
+
+- **Troca de sala: sem fila e sem cancelar a conexão em andamento** — [#269](https://github.com/kangeikailabsio/kangeikai/issues/269):
+  o `LocalAvSession` agora confere, depois de cada `await` de uma troca, se ela ainda é a mais recente
+  (`generation`), e desiste sem mexer no estado se uma troca mais nova começou: a ida para a sala privada
+  que perdeu a corrida para a volta, e a volta ao escritório que perdeu para uma nova ida. Se a ida é
+  ultrapassada depois de o share ser solto do escritório, o `track` é parado em silêncio em vez de
+  republicado numa sala já desconectada (como já acontece na volta, #116), e a pessoa não vê o toast de
+  "Couldn't continue screen share". Ficaram de fora: serializar as trocas numa fila e cancelar, no nível
+  do LiveKit, um `connect()` que já está em andamento (a sala ultrapassada continua conectando até o
+  controller derrubá-la no frame seguinte).

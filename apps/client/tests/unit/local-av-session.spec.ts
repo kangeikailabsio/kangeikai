@@ -402,6 +402,82 @@ describe('localAvSession private room back to the office', () => {
   })
 })
 
+describe('localAvSession leaving while the screen share is still being detached', () => {
+  it('ends in the office, not stuck on the private room it already left', async () => {
+    const { session, officeRoom, privateRoomsBuilt } = setup()
+    session.connect({ microphoneEnabled: true, cameraEnabled: false })
+    await settle()
+    const shareTrack = { kind: 'video', stop: vi.fn() }
+    officeRoom.localParticipant.publications.set(Track.Source.ScreenShare, { track: shareTrack })
+    const detach = deferred()
+    officeRoom.localParticipant.unpublishTrack.mockImplementationOnce(() => detach.promise)
+
+    // Someone joins the zone: the private room connects, but the share is slow to be detached.
+    await frame(session, inZone, withNeighbour)
+    expect(privateRoomsBuilt).toHaveLength(1)
+    expect(session.privateRoom).toBeNull()
+
+    // The person walks out before that finished: the private room is torn down, the office comes back.
+    await frame(session, outside, alone)
+    expect(session.activeRoom).toBe(officeRoom)
+
+    // The slow detach finally completes.
+    detach.resolve()
+    await settle()
+
+    expect(session.privateRoom).toBeNull()
+    expect(session.activeRoom).toBe(officeRoom)
+    expect(session.mediaConnecting).toBe(false)
+    // The share was detached from the office and has no room to go to: it stops, it is not left capturing.
+    expect(shareTrack.stop).toHaveBeenCalledTimes(1)
+    expect(privateRoomsBuilt[0].localParticipant.publishTrack).not.toHaveBeenCalled()
+  })
+
+  it('does not tell the person a share failed to continue when they had already left', async () => {
+    const { session, officeRoom, events } = setup()
+    session.connect({ microphoneEnabled: false, cameraEnabled: false })
+    await settle()
+    officeRoom.localParticipant.publications.set(Track.Source.ScreenShare, { track: { kind: 'video', stop: vi.fn() } })
+    const detach = deferred()
+    officeRoom.localParticipant.unpublishTrack.mockImplementationOnce(() => detach.promise)
+    await frame(session, inZone, withNeighbour)
+    await frame(session, outside, alone)
+
+    detach.resolve()
+    await settle()
+
+    expect(events.onScreenShareHandoffFailed).not.toHaveBeenCalled()
+  })
+})
+
+describe('localAvSession re-entering the zone before the office finished reconnecting', () => {
+  it('leaves the microphone and camera on the private room, nothing is published on the office afterwards', async () => {
+    const { session, officeRoom, privateRoomsBuilt } = setup()
+    session.connect({ microphoneEnabled: true, cameraEnabled: false })
+    await settle()
+    await frame(session, inZone, withNeighbour)
+    expect(session.privateRoom).toBe(privateRoomsBuilt[0])
+
+    // Walking out starts the way back: the office asks for its token, and that is slow.
+    const officeToken = deferred<{ token: string, url: string }>()
+    vi.mocked(fetchLiveKitToken).mockImplementationOnce(() => officeToken.promise)
+    await frame(session, outside, alone)
+    expect(session.privateRoom).toBeNull()
+
+    // Before it answers, the person goes back into the zone and a new private room connects.
+    await frame(session, inZone, withNeighbour)
+    expect(privateRoomsBuilt).toHaveLength(2)
+    expect(session.privateRoom).toBe(privateRoomsBuilt[1])
+    officeRoom.localParticipant.setMicrophoneEnabled.mockClear()
+
+    officeToken.resolve({ token: 'late', url: 'wss://fake' })
+    await settle()
+
+    expect(officeRoom.localParticipant.setMicrophoneEnabled).not.toHaveBeenCalled()
+    expect(session.privateRoom).toBe(privateRoomsBuilt[1])
+  })
+})
+
 describe('localAvSession private-room connection error', () => {
   it('shows the failure, then "Try again", then clears it once connected', async () => {
     const { session } = setup()

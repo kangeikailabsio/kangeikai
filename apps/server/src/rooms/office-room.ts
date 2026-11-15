@@ -178,7 +178,8 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
     avatar.characterSelection = auth.characterSelection ? JSON.stringify(auth.characterSelection) : ''
     avatar.userId = auth.userId
     // The server chooses where a person starts and tells the client, which has no say in it.
-    const spawn = this.startingPoint(auth.userId, replacedAt)
+    const { point: spawn, how } = this.startingPoint(auth.userId, replacedAt)
+    console.warn(`kangeikai: ${auth.displayName} starts at (${Math.round(spawn.x)}, ${Math.round(spawn.y)}): ${how}`)
     avatar.x = spawn.x
     avatar.y = spawn.y
 
@@ -204,11 +205,12 @@ export class OfficeRoom extends Room<{ state: OfficeRoomState }> {
    * avatar can stand, and otherwise a point of the map's `respawn` layer. A remembered position is
    * checked again here, because the map may have changed since it was saved.
    */
-  private startingPoint(userId: string, replacedAt: Point | undefined): Point {
+  private startingPoint(userId: string, replacedAt: Point | undefined): { point: Point, how: string } {
     const before = replacedAt ?? lastPositions.recall(userId)
     if (before && isWalkable(before, movementRules))
-      return before
-    return resolveRespawnPoint(respawnAreas, { x: mapSize.width / 2, y: mapSize.height / 2 })
+      return { point: before, how: replacedAt ? 'where its other tab was' : 'where it left' }
+    const how = before ? 'respawn (the remembered spot is not somewhere an avatar can stand)' : 'respawn (nothing remembered for this account)'
+    return { point: resolveRespawnPoint(respawnAreas, { x: mapSize.width / 2, y: mapSize.height / 2 }), how }
   }
 
   /**

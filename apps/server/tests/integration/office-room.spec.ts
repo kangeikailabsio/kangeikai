@@ -419,6 +419,23 @@ describe('officeRoom', () => {
       expect(insideARespawnArea({ x: avatar.x, y: avatar.y })).toBe(true)
     })
 
+    it('says in the log where it started the account and why', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const { room, observer, ana } = await roomWithAnaMoved()
+        await ana.leave()
+        await waitFor(observer, () => !observer.state.players.has(ana.sessionId))
+        await colyseus.connectTo(room, returningAna())
+
+        const messages = warn.mock.calls.map(([message]) => String(message))
+        expect(messages.some(message => message.includes('Ana starts at') && message.includes('respawn (nothing remembered'))).toBe(true)
+        expect(messages.some(message => message.includes('Ana starts at') && message.includes('where it left'))).toBe(true)
+      }
+      finally {
+        warn.mockRestore()
+      }
+    })
+
     it('falls back to the respawn layer for a position outside the map', async () => {
       const store = new LastPositionStore()
       store.remember('ana', { x: -50, y: 99_999 })

@@ -15,6 +15,14 @@ concurrency:
 permissions:
   contents: read
 
+# The client reads these three at build time (`$env/static/public`): SvelteKit generates the types
+# of the type check from them, and the bundle bakes them in. Locally they come from
+# apps/client/.env; these are placeholders for a checkout that has no .env.
+env:
+  PUBLIC_COLYSEUS_URL: wss://server.example.test
+  PUBLIC_LIVEKIT_TOKEN_ENDPOINT: https://server.example.test/livekit-token
+  PUBLIC_AUTH_URL: https://server.example.test
+
 jobs:
   # Lint and the type checks (svelte-check for the client, tsc for the rest).
   check:
@@ -35,11 +43,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - name: Build the client
-        # The PUBLIC_* values are baked into the bundle at build time; these are placeholders.
-        env:
-          PUBLIC_COLYSEUS_URL: wss://server.example.test
-          PUBLIC_LIVEKIT_TOKEN_ENDPOINT: https://server.example.test/livekit-token
-          PUBLIC_AUTH_URL: https://server.example.test
         run: pnpm build
       - name: Check the static host's two entry points exist
         run: test -f apps/client/build/index.html && test -f apps/client/build/200.html

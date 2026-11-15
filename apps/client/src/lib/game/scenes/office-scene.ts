@@ -1,7 +1,5 @@
 import type { MediaIntent } from '$lib/av/devices/media-intent'
-import type { ScreenShareHandoff } from '$lib/av/media-controls'
-import type { AvatarPosition, ProximityAudioControllerOptions } from '$lib/av/proximity-audio-controller'
-import type { ScreenShareQualityTier } from '$lib/av/screen-share-quality'
+import type { AvatarPosition } from '$lib/av/proximity-audio-controller'
 import type { RemoteVideoOverlayCandidate, VideoOverlayParticipant } from '$lib/av/video-overlay-tiles'
 import type { HoverTarget } from '$lib/game/entities/avatar-hover'
 import type { PathfindingGrid } from '$lib/game/map/pathfinding'
@@ -12,12 +10,9 @@ import avatarManIdleUrl from '$lib/assets/sprites/avatar-man-idle.png?url'
 import avatarManWalkUrl from '$lib/assets/sprites/avatar-man-walk.png?url'
 import avatarWomanIdleUrl from '$lib/assets/sprites/avatar-woman-idle.png?url'
 import avatarWomanWalkUrl from '$lib/assets/sprites/avatar-woman-walk.png?url'
-import { MediaControls } from '$lib/av/media-controls'
+import { LocalAvSession } from '$lib/av/local-av-session'
 import { PendingTileTimeout } from '$lib/av/pending-tile-timeout'
-import { PrivateRoomController } from '$lib/av/private-room-controller'
 import { resolvePrivateZoneOccupancy } from '$lib/av/private-room-occupancy'
-import { ProximityAudioController } from '$lib/av/proximity-audio-controller'
-import { isBusyBlockedByScreenShare } from '$lib/av/screen-share-busy-guard'
 import { buildScreenShareGridTiles } from '$lib/av/screen-share-grid'
 import { screenShareGridState } from '$lib/av/screen-share-grid-state.svelte'
 import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
@@ -350,8 +345,25 @@ export class OfficeScene extends Phaser.Scene {
   private hoverRing: Phaser.GameObjects.Arc | undefined
   private readonly busyPresenceStore = new BusyPresenceStore()
   private readonly roomConnection = new RoomConnection()
-  private readonly proximityAudioController = new ProximityAudioController()
-  private readonly privateRoomController = new PrivateRoomController()
+  private readonly avSession = new LocalAvSession({
+    identity: () => {
+      const { sessionId, sessionProof } = this.roomConnection
+      return sessionId ? { identity: sessionId, name: this.displayName, proof: sessionProof ?? '' } : undefined
+    },
+    getPresence: () => this.presence,
+    flushPosition: () => this.roomConnection.flushPendingState(),
+    events: {
+      onMediaReady: controls => this.game.events.emit(MEDIA_CONTROLS_READY_EVENT, controls),
+      onPresenceApplied: presence => this.game.events.emit(LOCAL_PRESENCE_EVENT, presence),
+      onScreenShareEnded: () => this.game.events.emit(SCREEN_SHARE_ENDED_EVENT),
+      onConnectionQualityChanged: quality => this.game.events.emit(CONNECTION_QUALITY_CHANGED_EVENT, quality),
+      onScreenShareHandoffFailed: () => toastState.show('Couldn\'t continue screen share — try sharing again'),
+      onPrivateRoomConnect: () => {
+        this.pendingTileTimeout = new PendingTileTimeout()
+      },
+    },
+  })
+
   private readonly remoteAvatars = new Map<string, RemoteAvatarEntry>()
   private avatar!: Avatar
   private avatarView!: Phaser.GameObjects.Sprite
@@ -379,26 +391,16 @@ export class OfficeScene extends Phaser.Scene {
   private ticket!: string
   private initialMedia!: MediaIntent
   private presence: AvatarPresence = 'available'
-  private mediaControls: MediaControls | undefined
   /** Tracks the screen-share overlay's previous open state, to edge-trigger `movementController.clear()` (#100) only on the transition into it, not every frame it stays open. */
   private wasScreenShareOverlayExpanded = false
   /** Same edge-trigger care as `wasScreenShareOverlayExpanded`, for the "chamar atenção" (#158) blocking modal. */
   private wasAttentionModalOpen = false
-  /** Set only while connected to a private zone's isolated room — `null` means ambient `office` audio is active. */
-  private connectedPrivateRoom: Room | null = null
   /** The `spaces` layer's `private: true` objects, read once in `create()` (issue #151's spotlight needs the same zones `PrivateRoomController` already gets). */
   private privateZones: readonly PrivateZone[] = []
   private privateZoneSpotlight!: Phaser.GameObjects.Graphics
   /** The zone the local avatar was in as of the last frame, or `null` — only redraws/re-fades the spotlight on a change, not every frame. */
   private currentSpotlightZoneId: number | null = null
   private spotlightTween: Phaser.Tweens.Tween | undefined
-  /**
-   * True only between `connectedPrivateRoom` being set and `applyMediaControls` resolving for
-   * that room (issue #141) — the window where the local person's own mic/camera capture is
-   * still in flight, so `updateVideoOverlay` should show a pending placeholder for the local
-   * tile instead of a real (but misleadingly camera/mic-off-looking) one.
-   */
-  private localMediaConnecting = false
   /** Hides a remote person's pending tile after they have been connecting for too long (issue #225); recreated on every private-room connect. */
   private pendingTileTimeout = new PendingTileTimeout()
 
@@ -463,7 +465,7 @@ export class OfficeScene extends Phaser.Scene {
     // room, not an ambient-volume zone (spec 004's private-room refactor).
     const spaceObjects = (map.getObjectLayer('spaces')?.objects ?? []) as TiledSpaceObject[]
     this.privateZones = resolvePrivateZones(spaceObjects)
-    this.privateRoomController.setZones(this.privateZones)
+    this.avSession.setZones(this.privateZones)
     this.gameTables = resolveGameTables(map.getObjectLayer('games')?.objects ?? [])
     for (const table of this.gameTables) {
       const layer = map.layers.find(layer => layer.name.endsWith(`/${table.id}/table`))?.tilemapLayer
@@ -561,7 +563,7 @@ export class OfficeScene extends Phaser.Scene {
           this.avatar.y = spawn.y
         }
         this.game.events.emit(ROOM_JOINED_EVENT)
-        this.connectProximityAudio(this.initialMedia.microphoneEnabled, this.initialMedia.cameraEnabled)
+        this.avSession.connect(this.initialMedia)
       })
       .catch((error: unknown) => {
         console.warn('kangeikai: failed to connect to the shared room', error)
@@ -577,7 +579,7 @@ export class OfficeScene extends Phaser.Scene {
             this.avatar.y = y
           },
           position: () => ({ x: this.avatar.x, y: this.avatar.y }),
-          activeRoom: () => (this.connectedPrivateRoom ? 'private' : 'office'),
+          activeRoom: () => (this.avSession.privateRoom ? 'private' : 'office'),
         })
       : undefined
 
@@ -594,99 +596,10 @@ export class OfficeScene extends Phaser.Scene {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.handleResize, this)
       this.game.events.off(Phaser.Core.Events.BLUR, this.handleBlur, this)
       this.roomConnection.disconnect()
-      this.proximityAudioController.disconnect()
-      this.privateRoomController.disconnect()
+      this.avSession.disconnect()
       videoOverlayState.setRetryHandler(null)
       videoOverlayState.set([])
     })
-  }
-
-  /**
-   * Only called once `roomConnection.connect()` has resolved, so the local avatar already has
-   * a synced position/sessionId from the realtime sync layer (FR-008) — a failure here (e.g.
-   * LiveKit unreachable) is caught and logged without affecting movement/presence sync
-   * (FR-009's system-independence requirement). Also re-used to return to `office` after a
-   * private call ends, carrying forward whatever mic/camera state the person had going into it
-   * instead of resetting to the just-joined defaults.
-   */
-  private connectProximityAudio(micEnabled = true, cameraEnabled = false, screenShareEnabled = false, screenShareQuality?: ScreenShareQualityTier, screenShareAudio = false): void {
-    const { sessionId } = this.roomConnection
-    if (!sessionId) {
-      return
-    }
-
-    this.proximityAudioController
-      .connect(
-        { identity: sessionId, name: this.displayName, proof: this.roomConnection.sessionProof ?? '' },
-        { x: this.avatar.x, y: this.avatar.y, presence: this.presence },
-      )
-      .then(() => this.applyMediaControls(this.proximityAudioController.liveKitRoom, micEnabled, cameraEnabled, screenShareEnabled, screenShareQuality, screenShareAudio))
-      .catch((error: unknown) => {
-        console.warn('kangeikai: failed to connect proximity audio/video', error)
-      })
-  }
-
-  /**
-   * Points the session's one `MediaControls` at whichever LiveKit room is now active — `office`
-   * or a private zone's isolated room (creating it the first time) — and applies the given
-   * mic/camera/screen-share state to it.
-   * A denied permission or missing device (US3) never throws here — `MediaControls` records it
-   * as `microphoneUnavailable`/`cameraUnavailable` instead (a failed screen-share attempt is
-   * just logged and left retriable — issue #115). Screen share is never (re)started while busy
-   * — the HUD button is disabled for that case, and a room switch mid-busy shouldn't start one
-   * either.
-   *
-   * `screenShareHandoff` (issue #116) takes over from `screenShareEnabled`/`screenShareQuality`/
-   * `screenShareAudio` for the screen-share portion when present: it republishes an already-live
-   * track (`MediaControls.adoptScreenShareTrack`) instead of calling `setScreenShareEnabled`,
-   * which would trigger a fresh `getDisplayMedia()` capture. A failed republish is swallowed the
-   * same way the rest of this method swallows media failures — mic/camera and the ready events
-   * below must still go through — and reported back via the return value instead of a throw, so
-   * the caller (`handlePrivateRoomConnect`) can decide whether to surface it (a toast, since it's
-   * a genuine failure unlike a normal "share attempt failed, stay retriable" swallow).
-   */
-  private async applyMediaControls(room: Room, micEnabled: boolean, cameraEnabled: boolean, screenShareEnabled: boolean, screenShareQuality?: ScreenShareQualityTier, screenShareAudio = false, screenShareHandoff?: ScreenShareHandoff): Promise<{ screenShareHandoffFailed: boolean }> {
-    let next = this.mediaControls
-    if (next) {
-      next.switchRoom(room)
-    }
-    else {
-      next = new MediaControls(
-        room,
-        () => this.game.events.emit(SCREEN_SHARE_ENDED_EVENT),
-        quality => this.game.events.emit(CONNECTION_QUALITY_CHANGED_EVENT, quality),
-      )
-      this.mediaControls = next
-    }
-    // Before the first publish starts: the next room switch reads the person's intent from here,
-    // and a publish still in flight must not make it look like the microphone or camera is off
-    // (issue #239).
-    next.declareIntent({ microphoneEnabled: micEnabled, cameraEnabled })
-    let screenShareHandoffFailed = false
-    if (this.presence === 'busy') {
-      await next.beginBusy({ microphoneEnabled: micEnabled, cameraEnabled })
-    }
-    else {
-      await next.setMicrophoneEnabled(micEnabled)
-      await next.setCameraEnabled(cameraEnabled)
-      if (screenShareHandoff) {
-        try {
-          await next.adoptScreenShareTrack(screenShareHandoff)
-        }
-        catch (error) {
-          screenShareHandoffFailed = true
-          console.warn('kangeikai: failed to continue screen share across a room switch', error)
-        }
-      }
-      else {
-        await (screenShareQuality
-          ? next.setScreenShareEnabled(screenShareEnabled, screenShareQuality, screenShareAudio)
-          : next.setScreenShareEnabled(screenShareEnabled))
-      }
-    }
-    this.game.events.emit(MEDIA_CONTROLS_READY_EVENT, next)
-    this.game.events.emit(LOCAL_PRESENCE_EVENT, this.presence)
-    return { screenShareHandoffFailed }
   }
 
   async toggleBusyPresence(): Promise<void> {
@@ -703,7 +616,7 @@ export class OfficeScene extends Phaser.Scene {
     if (presence === this.presence) {
       return
     }
-    if (isBusyBlockedByScreenShare(this.mediaControls?.screenShareEnabled ?? false, presence)) {
+    if (this.avSession.isBusyBlocked(presence)) {
       toastState.show('Stop sharing your screen to go Busy')
       return
     }
@@ -716,12 +629,7 @@ export class OfficeScene extends Phaser.Scene {
     }
     this.roomConnection.sendPresence(presence)
     this.busyPresenceStore.save(presence)
-    if (presence === 'busy') {
-      await this.mediaControls?.beginBusy()
-    }
-    else {
-      await this.mediaControls?.endBusy()
-    }
+    await this.avSession.setBusy(presence === 'busy')
     this.game.events.emit(LOCAL_PRESENCE_EVENT, presence)
   }
 
@@ -761,82 +669,9 @@ export class OfficeScene extends Phaser.Scene {
     this.cameras.main.shake(ATTENTION_SHAKE_DURATION_MS, ATTENTION_SHAKE_INTENSITY)
   }
 
-  /**
-   * `PrivateRoomController` calls this once a zone's 2nd person arrives: leaves `office`'s
-   * audio for the duration (a real, isolated call — not just muting) and points media controls/
-   * video overlay at the private room instead.
-   *
-   * This is always an `office → private` transition (`PrivateRoomController.update()` never
-   * connects private-to-private directly — it always tears the current one down first), so an
-   * active screen share is handed off rather than dropped: detached from `office` before
-   * disconnecting from it (issue #116), then republished on the private room once
-   * `applyMediaControls` gets there — no interruption, no new `getDisplayMedia()` prompt. If the
-   * handoff itself fails (rare — the private room rejects the republish, or the track ended
-   * mid-transition), that's a genuine error, surfaced via toast, unlike a normal share-attempt
-   * failure which stays silent and retriable.
-   */
-  private handlePrivateRoomConnect(room: Room): void {
-    this.pendingTileTimeout = new PendingTileTimeout()
-    void this.connectPrivateRoomWithScreenShareHandoff(room)
-  }
-
-  /** The error tile's "Try again" button (issue #225): the controller lifts its block on the failed zone and the next frame reconnects. */
+  /** The error tile's "Try again" button (issue #225): the session lifts the block on the failed zone and the next frame reconnects. */
   private retryPrivateRoomConnection(): void {
-    this.privateRoomController.retryFailedConnection()
-  }
-
-  private async connectPrivateRoomWithScreenShareHandoff(room: Room): Promise<void> {
-    const previous = this.mediaControls
-    let screenShareHandoff: ScreenShareHandoff | undefined
-    let screenShareHandoffFailed = false
-    try {
-      screenShareHandoff = await previous?.detachScreenShareTrack()
-    }
-    catch (error) {
-      screenShareHandoffFailed = true
-      console.warn('kangeikai: failed to detach screen share ahead of a private-room switch', error)
-    }
-    this.proximityAudioController.disconnect()
-    this.connectedPrivateRoom = room
-    this.localMediaConnecting = true
-    try {
-      const result = await this.applyMediaControls(
-        room,
-        previous?.microphoneIntent ?? true,
-        previous?.cameraIntent ?? false,
-        false,
-        undefined,
-        false,
-        screenShareHandoff,
-      )
-      if (screenShareHandoffFailed || result.screenShareHandoffFailed) {
-        toastState.show('Couldn\'t continue screen share — try sharing again')
-      }
-    }
-    finally {
-      this.localMediaConnecting = false
-    }
-  }
-
-  /**
-   * `PrivateRoomController` calls this once the private call ends (occupancy drops under 2, or
-   * the local avatar left the zone): reconnects `office` audio, carrying forward the mic/camera
-   * state the person had during the private call.
-   *
-   * This is always a `private → office` transition, and screen share is never carried forward
-   * into it (issue #116) — it stops silently, matching Gather.town's own behavior for this
-   * direction; the HUD button and full-screen overlay resolve on their own once
-   * `screenShareEnabled` goes back to `false`, the same way they do for a manual "Stop sharing".
-   */
-  private handlePrivateRoomDisconnect(): void {
-    // `this.mediaControls` still belongs to the just-disconnected private room. Its published tracks
-    // are gone, but the intent it recorded is not tied to the room (issue #239): reading the track
-    // state instead (`microphoneEnabled`) is always `false` after the disconnect (#222), and is
-    // still `false` before it if a publish was in flight when the person left.
-    const micEnabled = this.mediaControls?.microphoneIntent ?? true
-    const cameraEnabled = this.mediaControls?.cameraIntent ?? false
-    this.connectedPrivateRoom = null
-    this.connectProximityAudio(micEnabled, cameraEnabled, false)
+    this.avSession.retry()
   }
 
   update(time: number, delta: number): void {
@@ -932,16 +767,10 @@ export class OfficeScene extends Phaser.Scene {
     const localPosition = { x: this.avatar.x, y: this.avatar.y, presence: this.presence }
     const remotePositions = this.remoteAvatarPositions()
 
-    const { sessionId, sessionProof } = this.roomConnection
-    if (sessionId) {
-      const options: ProximityAudioControllerOptions = { identity: sessionId, name: this.displayName, proof: sessionProof ?? '' }
-      void this.privateRoomController.update(options, localPosition, remotePositions, {
-        onConnect: room => this.handlePrivateRoomConnect(room),
-        onDisconnect: () => this.handlePrivateRoomDisconnect(),
-      }, () => this.roomConnection.flushPendingState())
-    }
+    this.avSession.update(localPosition, remotePositions)
 
-    if (this.connectedPrivateRoom) {
+    const { privateRoom } = this.avSession
+    if (privateRoom) {
       // Isolated, small room — everyone in it is "in the call", no distance falloff needed.
       // Local busy still hides the strip here: this path lists all remoteParticipants, not nearby.
       if (this.presence === 'busy') {
@@ -952,7 +781,7 @@ export class OfficeScene extends Phaser.Scene {
         // `occupantSessionIds` (Colyseus position, always accurate) is who's expected in this
         // zone's call; `remoteParticipants` (LiveKit) is who's actually connected so far — the
         // gap between the two is exactly who gets a pending placeholder (issue #141). Recomputed
-        // independently here rather than threading it out of `privateRoomController.update()`
+        // independently here rather than threading it out of `avSession.update()`
         // above: that call is fire-and-forget (its own connect is async), but this needs the
         // same-frame, synchronous answer `updateVideoOverlay` runs on right below.
         const { occupantSessionIds } = resolvePrivateZoneOccupancy(this.privateZones, localPosition, remotePositions)
@@ -960,31 +789,30 @@ export class OfficeScene extends Phaser.Scene {
         // long are dropped (issue #225) — a remote failure can't be told apart from a slow
         // connect, and a spinner that never resolves misleads. They reappear as real tiles if
         // they connect later, since this is recomputed every refresh.
-        const { remoteParticipants } = this.connectedPrivateRoom
+        const { remoteParticipants } = privateRoom
         const pendingSessionIds = this.pendingTileTimeout.visible(
           occupantSessionIds.filter(sessionId => !remoteParticipants.has(sessionId)),
           time,
         )
         const expectedSessionIds = new Set([...pendingSessionIds, ...remoteParticipants.keys()])
-        this.updateVideoOverlay(expectedSessionIds, this.connectedPrivateRoom, pendingSessionIds)
+        this.updateVideoOverlay(expectedSessionIds, privateRoom, pendingSessionIds)
       }
     }
     else {
-      // Still called every frame regardless of the error branch below — proximity audio (office
-      // is still the active room whenever a private-room attempt fails, per `PrivateRoomController`
-      // only ever disconnecting it on a genuine `onConnect`) must keep having its volumes updated.
-      const nearbySessionIds = this.proximityAudioController.update(localPosition, remotePositions)
+      // The session updates proximity audio every frame in the office, whatever the error branch
+      // below shows (office is still the active room whenever a private-room attempt fails).
+      const { nearbySessionIds } = this.avSession
 
       // `PrivateRoomController` already dropped its failure on this frame if the avatar left the
       // zone or the other person did (issue #142, #225), so what it reports here is current.
-      const { connectError } = this.privateRoomController
+      const { connectError } = this.avSession
       if (connectError) {
         const { occupantSessionIds } = resolvePrivateZoneOccupancy(this.privateZones, localPosition, remotePositions)
         if (refreshOverlay)
           this.updateVideoOverlayForLocalConnectError(occupantSessionIds, connectError.retrying)
       }
       else if (refreshOverlay) {
-        this.updateVideoOverlay(nearbySessionIds, this.proximityAudioController.liveKitRoom)
+        this.updateVideoOverlay(nearbySessionIds, this.avSession.officeRoom)
       }
     }
 
@@ -1146,7 +974,7 @@ export class OfficeScene extends Phaser.Scene {
     // no published tracks yet — a real tile here would misleadingly look like a deliberate
     // camera/mic-off choice rather than "still connecting". Screen share can't be relevant yet
     // either (it can't start until this same setup finishes), so this is the tile's only slot.
-    const local: VideoOverlayParticipant[] = this.localMediaConnecting
+    const local: VideoOverlayParticipant[] = this.avSession.mediaConnecting
       ? [{ sessionId: localParticipant.identity, name: localName, pending: true }]
       : [{
           sessionId: localParticipant.identity,
@@ -1158,7 +986,7 @@ export class OfficeScene extends Phaser.Scene {
           videoTrack: localParticipant.getTrackPublication(Track.Source.Camera)?.track as LocalVideoTrack | undefined,
         }]
 
-    const localScreenShareTrack = this.localMediaConnecting
+    const localScreenShareTrack = this.avSession.mediaConnecting
       ? undefined
       : localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track as LocalVideoTrack | undefined
     if (localScreenShareTrack) {

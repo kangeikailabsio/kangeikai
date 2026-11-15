@@ -268,3 +268,16 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   da falha (`micFailure`, `cameraFailure`) em estado próprio, porque o template não perceberia um motivo novo
   lido de uma referência que não mudou. O constructor continua recebendo a primeira sala (o `Room` é só
   trocado depois); sem a sala no constructor ele precisaria de um estado "sem sala" em todos os getters.
+
+- **Sessão local de AV: troca de sala ainda sem serialização** — [#265](https://github.com/kangeikailabsio/kangeikai/issues/265),
+  fecha o épico [#262](https://github.com/kangeikailabsio/kangeikai/issues/262): o `LocalAvSession`
+  (`lib/av/local-av-session.ts`) é dono de qual sala LiveKit a pessoa está e de tudo que atravessa uma
+  troca (intenção de mic e câmera, Busy, passagem do screen share); a `OfficeScene` só chama
+  `update(...)` uma vez por frame e lê `privateRoom`, `mediaConnecting`, `connectError`,
+  `nearbySessionIds` e `activeRoom`. Ficaram de fora: serializar ou cancelar as trocas (a passagem para a
+  sala privada continua sem `await`, então pode se intercalar com o `teardown` se a pessoa sair logo; o
+  `update()` do frame seguinte resolve, como sempre; um teste fixa a ordem atual: a cena só vê a sala
+  privada depois de o share ser solto do escritório), a política dos tiles do overlay de vídeo (ainda na
+  cena: filtro de Busy, tile pendente, tile de erro e throttle) e a corrida de "dispositivo ocupado" ao ir
+  do escritório para a sala privada (o `office.disconnect()` não é esperado). O `activeRoom` do hook de
+  e2e continua lendo `privateRoom`.

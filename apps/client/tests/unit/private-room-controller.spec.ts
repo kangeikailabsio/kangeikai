@@ -241,6 +241,104 @@ describe('privateRoomController bounded retry and manual retry (issue #225)', ()
   })
 })
 
+describe('privateRoomController connectError (issue #263)', () => {
+  afterEach(() => {
+    events.length = 0
+    vi.clearAllMocks()
+  })
+
+  const remoteInZone = new Map([['remote-1', pos(60, 60)]])
+
+  function handlers() {
+    return { onConnect: vi.fn(), onDisconnect: vi.fn() }
+  }
+
+  it('is null before anything fails, and while a connection is up', async () => {
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0)
+    controller.setZones(zones)
+    expect(controller.connectError).toBeNull()
+
+    await controller.update(options, pos(50, 50), remoteInZone, handlers(), () => {})
+
+    expect(controller.connectedZoneId).toBe(1)
+    expect(controller.connectError).toBeNull()
+  })
+
+  it('reports the failed zone once every attempt has failed, and keeps reporting it on later frames', async () => {
+    failFetch(3)
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0)
+    controller.setZones(zones)
+    const h = handlers()
+
+    await controller.update(options, pos(50, 50), remoteInZone, h, () => {})
+    expect(controller.connectError).toEqual({ zoneId: 1, retrying: false })
+
+    await controller.update(options, pos(50, 50), remoteInZone, h, () => {})
+    expect(controller.connectError).toEqual({ zoneId: 1, retrying: false })
+  })
+
+  it('reports "retrying" from the moment Try again is pressed, and clears it once the connection is up', async () => {
+    failFetch(3)
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0)
+    controller.setZones(zones)
+    const h = handlers()
+    await controller.update(options, pos(50, 50), remoteInZone, h, () => {})
+
+    controller.retryFailedConnection()
+    expect(controller.connectError).toEqual({ zoneId: 1, retrying: true })
+
+    await controller.update(options, pos(50, 50), remoteInZone, h, () => {})
+    expect(controller.connectError).toBeNull()
+    expect(controller.connectedZoneId).toBe(1)
+  })
+
+  it('goes back to a plain error when the retry fails too', async () => {
+    failFetch(6)
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0)
+    controller.setZones(zones)
+    const h = handlers()
+    await controller.update(options, pos(50, 50), remoteInZone, h, () => {})
+
+    controller.retryFailedConnection()
+    await controller.update(options, pos(50, 50), remoteInZone, h, () => {})
+
+    expect(controller.connectError).toEqual({ zoneId: 1, retrying: false })
+  })
+
+  it('ignores Try again when nothing failed', () => {
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0)
+
+    controller.retryFailedConnection()
+
+    expect(controller.connectError).toBeNull()
+  })
+
+  it('is cleared on the frame the local avatar leaves the zone, even while a retry was pending', async () => {
+    failFetch(3)
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0)
+    controller.setZones(zones)
+    const h = handlers()
+    await controller.update(options, pos(50, 50), remoteInZone, h, () => {})
+    controller.retryFailedConnection()
+
+    await controller.update(options, pos(500, 500), remoteInZone, h, () => {})
+
+    expect(controller.connectError).toBeNull()
+  })
+
+  it('is cleared on the frame the other person leaves the zone', async () => {
+    failFetch(3)
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0)
+    controller.setZones(zones)
+    const h = handlers()
+    await controller.update(options, pos(50, 50), remoteInZone, h, () => {})
+
+    await controller.update(options, pos(50, 50), new Map(), h, () => {})
+
+    expect(controller.connectError).toBeNull()
+  })
+})
+
 describe('privateRoomController leaving into another zone', () => {
   afterEach(() => {
     events.length = 0

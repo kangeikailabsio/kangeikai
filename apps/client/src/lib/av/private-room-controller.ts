@@ -2,13 +2,14 @@ import type { PrivateZone } from '@kangeikai/shared'
 import type { Room } from 'livekit-client'
 import type { DeviceChoice } from './devices/device-choice-store'
 import type { AvatarPosition, ProximityAudioControllerOptions } from './proximity-audio-controller'
+import type { RoomFactory } from './room-factory'
 import { PUBLIC_LIVEKIT_TOKEN_ENDPOINT } from '$env/static/public'
-import { Room as LiveKitRoom } from 'livekit-client'
 import { attachRemoteAudioElements } from './attach-remote-audio'
 import { DeviceChoiceStore } from './devices/device-choice-store'
 import { applyDeviceChoice } from './devices/room-device-options'
 import { fetchLiveKitToken } from './livekit-token-client'
 import { resolvePrivateZoneOccupancy } from './private-room-occupancy'
+import { createLiveKitRoom } from './room-factory'
 
 /** Baked in at build time (adapter-static/SPA — no server to read this at runtime) — see .env.example. */
 const DEFAULT_TOKEN_ENDPOINT = PUBLIC_LIVEKIT_TOKEN_ENDPOINT
@@ -31,8 +32,17 @@ export interface PrivateRoomTransitionHandlers {
   onConnect: (room: Room, zoneId: number) => void
   /** The private room just ended (dropped back under 2 people, or the local avatar left the zone) — callers should reconnect `office` audio. Mic/camera state is not passed: callers keep the person's intent (`MediaControls.microphoneIntent`, issue #239). */
   onDisconnect: () => void
-  /** The connection attempt itself failed — `fetchLiveKitToken` or `room.connect` (issue #142) — instead of just `console.warn`ing silently. */
-  onError: (zoneId: number) => void
+  /** The connection attempt itself failed — `fetchLiveKitToken` or `room.connect` (issue #142) — instead of just `console.warn`ing silently. `connectError` holds the same fact as state, for callers that draw it every frame. */
+  onError?: (zoneId: number) => void
+}
+
+/**
+ * A private-room connection that failed, as long as it is still relevant (issues #142, #225):
+ * `retrying` is true from the moment "Try again" is pressed until that attempt connects or fails.
+ */
+export interface PrivateRoomConnectError {
+  zoneId: number
+  retrying: boolean
 }
 
 /**
@@ -48,17 +58,19 @@ export class PrivateRoomController {
   private connectedZoneIdInternal: number | null = null
   private connecting = false
   /**
-   * The zone a connection attempt most recently failed for (issue #142) — blocks `establish()`
-   * from retrying every single frame while still standing in that same zone (occupancy alone
-   * doesn't change just because the attempt failed). Cleared as soon as the local avatar is no
-   * longer in that zone, so leaving and re-entering (a fresh threshold crossing) is the only way
-   * to retry — no automatic or manual retry beyond that, per the issue's design decision.
+   * The failure of the connection attempt for a zone (issue #142). While it is set and not
+   * `retrying`, `establish()` is blocked from trying again every single frame while the person is
+   * still in that same zone (occupancy alone doesn't change just because the attempt failed). It
+   * is cleared as soon as the local avatar is no longer in that zone, or the other person leaves
+   * it (issue #225: with nobody left to talk to the failure is moot, and whoever enters next must
+   * get a fresh attempt instead of inheriting the block), or the connection succeeds. "Try
+   * again" lifts the block by setting `retrying`.
    */
-  private failedZoneId: number | null = null
+  private failure: PrivateRoomConnectError | null = null
   private readonly tokenEndpoint: string
   private readonly retryDelayMs: number
 
-  constructor(tokenEndpoint: string = DEFAULT_TOKEN_ENDPOINT, retryDelayMs: number = DEFAULT_RETRY_DELAY_MS, private readonly loadDeviceChoice: () => DeviceChoice = () => new DeviceChoiceStore().load()) {
+  constructor(tokenEndpoint: string = DEFAULT_TOKEN_ENDPOINT, retryDelayMs: number = DEFAULT_RETRY_DELAY_MS, private readonly loadDeviceChoice: () => DeviceChoice = () => new DeviceChoiceStore().load(), private readonly createRoom: RoomFactory = createLiveKitRoom) {
     this.tokenEndpoint = tokenEndpoint
     this.retryDelayMs = retryDelayMs
   }
@@ -69,12 +81,18 @@ export class PrivateRoomController {
    * person having to walk out of the zone and back in.
    */
   retryFailedConnection(): void {
-    this.failedZoneId = null
+    if (this.failure)
+      this.failure = { zoneId: this.failure.zoneId, retrying: true }
   }
 
   /** The map's `spaces` layer objects flagged `private: true`. */
   setZones(zones: readonly PrivateZone[]): void {
     this.zones = zones
+  }
+
+  /** The failed attempt the person should still see (the error tile, or the spinner while "Try again" runs), or `null`. */
+  get connectError(): Readonly<PrivateRoomConnectError> | null {
+    return this.failure
   }
 
   /** The zone currently backing an active private room connection, or `null` if not connected to one. */
@@ -106,15 +124,16 @@ export class PrivateRoomController {
 
     // No longer standing in the zone a previous attempt failed for — forget it, so walking back
     // in later (a fresh threshold crossing) can retry instead of staying blocked forever. Same
-    // when the other person leaves it (issue #225): with nobody left to talk to the failure is
-    // moot, and whoever enters next must get a fresh attempt instead of inheriting the block.
-    if (zoneId !== this.failedZoneId || occupantSessionIds.length < 1) {
-      this.failedZoneId = null
+    // when the other person leaves it (issue #225). Real state, not a view: it is cleared on the
+    // frame it happens, so a caller reading `connectError` right after never sees a stale one.
+    if (this.failure && (zoneId !== this.failure.zoneId || occupantSessionIds.length < 1)) {
+      this.failure = null
     }
 
     const shouldBeConnected = zoneId !== null && occupantSessionIds.length >= 1
 
-    if (shouldBeConnected && this.connectedZoneIdInternal === null && !this.connecting && zoneId !== this.failedZoneId) {
+    const blocked = this.failure !== null && !this.failure.retrying && this.failure.zoneId === zoneId
+    if (shouldBeConnected && this.connectedZoneIdInternal === null && !this.connecting && !blocked) {
       await this.establish(options, zoneId!, handlers.onConnect, handlers.onError, flushLocalPosition)
       return
     }
@@ -148,7 +167,7 @@ export class PrivateRoomController {
         flushLocalPosition()
         let room: Room
         try {
-          const candidate = new LiveKitRoom()
+          const candidate = this.createRoom()
           // Each private room captures on its own, so it has to be told which devices the person chose (issue #245).
           applyDeviceChoice(candidate, this.loadDeviceChoice())
           attachRemoteAudioElements(candidate)
@@ -159,8 +178,8 @@ export class PrivateRoomController {
         catch (error) {
           console.warn(`kangeikai: failed to connect to private room (attempt ${attempt + 1} of ${CONNECT_RETRIES + 1})`, error)
           if (attempt >= CONNECT_RETRIES) {
-            this.failedZoneId = zoneId
-            onError(zoneId)
+            this.failure = { zoneId, retrying: false }
+            onError?.(zoneId)
             return
           }
           await wait(this.retryDelayMs)
@@ -168,6 +187,7 @@ export class PrivateRoomController {
         }
         this.room = room
         this.connectedZoneIdInternal = zoneId
+        this.failure = null
         onConnect(room, zoneId)
         return
       }

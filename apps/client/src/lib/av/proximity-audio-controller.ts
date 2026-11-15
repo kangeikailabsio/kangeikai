@@ -1,13 +1,16 @@
 import type { AvatarState } from '@kangeikai/shared'
+import type { Room } from 'livekit-client'
 import type { DeviceChoice } from './devices/device-choice-store'
+import type { RoomFactory } from './room-factory'
 import { PUBLIC_LIVEKIT_TOKEN_ENDPOINT } from '$env/static/public'
-import { Room, Track } from 'livekit-client'
+import { Track } from 'livekit-client'
 import { attachRemoteAudioElements } from './attach-remote-audio'
 import { busyProximityVolume } from './busy-proximity-volume'
 import { DeviceChoiceStore } from './devices/device-choice-store'
 import { applyDeviceChoice } from './devices/room-device-options'
 import { fetchLiveKitToken } from './livekit-token-client'
 import { resolveProximityHysteresis } from './proximity-hysteresis'
+import { createLiveKitRoom } from './room-factory'
 
 /** Baked in at build time (adapter-static/SPA — no server to read this at runtime) — see .env.example. */
 const DEFAULT_TOKEN_ENDPOINT = PUBLIC_LIVEKIT_TOKEN_ENDPOINT
@@ -49,13 +52,14 @@ export interface ProximityAudioControllerOptions {
  * conversation is now `PrivateRoomController`'s job instead.
  */
 export class ProximityAudioController {
-  private readonly room = new Room()
+  private readonly room: Room
   private readonly tokenEndpoint: string
   /** Hysteresis state (see `resolveProximityHysteresis`) — who counted as nearby as of the last `update()` call. */
   private readonly nearbyIdentities = new Set<string>()
 
-  constructor(tokenEndpoint: string = DEFAULT_TOKEN_ENDPOINT, private readonly loadDeviceChoice: () => DeviceChoice = () => new DeviceChoiceStore().load()) {
+  constructor(tokenEndpoint: string = DEFAULT_TOKEN_ENDPOINT, private readonly loadDeviceChoice: () => DeviceChoice = () => new DeviceChoiceStore().load(), createRoom: RoomFactory = createLiveKitRoom) {
     this.tokenEndpoint = tokenEndpoint
+    this.room = createRoom()
     // Fail closed (issue #144): a freshly (re)connected participant starts silent instead of at
     // the browser default full volume, until this class's own per-frame `update()` below sets
     // the real distance/busy-based volume.

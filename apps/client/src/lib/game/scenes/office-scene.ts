@@ -399,17 +399,6 @@ export class OfficeScene extends Phaser.Scene {
    * tile instead of a real (but misleadingly camera/mic-off-looking) one.
    */
   private localMediaConnecting = false
-  /**
-   * The zone id a private-room connection attempt most recently failed for (issue #142), or
-   * `null`. Only ever acted on while `resolvePrivateZoneOccupancy` still reports this exact zone
-   * as current — stepping out clears it on its own next frame, mirroring
-   * `PrivateRoomController`'s own `failedZoneId` reset. `connectedPrivateRoom` truthy always
-   * takes priority over this in `update()`, so a later successful retry needs no explicit
-   * handling here beyond `handlePrivateRoomConnect` clearing it for hygiene.
-   */
-  private localPrivateRoomConnectErrorZoneId: number | null = null
-  /** "Try again" was pressed and the new attempt hasn't connected or failed yet (issue #225) — the local tile goes back to the connecting spinner meanwhile. */
-  private localPrivateRoomRetrying = false
   /** Hides a remote person's pending tile after they have been connecting for too long (issue #225); recreated on every private-room connect. */
   private pendingTileTimeout = new PendingTileTimeout()
 
@@ -782,30 +771,12 @@ export class OfficeScene extends Phaser.Scene {
    * failure which stays silent and retriable.
    */
   private handlePrivateRoomConnect(room: Room): void {
-    // A retry (after a previous attempt in this same zone failed) succeeded — hygiene only,
-    // `connectedPrivateRoom` truthy already takes priority over the error state in `update()`.
-    this.localPrivateRoomConnectErrorZoneId = null
-    this.localPrivateRoomRetrying = false
     this.pendingTileTimeout = new PendingTileTimeout()
     void this.connectPrivateRoomWithScreenShareHandoff(room)
   }
 
-  /**
-   * `PrivateRoomController` calls this when `fetchLiveKitToken`/`room.connect` itself fails
-   * (issue #142) — instead of the attempt silently aborting with only a `console.warn`, the
-   * local person's own tile in the (would-be) private-room video strip shows an error instead of
-   * being stuck on the #141 pending placeholder forever.
-   */
-  private handlePrivateRoomConnectError(zoneId: number): void {
-    this.localPrivateRoomConnectErrorZoneId = zoneId
-    this.localPrivateRoomRetrying = false
-  }
-
   /** The error tile's "Try again" button (issue #225): the controller lifts its block on the failed zone and the next frame reconnects. */
   private retryPrivateRoomConnection(): void {
-    if (this.localPrivateRoomConnectErrorZoneId === null)
-      return
-    this.localPrivateRoomRetrying = true
     this.privateRoomController.retryFailedConnection()
   }
 
@@ -962,7 +933,6 @@ export class OfficeScene extends Phaser.Scene {
       void this.privateRoomController.update(options, localPosition, remotePositions, {
         onConnect: room => this.handlePrivateRoomConnect(room),
         onDisconnect: () => this.handlePrivateRoomDisconnect(),
-        onError: zoneId => this.handlePrivateRoomConnectError(zoneId),
       }, () => this.roomConnection.flushPendingState())
     }
 
@@ -1000,24 +970,13 @@ export class OfficeScene extends Phaser.Scene {
       // only ever disconnecting it on a genuine `onConnect`) must keep having its volumes updated.
       const nearbySessionIds = this.proximityAudioController.update(localPosition, remotePositions)
 
-      if (this.localPrivateRoomConnectErrorZoneId !== null) {
-        const { zoneId, occupantSessionIds } = resolvePrivateZoneOccupancy(this.privateZones, localPosition, remotePositions)
-        // Also gone once everybody else left the zone (issue #225): nobody to talk to, nothing to
-        // retry — `PrivateRoomController` forgets its block on the same condition.
-        if (zoneId === this.localPrivateRoomConnectErrorZoneId && occupantSessionIds.length >= 1) {
-          if (refreshOverlay)
-            this.updateVideoOverlayForLocalConnectError(occupantSessionIds)
-        }
-        else {
-          // No longer standing in the zone that failed (issue #142) — stop showing its error
-          // tile; PrivateRoomController's own retry-blocking already resets the same way. This is
-          // real state, not a view write, so it is never throttled: delaying it would keep a stale
-          // error tile alive after the avatar has already left the zone.
-          this.localPrivateRoomConnectErrorZoneId = null
-          this.localPrivateRoomRetrying = false
-          if (refreshOverlay)
-            this.updateVideoOverlay(nearbySessionIds, this.proximityAudioController.liveKitRoom)
-        }
+      // `PrivateRoomController` already dropped its failure on this frame if the avatar left the
+      // zone or the other person did (issue #142, #225), so what it reports here is current.
+      const { connectError } = this.privateRoomController
+      if (connectError) {
+        const { occupantSessionIds } = resolvePrivateZoneOccupancy(this.privateZones, localPosition, remotePositions)
+        if (refreshOverlay)
+          this.updateVideoOverlayForLocalConnectError(occupantSessionIds, connectError.retrying)
       }
       else if (refreshOverlay) {
         this.updateVideoOverlay(nearbySessionIds, this.proximityAudioController.liveKitRoom)
@@ -1223,7 +1182,7 @@ export class OfficeScene extends Phaser.Scene {
    * use) all render pending — with no `Room` of our own, whether they've actually connected on
    * their end is unknowable from here either way, so pending is the only honest answer.
    */
-  private updateVideoOverlayForLocalConnectError(occupantSessionIds: readonly string[]): void {
+  private updateVideoOverlayForLocalConnectError(occupantSessionIds: readonly string[], retrying: boolean): void {
     if (this.presence === 'busy') {
       videoOverlayState.set([])
       screenShareGridState.set([])
@@ -1231,7 +1190,7 @@ export class OfficeScene extends Phaser.Scene {
     }
 
     const localSessionId = this.roomConnection.sessionId ?? 'local'
-    const local: VideoOverlayParticipant[] = [this.localPrivateRoomRetrying
+    const local: VideoOverlayParticipant[] = [retrying
       ? { sessionId: localSessionId, name: this.displayName, pending: true }
       : { sessionId: localSessionId, name: this.displayName, error: true }]
 

@@ -545,6 +545,71 @@ describe('mediaControls failure kinds and device switching (issue #245)', () => 
   })
 })
 
+describe('mediaControls device loss (issue #300)', () => {
+  /** A published microphone or camera track that can be told its device went away. */
+  function publishTrack(participant: FakeLocalParticipant, source: Track.Source) {
+    let ended: () => void = () => {}
+    const on = vi.fn((_event: string, callback: () => void) => {
+      ended = callback
+    })
+    const publication = { source, track: { on } }
+    participant.publications.set(source, publication)
+    participant.emit('localTrackPublished', publication)
+    return { publication, end: () => ended() }
+  }
+
+  it('reports the microphone or camera that stopped by itself, each by its own name', () => {
+    const participant = createFakeLocalParticipant()
+    const onDeviceLost = vi.fn()
+    const controls = new MediaControls(createFakeRoom(participant), undefined, undefined, onDeviceLost)
+    expect(controls).toBeDefined()
+
+    publishTrack(participant, Track.Source.Microphone).end()
+    publishTrack(participant, Track.Source.Camera).end()
+
+    expect(onDeviceLost.mock.calls).toEqual([['microphone'], ['camera']])
+  })
+
+  it('listens for the track\'s end event, which LiveKit only emits when the device went away', () => {
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant), undefined, undefined, vi.fn())
+    expect(controls).toBeDefined()
+
+    const { publication } = publishTrack(participant, Track.Source.Microphone)
+
+    expect(publication.track.on).toHaveBeenCalledWith('ended', expect.any(Function))
+  })
+
+  it('ignores a screen share, a publication without a track, and a track that is no longer the published one', () => {
+    const participant = createFakeLocalParticipant()
+    const onDeviceLost = vi.fn()
+    const controls = new MediaControls(createFakeRoom(participant), undefined, undefined, onDeviceLost)
+    expect(controls).toBeDefined()
+
+    publishTrack(participant, Track.Source.ScreenShare).end()
+    participant.emit('localTrackPublished', { source: Track.Source.Microphone, track: undefined })
+    const stale = publishTrack(participant, Track.Source.Camera)
+    participant.publications.set(Track.Source.Camera, { track: {} })
+    stale.end()
+
+    expect(onDeviceLost).not.toHaveBeenCalled()
+  })
+
+  it('stops listening to a room it left, and listens to the new one', () => {
+    const office = createFakeLocalParticipant()
+    const priv = createFakeLocalParticipant()
+    const onDeviceLost = vi.fn()
+    const controls = new MediaControls(createFakeRoom(office), undefined, undefined, onDeviceLost)
+
+    controls.switchRoom(createFakeRoom(priv))
+    publishTrack(office, Track.Source.Microphone).end()
+    expect(onDeviceLost).not.toHaveBeenCalled()
+    publishTrack(priv, Track.Source.Microphone).end()
+
+    expect(onDeviceLost).toHaveBeenCalledExactlyOnceWith('microphone')
+  })
+})
+
 describe('mediaControls retrying devices (issue #301)', () => {
   const notFound = Object.assign(new Error('x'), { name: 'NotFoundError' })
   const inUse = Object.assign(new Error('x'), { name: 'NotReadableError' })

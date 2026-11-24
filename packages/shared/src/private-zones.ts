@@ -1,3 +1,5 @@
+import { rectsOverlap } from './movement'
+
 export interface TiledObjectProperty {
   name: string
   value: unknown
@@ -44,8 +46,18 @@ export function resolvePrivateZones(objects: readonly TiledSpaceObject[]): Priva
 }
 
 /**
- * The private zone containing (x, y), or `null` if outside every zone (zones are assumed
- * non-overlapping per map authoring — same assumption the old zone lookup made).
+ * Every pair of zones whose rectangles overlap. Zones that only share an edge do not count (but
+ * `privateZoneAt` treats edges as inside, so a point exactly on a shared edge still goes to the
+ * first zone). A test runs this on the real map, so an authoring slip fails in CI.
+ */
+export function findOverlappingZones(zones: readonly PrivateZone[]): [PrivateZone, PrivateZone][] {
+  return zones.flatMap((zone, index) => zones.slice(index + 1).filter(other => rectsOverlap(zone, other)).map((other): [PrivateZone, PrivateZone] => [zone, other]))
+}
+
+/**
+ * The private zone containing (x, y), or `null` if outside every zone. Zones must not overlap
+ * (`findOverlappingZones`, checked against the real map in CI): if they did, the first one in the
+ * list would silently win.
  */
 export function privateZoneAt(zones: readonly PrivateZone[], x: number, y: number): PrivateZone | null {
   const zone = zones.find(z => x >= z.x && x <= z.x + z.width && y >= z.y && y <= z.y + z.height)

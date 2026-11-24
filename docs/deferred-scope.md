@@ -81,10 +81,14 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   publicação termina, e a `OfficeScene` repassa isso em toda troca de sala. A primeira versão do
   #222 lia o estado da track antes do `disconnect()`, o que falhava se a pessoa saísse enquanto a
   publicação ainda estava em andamento (#239); essa leitura foi removida. O Busy usa o valor que o
-  `endBusy` vai restaurar. Ficou de fora: tentar publicar de novo no escritório quando a
-  publicação falha de verdade (permissão negada ou sem dispositivo): a intenção é mantida e
-  repassada, mas o botão continua mostrando "Mic unavailable" até a pessoa agir. O fluxo de busy
-  dentro de uma sala privada não tem teste e2e próprio.
+  `endBusy` vai restaurar. A tentativa de publicar de novo quando a publicação falha de verdade
+  veio na [#301](https://github.com/kangeikailabsio/kangeikai/issues/301): um microfone ou câmera
+  "sem dispositivo" ou "em uso" é tentado de novo quando o navegador avisa de uma mudança de
+  dispositivos (`devicechange`), se a pessoa ainda o quer ligado e fora do Busy, e o HUD é atualizado. Uma
+  permissão negada ou uma falha desconhecida não é tentada de novo (um pedido de permissão não deve
+  aparecer sozinho), e fechar o outro app que segurava o dispositivo não gera `devicechange`, então "em
+  uso" só é tentado quando algum dispositivo muda. Não há tentativa por tempo. O fluxo de busy dentro de
+  uma sala privada não tem teste e2e próprio.
 - **Falha de conexão na sala privada: recuperação local, sem avisar os outros** — [#225](https://github.com/kangeikailabsio/kangeikai/issues/225)
   faz o cliente tentar mais 2 vezes (1 s de intervalo) antes de mostrar "Couldn't connect", dá um
   botão "Try again" ao tile de erro, tira o erro quando a outra pessoa sai da zona e esconde o

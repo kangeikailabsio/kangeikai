@@ -97,7 +97,7 @@ const outside: AvatarPosition = { x: 500, y: 500, presence: 'available' }
 const withNeighbour = new Map<string, AvatarPosition>([['remote-1', { x: 60, y: 60, presence: 'available' }]])
 const alone = new Map<string, AvatarPosition>()
 
-function setup(options: { presence?: 'available' | 'busy', onPrivateRoomBuilt?: (room: ReturnType<typeof fakeRoom>) => void } = {}) {
+function setup(options: { presence?: 'available' | 'busy', onPrivateRoomBuilt?: (room: ReturnType<typeof fakeRoom>) => void, watchDevices?: (onChange: () => void) => () => void } = {}) {
   const officeRoom = fakeRoom('office')
   const privateRoomsBuilt: Array<ReturnType<typeof fakeRoom>> = []
   const events = {
@@ -117,6 +117,7 @@ function setup(options: { presence?: 'available' | 'busy', onPrivateRoomBuilt?: 
     getPresence: () => state.presence,
     flushPosition,
     events,
+    watchDevices: options.watchDevices,
     office: new ProximityAudioController('http://fake/token', () => ({}), () => officeRoom),
     privateRooms: new PrivateRoomController('http://fake/token', 0, () => ({}), () => {
       const room = fakeRoom(`private${privateRoomsBuilt.length + 1}`)
@@ -318,6 +319,67 @@ describe('localAvSession office to private room', () => {
     await session.setBusy(false)
     expect(privateParticipant.setMicrophoneEnabled).toHaveBeenLastCalledWith(true)
     expect(privateParticipant.setCameraEnabled).toHaveBeenLastCalledWith(true)
+  })
+})
+
+describe('localAvSession retrying devices (issue #301)', () => {
+  /** A `devicechange` the test can fire, and a record of who is listening. */
+  function fakeDeviceWatch() {
+    let listener: (() => void) | undefined
+    const stop = vi.fn(() => {
+      listener = undefined
+    })
+    const watch = (onChange: () => void) => {
+      listener = onChange
+      return stop
+    }
+    return { stop, watch, plug: () => listener?.(), isWatching: () => listener !== undefined }
+  }
+
+  it('gives a missing microphone another try when a device appears, and refreshes the owner', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const devices = fakeDeviceWatch()
+    const { session, officeRoom, events } = setup({ watchDevices: devices.watch })
+    officeRoom.localParticipant.setMicrophoneEnabled.mockRejectedValueOnce(Object.assign(new Error('x'), { name: 'NotFoundError' }))
+    session.connect({ microphoneEnabled: true, cameraEnabled: false })
+    await settle()
+    expect(session.media?.microphoneUnavailable).toBe(true)
+    events.onMediaReady.mockClear()
+
+    devices.plug()
+    await settle()
+
+    expect(officeRoom.localParticipant.setMicrophoneEnabled).toHaveBeenLastCalledWith(true)
+    expect(session.media?.microphoneUnavailable).toBe(false)
+    expect(events.onMediaReady).toHaveBeenCalledExactlyOnceWith(session.media)
+  })
+
+  it('stays quiet when nothing needed a retry, and before there are controls', async () => {
+    const devices = fakeDeviceWatch()
+    const { session, events } = setup({ watchDevices: devices.watch })
+    session.connect({ microphoneEnabled: true, cameraEnabled: false })
+    devices.plug()
+    await settle()
+    events.onMediaReady.mockClear()
+
+    devices.plug()
+    await settle()
+
+    expect(events.onMediaReady).not.toHaveBeenCalled()
+  })
+
+  it('starts watching when it connects, never twice, and stops when it disconnects', async () => {
+    const devices = fakeDeviceWatch()
+    const { session } = setup({ watchDevices: devices.watch })
+    expect(devices.isWatching()).toBe(false)
+
+    session.connect({ microphoneEnabled: true, cameraEnabled: false })
+    session.connect({ microphoneEnabled: true, cameraEnabled: false })
+    expect(devices.isWatching()).toBe(true)
+    expect(devices.stop).toHaveBeenCalledTimes(1)
+
+    session.disconnect()
+    expect(devices.isWatching()).toBe(false)
   })
 })
 

@@ -70,8 +70,7 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   fora: ajustar `contentHint`/`degradationPreference`, simulcast e escolha de codec, TURN e fallback
   TCP no servidor LiveKit (hoje sem TURN e com UDP restrito a 50000-50100 em produção), mostrar o
   estado de cada espectador para quem compartilha (exigiria trafegar dados de volta), adaptação
-  automática de qualidade, teste ativo de banda e comparar antes de gravar em
-  `screenShareGridState.set()` (hoje reescrito a cada frame). Os limiares de Boa/Instável/Ruim são
+  automática de qualidade e teste ativo de banda. Os limiares de Boa/Instável/Ruim são
   fixos e conservadores, para ajustar depois com dados reais.
 - **Fluidez sempre vence a nitidez no screen share** — [#217](https://github.com/kangeikailabsio/kangeikai/issues/217)
   faz todos os tiers (720p, 1080p e 2K) usarem `maintain-framerate` e `contentHint: 'motion'`: sob

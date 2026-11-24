@@ -4,7 +4,7 @@ import type { PoolAim, PoolCommand, PoolEvent, PoolSnapshot } from '@kangeikai/g
 import type { TamperSignal } from '@kangeikai/game-pool/tamper'
 import type { AvatarSpriteType, GameTable } from '@kangeikai/shared'
 import { BotBrain } from '@kangeikai/game-pool/bot'
-import { evaluateShot, hasClearedGroup, lowestBall, nextSeat, otherTeam, seatCountOf, seatsOfTeam, teamOfSeat } from '@kangeikai/game-pool/core'
+import { evaluateShot, hasClearedGroup, lowestBall, nextSeat, otherTeam, seatCountOf, seatsOfTeam, shotNotice, teamOfSeat } from '@kangeikai/game-pool/core'
 import { canPlaceBall, createRack, emptyReport, FIXED_STEP, respotCue, respotEight, stepPhysics, strikeCue } from '@kangeikai/game-pool/physics'
 import { AIM_MIN_INTERVAL_MS, poolCommandSchema, SHOT_TIME_MS, SNAPSHOT_INTERVAL_MS } from '@kangeikai/game-pool/protocol'
 import { isPunishable } from '@kangeikai/game-pool/tamper'
@@ -514,11 +514,7 @@ export class PoolManager {
       s.breaking = false
       s.ballInHand = outcome.ballInHand
       s.cuePlaced = !s.ballInHand
-      s.notice = outcome.foul
-        ? [outcome.foul, outcome.ballInHand ? 'Ball in hand for the opponent.' : 'Turn lost.', dropped !== null && `The opponent's ball ${dropped} was pocketed.`, outcome.respotCue && 'The cue ball returns to the starting spot.'].filter(Boolean).join(' ')
-        : dropped !== null
-          ? `An opponent's ball was pocketed: turn lost. The opponent's ball ${dropped} was pocketed too.`
-          : 'Your turn to aim.'
+      s.notice = shotNotice(outcome, dropped)
       this.nextTurn(table)
     }
     table.context = null

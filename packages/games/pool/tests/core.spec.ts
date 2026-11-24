@@ -1,5 +1,5 @@
-import type { ShotContext } from '@kangeikai/game-pool/core'
-import { BALL_HUES, ballBodyCss, ballHue, ballHueCss, evaluateShot, hasClearedGroup, lowestBall, nextSeat, otherTeam, teamOfSeat, toCssHex } from '@kangeikai/game-pool/core'
+import type { ShotContext, ShotOutcome } from '@kangeikai/game-pool/core'
+import { BALL_HUES, ballBodyCss, ballHue, ballHueCss, evaluateShot, hasClearedGroup, lowestBall, nextSeat, otherTeam, shotNotice, teamOfSeat, toCssHex } from '@kangeikai/game-pool/core'
 import { createRack } from '@kangeikai/game-pool/physics'
 import { describe, expect, it } from 'vitest'
 
@@ -190,5 +190,25 @@ describe('teams and rotation', () => {
     expect(nextSeat([0, 1], 1)).toBe(0)
     expect(nextSeat([0, 2, 1, 3], 2)).toBe(1)
     expect(nextSeat([0, 2, 1, 3], 3)).toBe(0)
+  })
+})
+
+describe('shot notice', () => {
+  const quiet: ShotOutcome = { groups: [null, null], next: 0, foul: null, winner: null, respotEight: false, ballInHand: false, respotCue: false, dropsOpponentBall: false }
+
+  it('hands the turn over with a plain prompt when nothing happened', () => {
+    expect(shotNotice(quiet, null)).toBe('Your turn to aim.')
+  })
+  it('names a foul and what it costs', () => {
+    expect(shotNotice({ ...quiet, foul: 'No ball was hit.', ballInHand: true }, null)).toBe('No ball was hit. Ball in hand for the opponent.')
+    expect(shotNotice({ ...quiet, foul: 'Wrong ball.' }, null)).toBe('Wrong ball. Turn lost.')
+  })
+  it('adds the Regional penalty and the cue ball respot to a foul', () => {
+    expect(shotNotice({ ...quiet, foul: 'The cue ball was pocketed.', respotCue: true, dropsOpponentBall: true }, 9))
+      .toBe('The cue ball was pocketed. Turn lost. The opponent\'s ball 9 was pocketed. The cue ball returns to the starting spot.')
+  })
+  it('explains the Regional penalty when no foul was called', () => {
+    expect(shotNotice({ ...quiet, dropsOpponentBall: true }, 10))
+      .toBe('An opponent\'s ball was pocketed: turn lost. The opponent\'s ball 10 was pocketed too.')
   })
 })

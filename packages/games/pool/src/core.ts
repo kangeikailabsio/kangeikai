@@ -183,6 +183,24 @@ export function evaluateShot(context: ShotContext, report: ShotReport): ShotOutc
   return { groups, next: retained ? shooter : opponent, foul, winner, respotEight: breaking && report.pocketed.includes(8), ballInHand: found?.ballInHand ?? false, respotCue: context.mode === 'regional' && scratched, dropsOpponentBall }
 }
 
+/**
+ * What the table says after a shot. `dropped` is the opponent ball the Regional penalty pocketed
+ * for them, or `null` when none was.
+ */
+export function shotNotice(outcome: ShotOutcome, dropped: number | null): string {
+  if (outcome.foul) {
+    return [
+      outcome.foul,
+      outcome.ballInHand ? 'Ball in hand for the opponent.' : 'Turn lost.',
+      dropped !== null && `The opponent's ball ${dropped} was pocketed.`,
+      outcome.respotCue && 'The cue ball returns to the starting spot.',
+    ].filter(Boolean).join(' ')
+  }
+  if (dropped !== null)
+    return `An opponent's ball was pocketed: turn lost. The opponent's ball ${dropped} was pocketed too.`
+  return 'Your turn to aim.'
+}
+
 /** Lowest-numbered ball of `group` still on the table (the eight is never part of a group). */
 export function lowestBall(balls: Ball[], group: Group | null): number | null {
   const ids = balls.filter(ball => !ball.pocketed && group !== null && groupOf(ball.id) === group).map(ball => ball.id)

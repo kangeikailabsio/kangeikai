@@ -2,7 +2,7 @@ import { applyDeviceChoice } from '$lib/av/devices/room-device-options'
 import { describe, expect, it } from 'vitest'
 
 interface Defaults { deviceId?: string, echoCancellation?: boolean }
-const roomWith = (options: { audioCaptureDefaults?: Defaults, videoCaptureDefaults?: Defaults } = {}) => ({ options } as unknown as Parameters<typeof applyDeviceChoice>[0])
+const roomWith = (options: { audioCaptureDefaults?: Defaults, videoCaptureDefaults?: Defaults, audioOutput?: Defaults } = {}) => ({ options } as unknown as Parameters<typeof applyDeviceChoice>[0])
 
 describe('applyDeviceChoice (issue #245)', () => {
   it('points the room\'s next capture at the chosen microphone and camera', () => {
@@ -36,5 +36,23 @@ describe('applyDeviceChoice (issue #245)', () => {
     applyDeviceChoice(room, {})
 
     expect(room.options).toEqual({})
+  })
+})
+
+describe('applyDeviceChoice audio output (issue #299)', () => {
+  it('points the room\'s playback at the chosen speaker, for the participants it already has and those who join later', () => {
+    const room = roomWith()
+
+    applyDeviceChoice(room, { audiooutput: 'out-2' })
+
+    expect(room.options.audioOutput).toEqual({ deviceId: 'out-2' })
+  })
+
+  it('leaves the speaker alone when none was chosen', () => {
+    const room = roomWith({ audioOutput: { deviceId: 'default' } })
+
+    applyDeviceChoice(room, { audioinput: 'mic-2' })
+
+    expect(room.options.audioOutput).toEqual({ deviceId: 'default' })
   })
 })

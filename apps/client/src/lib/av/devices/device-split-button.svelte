@@ -12,13 +12,14 @@
     /** The text of the main part, which keeps toggling the device on and off. */
     label: string
     /** The main part: off while busy, with no controls yet, or when the device cannot work at all. */
-    toggleDisabled: boolean
+    toggleDisabled?: boolean
     /** The chevron: off while busy or with no controls, but open when the device failed, to say why. */
     menuDisabled: boolean
     title?: string
     failure: MediaFailureKind | undefined
     loadChoice: () => { audioinput?: string, videoinput?: string }
-    onToggle: () => void
+    /** Left out for a device that cannot be switched on or off (the speaker): the button is then just the menu. */
+    onToggle?: () => void
     onSelect: (deviceId: string) => void | Promise<void>
   }
 
@@ -110,12 +111,15 @@
 <svelte:window onpointerdown={handleWindowPointerdown} />
 
 <div class='split' bind:this={root}>
-  <button type='button' class='main' disabled={toggleDisabled} {title} onclick={onToggle}>
-    {label}
-  </button>
+  {#if onToggle}
+    <button type='button' class='main' disabled={toggleDisabled} {title} onclick={onToggle}>
+      {label}
+    </button>
+  {/if}
   <button
     type='button'
     class='chevron'
+    class:solo={!onToggle}
     aria-label={`Choose ${noun}`}
     aria-haspopup='menu'
     aria-expanded={open}
@@ -124,7 +128,7 @@
     bind:this={chevron}
     onclick={() => (open ? closeMenu() : void openMenu())}
   >
-    ▾
+    {#if !onToggle}{label}{/if} ▾
   </button>
   {#if open}
     <!-- Keys are handled on the menu itself: it only takes them while one of its items has focus. -->
@@ -164,6 +168,12 @@
     padding-inline: 8px !important;
     border-left: 1px solid rgb(255 255 255 / 20%) !important;
     border-radius: 0 8px 8px 0;
+  }
+
+  .chevron.solo {
+    padding-inline: 16px !important;
+    border-left: none !important;
+    border-radius: 8px;
   }
 
   .split > button:disabled {

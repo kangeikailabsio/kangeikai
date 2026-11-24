@@ -23,3 +23,9 @@ describe('deviceStatusText (issue #246)', () => {
     expect(deviceStatusText('microphone', 'unknown')).toBe('Couldn\'t start the microphone.')
   })
 })
+
+describe('deviceStatusText for the speaker (issue #299)', () => {
+  it('names the speaker when there is none', () => {
+    expect(deviceStatusText('speaker', 'not-found')).toBe('No speaker found.')
+  })
+})

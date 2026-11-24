@@ -133,6 +133,19 @@ describe('devicePreview (issue #246)', () => {
     expect(preview.activeDeviceId('audioinput')).toBe('mic-2')
   })
 
+  it('only remembers the speaker: nothing is stopped or captured for it (issue #299)', async () => {
+    const { preview, createTracks, saved, events } = createStack()
+    await preview.start()
+    createTracks.mockClear()
+    events.length = 0
+
+    await preview.selectDevice('audiooutput', 'out-2')
+
+    expect(saved).toEqual([['audiooutput', 'out-2']])
+    expect(createTracks).not.toHaveBeenCalled()
+    expect(events).toEqual([])
+  })
+
   it('only remembers the device when it is switched off: it applies when turned on', async () => {
     const { preview, createTracks, saved } = createStack({ choice: {} })
     await preview.start()

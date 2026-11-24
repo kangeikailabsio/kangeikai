@@ -6,8 +6,12 @@ import { resolveDevice } from './device-list'
 import { deviceStatusText } from './device-status-text'
 
 /** What a kind of device is called in the HUD's text (the menu's aria label, the "no device" note). */
-export function deviceNoun(kind: DeviceKind): PreviewKind {
-  return kind === 'audioinput' ? 'microphone' : 'camera'
+export function deviceNoun(kind: DeviceKind): PreviewKind | 'speaker' {
+  switch (kind) {
+    case 'audioinput': return 'microphone'
+    case 'videoinput': return 'camera'
+    case 'audiooutput': return 'speaker'
+  }
 }
 
 export interface DeviceMenuEntry {

@@ -545,6 +545,40 @@ describe('mediaControls failure kinds and device switching (issue #245)', () => 
   })
 })
 
+describe('mediaControls audio output (issue #299)', () => {
+  function roomWithSwitch(participant: FakeLocalParticipant) {
+    const switchActiveDevice = vi.fn(async () => true)
+    const room = { localParticipant: participant, options: {} as Record<string, unknown>, switchActiveDevice } as unknown as Room
+    return { room, switchActiveDevice }
+  }
+
+  it('switches the speaker right away, with nothing to turn on first, and points later playback at it', async () => {
+    const { room, switchActiveDevice } = roomWithSwitch(createFakeLocalParticipant())
+    const controls = new MediaControls(room)
+    controls.declareIntent({ microphoneEnabled: false, cameraEnabled: false })
+
+    const switched = await controls.switchDevice('audiooutput', 'out-2')
+
+    expect(switched).toBe(true)
+    expect(switchActiveDevice).toHaveBeenCalledWith('audiooutput', 'out-2')
+    expect(room.options.audioOutput).toEqual({ deviceId: 'out-2' })
+    expect(room.options.audioCaptureDefaults).toBeUndefined()
+  })
+
+  it('reports a refused switch without throwing and without touching the microphone or camera failures', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { room, switchActiveDevice } = roomWithSwitch(createFakeLocalParticipant())
+    switchActiveDevice.mockRejectedValueOnce(new Error('setSinkId is not supported'))
+    const controls = new MediaControls(room)
+
+    const switched = await controls.switchDevice('audiooutput', 'out-2')
+
+    expect(switched).toBe(false)
+    expect(controls.microphoneFailure).toBeUndefined()
+    expect(controls.cameraFailure).toBeUndefined()
+  })
+})
+
 describe('mediaControls switching rooms (issue #264)', () => {
   function twoRooms() {
     const office = createFakeLocalParticipant()

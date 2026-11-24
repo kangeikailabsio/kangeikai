@@ -167,7 +167,7 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   reaproveitado). O `MediaControls` ganha o motivo da falha e `switchDevice`, que troca ao vivo quando o
   microfone ou a câmera está ligado e, desligado, só aponta a próxima captura. Um dispositivo salvo que
   sumiu não impede ninguém de entrar: o LiveKit tenta de novo sem exigir o dispositivo exato. Ficaram de
-  fora: qualquer tela (a de entrada é a #246 e o menu da sala é a #247), a saída de áudio (alto-falante),
+  fora: qualquer tela (a de entrada é a #246 e o menu da sala é a #247), a saída de áudio (veio na [#299](https://github.com/kangeikailabsio/kangeikai/issues/299)),
   avisar quando o dispositivo em uso é desplugado e testar a troca entre dois dispositivos reais no e2e
   (o Chromium só oferece um microfone e uma câmera falsos; isso e os pedidos de permissão se conferem à
   mão). Achado lateral, fora do épico: ao ir do escritório para uma sala privada o app desconecta a sala
@@ -180,7 +180,7 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   um interruptor liga/desliga; o estado dos interruptores é como a pessoa entra na sala. A prévia é
   independente da sala (`DevicePreview`): ela é parada ao clicar em "Enter" e a sala captura de novo com o
   dispositivo escolhido, porque o LiveKit para as faixas ao desconectar e não dá para entregá-las. Ficaram
-  de fora: medidor de volume do microfone e botão de teste (viram a modal da #248), saída de áudio, e
+  de fora: medidor de volume do microfone e botão de teste (viram a modal da #248), e
   trocar o dispositivo dentro da sala (#247). Dispositivo bloqueado, ausente ou em uso é explicado na
   tela, mas nunca impede de entrar. No e2e só dá para testar com o microfone e a câmera falsos do
   Chromium; a troca entre dispositivos reais e os pedidos de permissão se conferem à mão.
@@ -191,10 +191,21 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   menu (`role='menu'`, setas e Escape) com os dispositivos e o atual marcado. Escolher um dispositivo o
   guarda para as próximas salas e visitas e troca na sala atual (ao vivo só se estiver ligado; desligado,
   só aponta a próxima captura). O menu fica desligado em "Busy", atualiza no `devicechange` e, sem
-  dispositivos, explica o motivo. Ficaram de fora: a saída de áudio (alto-falante) e avisar quando o
-  dispositivo em uso é desplugado. O e2e só enxerga o microfone e a câmera falsos do Chromium; trocar
+  dispositivos, explica o motivo. Ficou de fora avisar quando o
+  dispositivo em uso é desplugado (a saída de áudio veio na #299). O e2e só enxerga o microfone e a câmera falsos do Chromium; trocar
   entre dois dispositivos reais, um fone Bluetooth conectando com o menu aberto e trocar numa sala
   privada e sair andando se conferem à mão.
+
+- **Saída de áudio só onde o navegador deixa, sem som de teste** — [#299](https://github.com/kangeikailabsio/kangeikai/issues/299),
+  parte do épico [#302](https://github.com/kangeikailabsio/kangeikai/issues/302): o menu do HUD ganha o botão
+  "Speaker" e a tela de entrada uma linha "Speaker", que escolhem onde se ouve os outros (`audiooutput` no
+  `DeviceChoice`, mesma chave do `localStorage`). A escolha vai para `room.options.audioOutput` de cada sala
+  (escritório e privadas, como as entradas) e `MediaControls.switchDevice('audiooutput')` troca na hora. Só
+  existe onde há `setSinkId` (Chromium); no Firefox e no Safari o HUD esconde o botão e a tela de entrada diz
+  que usa o padrão do sistema. Busy não desliga o menu da saída. Ficaram de fora: um botão de som de teste e
+  controle de volume, aplicar a escolha ao som de notificação (`notification-sound.ts`, que toca no padrão do
+  sistema), um aviso quando a saída salva some (cai no padrão do navegador) e teste e2e (o Chromium falso só
+  oferece uma saída; trocar entre duas reais se confere à mão).
 
 - **Validação de movimento no servidor, só o essencial** — [#255](https://github.com/kangeikailabsio/kangeikai/issues/255),
   parte do épico [#253](https://github.com/kangeikailabsio/kangeikai/issues/253): o servidor deixa de

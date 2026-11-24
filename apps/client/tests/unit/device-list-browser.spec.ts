@@ -1,4 +1,4 @@
-import { listDevices, watchDevices } from '$lib/av/devices/device-list'
+import { isAudioOutputSupported, listDevices, watchDevices } from '$lib/av/devices/device-list'
 import { Room } from 'livekit-client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -48,5 +48,38 @@ describe('watchDevices (issue #282)', () => {
     vi.stubGlobal('navigator', {})
 
     expect(() => watchDevices(vi.fn())()).not.toThrow()
+  })
+})
+
+describe('audio output support (issue #299)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  it('is supported only where media elements can pick a sink', () => {
+    vi.stubGlobal('HTMLMediaElement', { prototype: { setSinkId: () => {} } })
+    expect(isAudioOutputSupported()).toBe(true)
+    vi.stubGlobal('HTMLMediaElement', { prototype: {} })
+    expect(isAudioOutputSupported()).toBe(false)
+    vi.stubGlobal('HTMLMediaElement', undefined)
+    expect(isAudioOutputSupported()).toBe(false)
+  })
+
+  it('lists no speakers, without asking the browser, where it cannot choose one', async () => {
+    vi.stubGlobal('navigator', { mediaDevices: {} })
+    vi.stubGlobal('HTMLMediaElement', { prototype: {} })
+
+    await expect(listDevices('audiooutput')).resolves.toEqual([])
+    expect(Room.getLocalDevices).not.toHaveBeenCalled()
+  })
+
+  it('lists the speakers where it can', async () => {
+    vi.stubGlobal('navigator', { mediaDevices: {} })
+    vi.stubGlobal('HTMLMediaElement', { prototype: { setSinkId: () => {} } })
+    vi.mocked(Room.getLocalDevices).mockResolvedValueOnce([{ kind: 'audiooutput', deviceId: 'out-1', label: 'Headphones', groupId: 'g' }] as MediaDeviceInfo[])
+
+    await expect(listDevices('audiooutput')).resolves.toEqual([{ deviceId: 'out-1', label: 'Headphones' }])
+    expect(Room.getLocalDevices).toHaveBeenCalledWith('audiooutput', false)
   })
 })

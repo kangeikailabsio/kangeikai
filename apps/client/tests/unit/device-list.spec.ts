@@ -49,3 +49,14 @@ describe('resolveDevice (issue #245)', () => {
     expect(resolveDevice([], 'mic-1')).toBeUndefined()
   })
 })
+
+describe('audio output (issue #299)', () => {
+  it('lists speakers, and names an unlabelled one by position', () => {
+    const devices = [device('audiooutput', 'out-1', 'Headphones'), device('audioinput', 'mic-1', 'Mic'), device('audiooutput', 'out-2', '')]
+
+    expect(toDeviceOptions(devices, 'audiooutput')).toEqual([
+      { deviceId: 'out-1', label: 'Headphones' },
+      { deviceId: 'out-2', label: 'Speaker 2' },
+    ])
+  })
+})

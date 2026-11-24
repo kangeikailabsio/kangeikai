@@ -72,3 +72,24 @@ describe('deviceNoun (issue #299)', () => {
     expect(deviceNoun('videoinput')).toBe('camera')
   })
 })
+
+describe('speaker menu (issue #299)', () => {
+  const headphones = { deviceId: 'headphones', label: 'Headphones' }
+  const speakers = { deviceId: 'speakers', label: 'Speakers' }
+
+  it('marks the saved speaker, and falls back to the default one when it was unplugged', () => {
+    const saved = deviceMenuContent({ options: [speakers, headphones], choice: { audiooutput: 'headphones' }, device: 'audiooutput', failure: undefined })
+    const gone = deviceMenuContent({ options: [speakers, { deviceId: 'default', label: 'Default' }], choice: { audiooutput: 'headphones' }, device: 'audiooutput', failure: undefined })
+
+    expect(saved).toEqual({ kind: 'devices', entries: [{ ...speakers, current: false }, { ...headphones, current: true }] })
+    expect(gone).toMatchObject({ entries: [{ current: false }, { deviceId: 'default', current: true }] })
+  })
+
+  it('says there is no speaker when the list is empty', () => {
+    expect(deviceMenuContent({ options: [], choice: {}, device: 'audiooutput', failure: undefined })).toEqual({ kind: 'message', text: 'No speaker found.' })
+  })
+
+  it('names the kind', () => {
+    expect(deviceNoun('audiooutput')).toBe('speaker')
+  })
+})

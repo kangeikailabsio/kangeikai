@@ -1,4 +1,5 @@
 import type { LocalVideoTrack, RemoteVideoTrack } from 'livekit-client'
+import { sameEntries } from './same-entries'
 
 /**
  * One tile in the full-screen screen-share grid (#100) — every active screen share nearby,
@@ -10,17 +11,6 @@ export interface ScreenShareGridTile {
   name: string
   isLocal: boolean
   videoTrack: LocalVideoTrack | RemoteVideoTrack | undefined
-}
-
-/**
- * Whether two grids show the same thing. `OfficeScene` rebuilds the tile objects on every refresh, so
- * the tiles are compared by what they hold (the `videoTrack` by identity), never by reference.
- */
-function sameTiles(a: readonly ScreenShareGridTile[], b: readonly ScreenShareGridTile[]): boolean {
-  return a.length === b.length && a.every((tile, index) => {
-    const other = b[index]
-    return tile.sessionId === other.sessionId && tile.name === other.name && tile.isLocal === other.isLocal && tile.videoTrack === other.videoTrack
-  })
 }
 
 /**
@@ -37,7 +27,7 @@ function createScreenShareGridState() {
       return tiles
     },
     set(value: ScreenShareGridTile[]): void {
-      if (!sameTiles(tiles, value))
+      if (!sameEntries(tiles, value))
         tiles = value
     },
   }

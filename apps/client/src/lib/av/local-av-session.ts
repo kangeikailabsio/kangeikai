@@ -24,6 +24,8 @@ export interface LocalAvSessionEvents {
   onScreenShareHandoffFailed: () => void
   /** A private room just connected (its pending tiles start counting again). */
   onPrivateRoomConnect: () => void
+  /** The microphone or camera in use stopped by itself: the device was unplugged or its permission revoked (issue #300). */
+  onDeviceLost: (kind: 'microphone' | 'camera') => void
 }
 
 export interface LocalAvSessionOptions {
@@ -221,6 +223,7 @@ export class LocalAvSession {
         room,
         () => this.options.events.onScreenShareEnded(),
         quality => this.options.events.onConnectionQualityChanged(quality),
+        kind => this.options.events.onDeviceLost(kind),
       )
       this.mediaControls = next
     }

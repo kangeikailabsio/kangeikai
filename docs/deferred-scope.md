@@ -168,7 +168,7 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   microfone ou a câmera está ligado e, desligado, só aponta a próxima captura. Um dispositivo salvo que
   sumiu não impede ninguém de entrar: o LiveKit tenta de novo sem exigir o dispositivo exato. Ficaram de
   fora: qualquer tela (a de entrada é a #246 e o menu da sala é a #247), a saída de áudio (alto-falante),
-  avisar quando o dispositivo em uso é desplugado e testar a troca entre dois dispositivos reais no e2e
+  testar a troca entre dois dispositivos reais no e2e
   (o Chromium só oferece um microfone e uma câmera falsos; isso e os pedidos de permissão se conferem à
   mão). Achado lateral, fora do épico: ao ir do escritório para uma sala privada o app desconecta a sala
   antiga sem esperar o microfone ser liberado (o #137 só cobre a volta), então a corrida de "dispositivo
@@ -191,10 +191,19 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   menu (`role='menu'`, setas e Escape) com os dispositivos e o atual marcado. Escolher um dispositivo o
   guarda para as próximas salas e visitas e troca na sala atual (ao vivo só se estiver ligado; desligado,
   só aponta a próxima captura). O menu fica desligado em "Busy", atualiza no `devicechange` e, sem
-  dispositivos, explica o motivo. Ficaram de fora: a saída de áudio (alto-falante) e avisar quando o
-  dispositivo em uso é desplugado. O e2e só enxerga o microfone e a câmera falsos do Chromium; trocar
+  dispositivos, explica o motivo. Ficaram de fora: a saída de áudio (alto-falante). O e2e só enxerga o microfone e a câmera falsos do Chromium; trocar
   entre dois dispositivos reais, um fone Bluetooth conectando com o menu aberto e trocar numa sala
   privada e sair andando se conferem à mão.
+
+- **Aviso de dispositivo desplugado só em toast, sem trocar nem reativar** — [#300](https://github.com/kangeikailabsio/kangeikai/issues/300),
+  parte do épico [#302](https://github.com/kangeikailabsio/kangeikai/issues/302): o `MediaControls` escuta o
+  `TrackEvent.Ended` da faixa publicada do microfone e da câmera, que o LiveKit só emite quando o dispositivo
+  some (desplugado ou permissão revogada; desligar ou despublicar tira o listener antes de parar a faixa), e a
+  cena mostra o toast "Your microphone was disconnected" (ou "camera"). Só conta a faixa que está publicada
+  na sala ativa. O toast é neutro porque o LiveKit tenta sozinho outro dispositivo (o padrão, no microfone):
+  não dizemos se deu certo, e a pessoa vê pelo botão. Ficaram de fora: avisar da saída de áudio, dizer para
+  qual dispositivo se passou e um aviso que dure mais que os 2,5 s do toast. Desplugar de verdade se confere
+  à mão: o e2e não consegue tirar o dispositivo falso do Chromium.
 
 - **Validação de movimento no servidor, só o essencial** — [#255](https://github.com/kangeikailabsio/kangeikai/issues/255),
   parte do épico [#253](https://github.com/kangeikailabsio/kangeikai/issues/253): o servidor deixa de

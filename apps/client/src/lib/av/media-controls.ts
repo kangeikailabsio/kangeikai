@@ -2,7 +2,7 @@ import type { ConnectionQuality, LocalTrack, LocalTrackPublication, Room } from 
 import type { DeviceKind } from './devices/device-choice-store'
 import type { MediaFailureKind } from './devices/device-error'
 import type { ScreenShareQualityTier } from './screen-share-quality'
-import { ParticipantEvent, Track } from 'livekit-client'
+import { ParticipantEvent, Track, TrackEvent } from 'livekit-client'
 import { classifyMediaError } from './devices/device-error'
 import { applyDeviceChoice } from './devices/room-device-options'
 import { DEFAULT_SCREEN_SHARE_QUALITY_TIER, resolveScreenShareQuality } from './screen-share-quality'
@@ -88,6 +88,23 @@ export class MediaControls {
     this.onConnectionQualityChanged?.(quality)
   }
 
+  /**
+   * Issue #300 — LiveKit emits `TrackEvent.Ended` on a microphone or camera track when its device
+   * goes away (unplugged, or the permission revoked). It does not for a track the person turned off
+   * or that was unpublished, because those remove the listener before stopping. LiveKit then tries
+   * another device on its own; this only tells the person it happened. Only the track currently
+   * published on the active room counts, so a late event of a room that was left is ignored.
+   */
+  private readonly handleLocalTrackPublished = (publication: LocalTrackPublication): void => {
+    const kind = publication.source === Track.Source.Microphone ? 'microphone' : publication.source === Track.Source.Camera ? 'camera' : undefined
+    if (!kind || !publication.track)
+      return
+    publication.track.on(TrackEvent.Ended, () => {
+      if (this.room.localParticipant.getTrackPublication(publication.source) === publication)
+        this.onDeviceLost?.(kind)
+    })
+  }
+
   private room: Room
 
   /**
@@ -95,7 +112,7 @@ export class MediaControls {
    * LiveKit room is active (`switchRoom`), so what they asked for (intent, Busy) never has to be
    * copied from one instance to the next (issue #264).
    */
-  constructor(room: Room, private readonly onScreenShareEnded?: () => void, private readonly onConnectionQualityChanged?: (quality: ConnectionQuality) => void) {
+  constructor(room: Room, private readonly onScreenShareEnded?: () => void, private readonly onConnectionQualityChanged?: (quality: ConnectionQuality) => void, private readonly onDeviceLost?: (kind: 'microphone' | 'camera') => void) {
     this.room = room
     this.listenToRoom(room)
     // Reports the room's already-current reading immediately, rather than leaving the caller at
@@ -117,6 +134,7 @@ export class MediaControls {
   switchRoom(room: Room): void {
     this.room.localParticipant.off(ParticipantEvent.LocalTrackUnpublished, this.handleLocalTrackUnpublished)
     this.room.localParticipant.off(ParticipantEvent.ConnectionQualityChanged, this.handleConnectionQualityChanged)
+    this.room.localParticipant.off(ParticipantEvent.LocalTrackPublished, this.handleLocalTrackPublished)
     this.room = room
     this.listenToRoom(room)
     this.micUnavailable = false
@@ -131,6 +149,7 @@ export class MediaControls {
   private listenToRoom(room: Room): void {
     room.localParticipant.on(ParticipantEvent.LocalTrackUnpublished, this.handleLocalTrackUnpublished)
     room.localParticipant.on(ParticipantEvent.ConnectionQualityChanged, this.handleConnectionQualityChanged)
+    room.localParticipant.on(ParticipantEvent.LocalTrackPublished, this.handleLocalTrackPublished)
   }
 
   get microphoneEnabled(): boolean {

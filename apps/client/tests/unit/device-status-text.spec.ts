@@ -1,4 +1,4 @@
-import { deviceStatusText } from '$lib/av/devices/device-status-text'
+import { deviceLostText, deviceStatusText } from '$lib/av/devices/device-status-text'
 import { describe, expect, it } from 'vitest'
 
 describe('deviceStatusText (issue #246)', () => {
@@ -21,5 +21,12 @@ describe('deviceStatusText (issue #246)', () => {
   it('has a generic line for anything else', () => {
     expect(deviceStatusText('camera', 'unknown')).toBe('Couldn\'t start the camera.')
     expect(deviceStatusText('microphone', 'unknown')).toBe('Couldn\'t start the microphone.')
+  })
+})
+
+describe('deviceLostText (issue #300)', () => {
+  it('names the device that stopped', () => {
+    expect(deviceLostText('microphone')).toBe('Your microphone was disconnected')
+    expect(deviceLostText('camera')).toBe('Your camera was disconnected')
   })
 })

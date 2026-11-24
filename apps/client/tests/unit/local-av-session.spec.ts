@@ -107,6 +107,7 @@ function setup(options: { presence?: 'available' | 'busy', onPrivateRoomBuilt?: 
     onConnectionQualityChanged: vi.fn(),
     onScreenShareHandoffFailed: vi.fn(),
     onPrivateRoomConnect: vi.fn(),
+    onDeviceLost: vi.fn(),
   }
   const state = { presence: options.presence ?? 'available' as 'available' | 'busy' }
   const flushPosition = vi.fn(() => {

@@ -60,7 +60,7 @@ jobs:
         run: pnpm --filter @kangeikai/server build
 
   # Unit tests of every package, no external services. Coverage is checked against the thresholds
-  # in each package's Vitest config (90% of lines, statements and functions, 85% of branches).
+  # in each package's Vitest config (90% of lines, statements and functions, 90% of branches).
   unit:
     runs-on: ubuntu-latest
     timeout-minutes: 15

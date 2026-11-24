@@ -1,4 +1,4 @@
-import { chooseDevice, deviceMenuContent } from '$lib/av/devices/device-menu-model'
+import { chooseDevice, deviceMenuContent, deviceNoun } from '$lib/av/devices/device-menu-model'
 import { describe, expect, it, vi } from 'vitest'
 
 const headset = { deviceId: 'headset', label: 'Headset' }
@@ -63,5 +63,12 @@ describe('chooseDevice (issue #247)', () => {
 
     expect(worked).toBe(false)
     expect(save).toHaveBeenCalledWith('videoinput', 'webcam')
+  })
+})
+
+describe('deviceNoun (issue #299)', () => {
+  it('names each kind of device by what the person calls it', () => {
+    expect(deviceNoun('audioinput')).toBe('microphone')
+    expect(deviceNoun('videoinput')).toBe('camera')
   })
 })

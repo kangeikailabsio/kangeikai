@@ -4,7 +4,7 @@
   import type { DeviceOption } from '$lib/av/devices/device-list'
   import type { DeviceMenuContent } from '$lib/av/devices/device-menu-model'
   import { listDevices, watchDevices } from '$lib/av/devices/device-list'
-  import { deviceMenuContent } from '$lib/av/devices/device-menu-model'
+  import { deviceMenuContent, deviceNoun } from '$lib/av/devices/device-menu-model'
   import { onDestroy, tick } from 'svelte'
 
   interface Props {
@@ -24,7 +24,7 @@
 
   const { device, label, toggleDisabled, menuDisabled, title, failure, loadChoice, onToggle, onSelect }: Props = $props()
 
-  const noun = $derived(device === 'audioinput' ? 'microphone' : 'camera')
+  const noun = $derived(deviceNoun(device))
 
   let open = $state(false)
   let options: DeviceOption[] = $state([])

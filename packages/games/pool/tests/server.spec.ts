@@ -315,6 +315,19 @@ describe('game modes', () => {
     }
     return snapshots.get('a')!
   }
+  it('tells the shooter why the turn passed after pocketing an opponent ball in 8-ball (issue #279)', () => {
+    seat('a')
+    seat('b')
+    for (const id of ['a', 'b']) manager.handle(id, { kind: 'ready', tableId: 'one', ready: true })
+    const table = session() as unknown as { context: unknown, report: { firstContact: number | null, pocketed: number[], railsAfterContact: number[] } }
+    Object.assign(session().state, { groups: ['solids', 'stripes'], breaking: false })
+    table.context = { mode: '8-ball', shooter: 0, groups: ['solids', 'stripes'], breaking: false, eligibleForEight: false }
+    table.report = { firstContact: 1, pocketed: [2, 9], railsAfterContact: [] }
+
+    ;(manager as unknown as { resolve: (table: Session) => void }).resolve(session())
+
+    expect(snapshots.get('a')).toMatchObject({ turn: 1, ballInHand: false, notice: 'An opponent\'s ball was pocketed: turn lost.' })
+  })
   it('pockets the lowest opponent ball without ball in hand on a Regional wrong first contact', () => {
     const state = wrongFirstContact('regional')
     expect(state).toMatchObject({ turn: 1, ballInHand: false })

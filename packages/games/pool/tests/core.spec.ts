@@ -1,5 +1,5 @@
-import type { ShotContext } from '@kangeikai/game-pool/core'
-import { BALL_HUES, ballBodyCss, ballHue, ballHueCss, evaluateShot, hasClearedGroup, lowestBall, nextSeat, otherTeam, teamOfSeat, toCssHex } from '@kangeikai/game-pool/core'
+import type { ShotContext, ShotOutcome } from '@kangeikai/game-pool/core'
+import { BALL_HUES, ballBodyCss, ballHue, ballHueCss, evaluateShot, hasClearedGroup, lowestBall, nextSeat, otherTeam, shotNotice, teamOfSeat, toCssHex } from '@kangeikai/game-pool/core'
 import { createRack } from '@kangeikai/game-pool/physics'
 import { describe, expect, it } from 'vitest'
 
@@ -60,6 +60,13 @@ describe('casual eight-ball rules', () => {
   it('passes the turn when only an opponent ball drops', () => {
     expect(evaluateShot(assigned, { firstContact: 1, pocketed: [9], railsAfterContact: [] }))
       .toMatchObject({ next: 1, foul: null })
+  })
+  it('flags a pocketed opponent ball, also next to an own ball, but not on the break or an open table', () => {
+    expect(evaluateShot(assigned, { firstContact: 1, pocketed: [9], railsAfterContact: [] }).pottedOpponentBall).toBe(true)
+    expect(evaluateShot(assigned, { firstContact: 1, pocketed: [2, 9], railsAfterContact: [] })).toMatchObject({ pottedOpponentBall: true, next: 1 })
+    expect(evaluateShot(assigned, { firstContact: 1, pocketed: [2], railsAfterContact: [] }).pottedOpponentBall).toBe(false)
+    expect(evaluateShot({ ...assigned, breaking: true }, { firstContact: 1, pocketed: [9], railsAfterContact: [] }).pottedOpponentBall).toBe(false)
+    expect(evaluateShot(open, { firstContact: 1, pocketed: [2, 9], railsAfterContact: [] }).pottedOpponentBall).toBe(false)
   })
   it('keeps the turn on a mixed pot on the break and on an open table', () => {
     expect(evaluateShot({ ...open, breaking: true }, { firstContact: 1, pocketed: [2, 9], railsAfterContact: [] }).next).toBe(0)
@@ -190,5 +197,28 @@ describe('teams and rotation', () => {
     expect(nextSeat([0, 1], 1)).toBe(0)
     expect(nextSeat([0, 2, 1, 3], 2)).toBe(1)
     expect(nextSeat([0, 2, 1, 3], 3)).toBe(0)
+  })
+})
+
+describe('shot notice', () => {
+  const quiet: ShotOutcome = { groups: [null, null], next: 0, foul: null, winner: null, respotEight: false, ballInHand: false, respotCue: false, dropsOpponentBall: false, pottedOpponentBall: false }
+
+  it('hands the turn over with a plain prompt when nothing happened', () => {
+    expect(shotNotice(quiet, null)).toBe('Your turn to aim.')
+  })
+  it('names a foul and what it costs', () => {
+    expect(shotNotice({ ...quiet, foul: 'No ball was hit.', ballInHand: true }, null)).toBe('No ball was hit. Ball in hand for the opponent.')
+    expect(shotNotice({ ...quiet, foul: 'Wrong ball.' }, null)).toBe('Wrong ball. Turn lost.')
+  })
+  it('adds the Regional penalty and the cue ball respot to a foul', () => {
+    expect(shotNotice({ ...quiet, foul: 'The cue ball was pocketed.', respotCue: true, dropsOpponentBall: true }, 9))
+      .toBe('The cue ball was pocketed. Turn lost. The opponent\'s ball 9 was pocketed. The cue ball returns to the starting spot.')
+  })
+  it('explains the Regional penalty when no foul was called', () => {
+    expect(shotNotice({ ...quiet, dropsOpponentBall: true, pottedOpponentBall: true }, 10))
+      .toBe('An opponent\'s ball was pocketed: turn lost. The opponent\'s ball 10 was pocketed too.')
+  })
+  it('says why the turn passed when an opponent ball was pocketed and nothing else was', () => {
+    expect(shotNotice({ ...quiet, pottedOpponentBall: true }, null)).toBe('An opponent\'s ball was pocketed: turn lost.')
   })
 })

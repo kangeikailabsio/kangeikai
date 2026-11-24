@@ -195,3 +195,103 @@ describe('classify', () => {
     expect(classify({ ...healthy, rttMs: 400 }).cause).toBe('High latency to the server')
   })
 })
+
+describe('report parsing edge cases (issue #282)', () => {
+  const inbound = { type: 'inbound-rtp', kind: 'video', timestamp: 1000, bytesReceived: 10 }
+
+  it('reads the video entry by mediaType when the browser has no kind', () => {
+    expect(parseReceiverReport(report({ type: 'inbound-rtp', mediaType: 'video', bytesReceived: 5 }), 7)).toMatchObject({ role: 'receiver', timestamp: 7, bytes: 5 })
+    expect(parseReceiverReport(report({ type: 'inbound-rtp', mediaType: 'audio', bytesReceived: 5 }), 7)).toBeUndefined()
+  })
+
+  it('falls back to the caller\'s timestamp and to zero bytes when the entry has neither', () => {
+    expect(parseReceiverReport(report({ type: 'inbound-rtp', kind: 'video' }), 42)).toMatchObject({ timestamp: 42, bytes: 0 })
+  })
+
+  it('names the transport from the selected pair\'s local candidate: TCP, UDP or unknown', () => {
+    const withProtocol = (protocol: unknown) => parseReceiverReport(report(inbound, { type: 'transport', id: 'T', selectedCandidatePairId: 'P' }, { type: 'candidate-pair', id: 'P', localCandidateId: 'L' }, { type: 'local-candidate', id: 'L', protocol }), 0)
+
+    expect(withProtocol('TCP')?.transport).toBe('TCP')
+    expect(withProtocol('udp')?.transport).toBe('UDP')
+    expect(withProtocol('tls')?.transport).toBeUndefined()
+    expect(withProtocol(undefined)?.transport).toBeUndefined()
+  })
+
+  it('uses the nominated succeeded pair when the transport names none', () => {
+    const sample = parseReceiverReport(report(
+      inbound,
+      { type: 'candidate-pair', id: 'P', state: 'succeeded', nominated: true, localCandidateId: 'L', currentRoundTripTime: 0.1 },
+      { type: 'local-candidate', id: 'L', protocol: 'tcp' },
+    ), 0)
+
+    expect(sample).toMatchObject({ transport: 'TCP', roundTripTimeMs: 100 })
+  })
+
+  it('has no transport or round trip when no pair can be found', () => {
+    const sample = parseReceiverReport(report(inbound, { type: 'transport', id: 'T', selectedCandidatePairId: 'missing' }, { type: 'candidate-pair', id: 'P', state: 'waiting' }), 0)
+
+    expect(sample?.transport).toBeUndefined()
+    expect(sample?.roundTripTimeMs).toBeUndefined()
+  })
+
+  it('reads the sharer side by mediaType and falls back to the caller\'s timestamp', () => {
+    expect(parseSenderReport(report({ type: 'outbound-rtp', mediaType: 'video' }), 9)).toMatchObject({ role: 'sender', timestamp: 9, bytes: 0 })
+    expect(parseSenderReport(report({ type: 'outbound-rtp', kind: 'audio' }), 9)).toBeUndefined()
+    expect(parseSenderReport(report(), 9)).toBeUndefined()
+  })
+
+  it('picks the widest simulcast layer, also when some layers do not report a width', () => {
+    const sample = parseSenderReport(report(
+      { type: 'outbound-rtp', kind: 'video', id: 'a', bytesSent: 1 },
+      { type: 'outbound-rtp', kind: 'video', id: 'b', frameWidth: 1920, bytesSent: 2 },
+      { type: 'outbound-rtp', kind: 'video', id: 'c', frameWidth: 640, bytesSent: 3 },
+    ), 0)
+
+    expect(sample).toMatchObject({ bytes: 2, frameWidth: 1920 })
+  })
+
+  it('takes loss and round trip from the matching remote report, else from the pair', () => {
+    const matched = parseSenderReport(report(
+      { type: 'outbound-rtp', kind: 'video', ssrc: 1, qualityLimitationReason: 'cpu' },
+      { type: 'remote-inbound-rtp', ssrc: 2, fractionLost: 0.9, roundTripTime: 0.5 },
+      { type: 'remote-inbound-rtp', ssrc: 1, fractionLost: 0.05, roundTripTime: 0.03 },
+      ...udpPair,
+    ), 0)
+    const unmatched = parseSenderReport(report({ type: 'outbound-rtp', kind: 'video', ssrc: 1, qualityLimitationReason: 7 }, ...udpPair), 0)
+
+    expect(matched).toMatchObject({ fractionLost: 0.05, roundTripTimeMs: 30, limitationReason: 'cpu' })
+    expect(unmatched).toMatchObject({ fractionLost: undefined, roundTripTimeMs: 40, limitationReason: undefined })
+  })
+})
+
+describe('stats tracker and verdict edge cases (issue #282)', () => {
+  it('reads the sharer\'s loss from the remote report, and has none while that report is missing', () => {
+    const tracker = createStatsTracker()
+    tracker.push(sender({ timestamp: 1000, bytes: 0 }))
+
+    expect(tracker.push(sender({ timestamp: 2000, bytes: 125_000, fractionLost: 0.02 }))).toMatchObject({ lossPercent: 2, level: 'unstable', cause: 'Packet loss while sending' })
+    expect(tracker.push(sender({ timestamp: 3000, bytes: 250_000 })).lossPercent).toBeUndefined()
+  })
+
+  it('has no loss to report while a counter of the viewer side is missing', () => {
+    const tracker = createStatsTracker()
+    tracker.push(receiver({ timestamp: 1000, packetsLost: undefined }))
+
+    expect(tracker.push(receiver({ timestamp: 2000, packetsLost: 5, packetsReceived: 100 })).lossPercent).toBeUndefined()
+    expect(tracker.push(receiver({ timestamp: 3000, packetsLost: 5, packetsReceived: undefined })).lossPercent).toBeUndefined()
+  })
+
+  it('reports the available outgoing bitrate in kbps', () => {
+    const tracker = createStatsTracker()
+
+    expect(tracker.push(sender({ timestamp: 1000, availableOutgoingBitrate: 4_000_000 })).availableOutgoingKbps).toBe(4000)
+    expect(tracker.push(sender({ timestamp: 2000 })).availableOutgoingKbps).toBeUndefined()
+  })
+
+  it('blames latency when only the round trip is high, and the encoder when nothing else explains it', () => {
+    expect(classify({ role: 'receiver', rttMs: SHARE_THRESHOLDS.unstableRttMs + 1, recentFreeze: false })).toEqual({ level: 'unstable', cause: 'High latency to the server' })
+    expect(classify({ role: 'receiver', recentFreeze: true, rttMs: 10 })).toEqual({ level: 'poor', cause: 'The stream is freezing' })
+    expect(classify({ role: 'receiver', limitationReason: 'other', recentFreeze: false })).toEqual({ level: 'unstable', cause: 'Quality limited by the encoder' })
+    expect(classify({ role: 'receiver', limitationReason: 'none', rttMs: 10, recentFreeze: false })).toEqual({ level: 'good' })
+  })
+})

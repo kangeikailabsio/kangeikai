@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { colliders, mapSize, privateZones, respawnAreas } from '../../src/map-zones'
+import { colliders, mapSize, privateZones, respawnAreas, toRects } from '../../src/map-zones'
 
 describe('privateZones', () => {
   it('loads at least one zone from the active map\'s spaces layer', () => {
@@ -44,5 +44,18 @@ describe('collision and respawn layers (issue #254)', () => {
 
   it('knows the size of the map in pixels', () => {
     expect(mapSize).toEqual({ width: 2560, height: 2560 })
+  })
+})
+
+describe('toRects (issue #282)', () => {
+  it('turns Tiled objects into rectangles', () => {
+    expect(toRects([{ id: 1, name: 'wall', x: 10, y: 20, width: 30, height: 40 }])).toEqual([{ x: 10, y: 20, width: 30, height: 40 }])
+  })
+
+  it('counts a field the object leaves out as 0', () => {
+    expect(toRects([{ id: 2, name: 'point' }, { id: 3, name: 'half', x: 5, height: 7 }])).toEqual([
+      { x: 0, y: 0, width: 0, height: 0 },
+      { x: 5, y: 0, width: 0, height: 7 },
+    ])
   })
 })

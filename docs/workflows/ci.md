@@ -35,7 +35,7 @@ was split.
 ## Coverage
 
 Each package that has tests has a `test:coverage` script (Vitest, v8) with thresholds of 90% for
-lines, statements and functions and 85% for branches, set in its Vitest config. Only the logic
+lines, statements, functions and branches, set in its Vitest config. Only the logic
 counts: the config of each package lists what it leaves out and why (the Phaser scene and views, the
 `$state` stores, thin SDK adapters, entry points and generated code). That is the code the project
 checks in a browser or with the e2e suite instead of unit tests (`AGENTS.md`).

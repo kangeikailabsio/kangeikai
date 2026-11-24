@@ -46,7 +46,7 @@ chat. See `docs/mvp-plan.md` for the product plan.
   container per test file, tables truncated between tests, nothing but Docker required. Never
   point a test at the developer's own database.
   `pnpm test:unit` and `pnpm test:integration` run each kind on its own; `pnpm test:coverage` checks
-  the thresholds (90% of lines, statements and functions, 85% of branches) on the logic only. What a
+  the thresholds (90% of lines, statements and functions, 90% of branches) on the logic only. What a
   package leaves out of coverage is listed, with the reason, in its Vitest config: a new exclusion
   needs the same. A test of code in `packages/shared` lives in `packages/shared/tests`.
 - **CI**: `.github/workflows/ci.yml` runs on every pull request and on pushes to `main`: `check`

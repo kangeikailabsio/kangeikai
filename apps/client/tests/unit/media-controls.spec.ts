@@ -545,6 +545,191 @@ describe('mediaControls failure kinds and device switching (issue #245)', () => 
   })
 })
 
+describe('mediaControls audio output (issue #299)', () => {
+  function roomWithSwitch(participant: FakeLocalParticipant) {
+    const switchActiveDevice = vi.fn(async () => true)
+    const room = { localParticipant: participant, options: {} as Record<string, unknown>, switchActiveDevice } as unknown as Room
+    return { room, switchActiveDevice }
+  }
+
+  it('switches the speaker right away, with nothing to turn on first, and points later playback at it', async () => {
+    const { room, switchActiveDevice } = roomWithSwitch(createFakeLocalParticipant())
+    const controls = new MediaControls(room)
+    controls.declareIntent({ microphoneEnabled: false, cameraEnabled: false })
+
+    const switched = await controls.switchDevice('audiooutput', 'out-2')
+
+    expect(switched).toBe(true)
+    expect(switchActiveDevice).toHaveBeenCalledWith('audiooutput', 'out-2')
+    expect(room.options.audioOutput).toEqual({ deviceId: 'out-2' })
+    expect(room.options.audioCaptureDefaults).toBeUndefined()
+  })
+
+  it('reports a refused switch without throwing and without touching the microphone or camera failures', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { room, switchActiveDevice } = roomWithSwitch(createFakeLocalParticipant())
+    switchActiveDevice.mockRejectedValueOnce(new Error('setSinkId is not supported'))
+    const controls = new MediaControls(room)
+
+    const switched = await controls.switchDevice('audiooutput', 'out-2')
+
+    expect(switched).toBe(false)
+    expect(controls.microphoneFailure).toBeUndefined()
+    expect(controls.cameraFailure).toBeUndefined()
+  })
+})
+
+describe('mediaControls device loss (issue #300)', () => {
+  /** A published microphone or camera track that can be told its device went away. */
+  function publishTrack(participant: FakeLocalParticipant, source: Track.Source) {
+    let ended: () => void = () => {}
+    const on = vi.fn((_event: string, callback: () => void) => {
+      ended = callback
+    })
+    const publication = { source, track: { on } }
+    participant.publications.set(source, publication)
+    participant.emit('localTrackPublished', publication)
+    return { publication, end: () => ended() }
+  }
+
+  it('reports the microphone or camera that stopped by itself, each by its own name', () => {
+    const participant = createFakeLocalParticipant()
+    const onDeviceLost = vi.fn()
+    const controls = new MediaControls(createFakeRoom(participant), undefined, undefined, onDeviceLost)
+    expect(controls).toBeDefined()
+
+    publishTrack(participant, Track.Source.Microphone).end()
+    publishTrack(participant, Track.Source.Camera).end()
+
+    expect(onDeviceLost.mock.calls).toEqual([['microphone'], ['camera']])
+  })
+
+  it('listens for the track\'s end event, which LiveKit only emits when the device went away', () => {
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant), undefined, undefined, vi.fn())
+    expect(controls).toBeDefined()
+
+    const { publication } = publishTrack(participant, Track.Source.Microphone)
+
+    expect(publication.track.on).toHaveBeenCalledWith('ended', expect.any(Function))
+  })
+
+  it('ignores a screen share, a publication without a track, and a track that is no longer the published one', () => {
+    const participant = createFakeLocalParticipant()
+    const onDeviceLost = vi.fn()
+    const controls = new MediaControls(createFakeRoom(participant), undefined, undefined, onDeviceLost)
+    expect(controls).toBeDefined()
+
+    publishTrack(participant, Track.Source.ScreenShare).end()
+    participant.emit('localTrackPublished', { source: Track.Source.Microphone, track: undefined })
+    const stale = publishTrack(participant, Track.Source.Camera)
+    participant.publications.set(Track.Source.Camera, { track: {} })
+    stale.end()
+
+    expect(onDeviceLost).not.toHaveBeenCalled()
+  })
+
+  it('stops listening to a room it left, and listens to the new one', () => {
+    const office = createFakeLocalParticipant()
+    const priv = createFakeLocalParticipant()
+    const onDeviceLost = vi.fn()
+    const controls = new MediaControls(createFakeRoom(office), undefined, undefined, onDeviceLost)
+
+    controls.switchRoom(createFakeRoom(priv))
+    publishTrack(office, Track.Source.Microphone).end()
+    expect(onDeviceLost).not.toHaveBeenCalled()
+    publishTrack(priv, Track.Source.Microphone).end()
+
+    expect(onDeviceLost).toHaveBeenCalledExactlyOnceWith('microphone')
+  })
+})
+
+describe('mediaControls retrying devices (issue #301)', () => {
+  const notFound = Object.assign(new Error('x'), { name: 'NotFoundError' })
+  const inUse = Object.assign(new Error('x'), { name: 'NotReadableError' })
+  const blocked = Object.assign(new Error('x'), { name: 'NotAllowedError' })
+
+  /** Controls whose microphone and/or camera failed once with the given errors, the person wanting both on. */
+  async function failed(errors: { microphone?: Error, camera?: Error }) {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const participant = createFakeLocalParticipant()
+    const controls = new MediaControls(createFakeRoom(participant))
+    if (errors.microphone)
+      participant.setMicrophoneEnabled.mockRejectedValueOnce(errors.microphone)
+    if (errors.camera)
+      participant.setCameraEnabled.mockRejectedValueOnce(errors.camera)
+    await controls.setMicrophoneEnabled(true)
+    await controls.setCameraEnabled(true)
+    participant.setMicrophoneEnabled.mockClear()
+    participant.setCameraEnabled.mockClear()
+    return { participant, controls }
+  }
+
+  it('tries a missing microphone and a busy camera again, and clears the failure when it works', async () => {
+    const { participant, controls } = await failed({ microphone: notFound, camera: inUse })
+
+    expect(await controls.retryUnavailableDevices()).toBe(true)
+
+    expect(participant.setMicrophoneEnabled).toHaveBeenCalledExactlyOnceWith(true)
+    expect(participant.setCameraEnabled).toHaveBeenCalledExactlyOnceWith(true)
+    expect(controls.microphoneUnavailable).toBe(false)
+    expect(controls.microphoneFailure).toBeUndefined()
+    expect(controls.cameraUnavailable).toBe(false)
+  })
+
+  it('keeps the new reason when the retry fails again', async () => {
+    const { participant, controls } = await failed({ microphone: notFound })
+    participant.setMicrophoneEnabled.mockRejectedValueOnce(inUse)
+
+    expect(await controls.retryUnavailableDevices()).toBe(true)
+
+    expect(controls.microphoneUnavailable).toBe(true)
+    expect(controls.microphoneFailure).toBe('in-use')
+  })
+
+  it('does not retry a blocked permission, an unknown failure, or a device that works', async () => {
+    const { participant, controls } = await failed({ microphone: blocked, camera: new Error('boom') })
+
+    expect(await controls.retryUnavailableDevices()).toBe(false)
+
+    expect(participant.setMicrophoneEnabled).not.toHaveBeenCalled()
+    expect(participant.setCameraEnabled).not.toHaveBeenCalled()
+    expect((await failed({})).controls.microphoneUnavailable).toBe(false)
+  })
+
+  it('does not retry a device the person switched off after it failed', async () => {
+    const { participant, controls } = await failed({ microphone: notFound })
+    controls.declareIntent({ microphoneEnabled: false, cameraEnabled: true })
+
+    expect(await controls.retryUnavailableDevices()).toBe(false)
+    expect(participant.setMicrophoneEnabled).not.toHaveBeenCalled()
+  })
+
+  it('does not retry while Busy, which keeps both off on purpose', async () => {
+    const { participant, controls } = await failed({ microphone: notFound })
+    await controls.beginBusy({ microphoneEnabled: true, cameraEnabled: true })
+    participant.setMicrophoneEnabled.mockClear()
+
+    expect(await controls.retryUnavailableDevices()).toBe(false)
+    expect(participant.setMicrophoneEnabled).not.toHaveBeenCalled()
+  })
+
+  it('does not start a second retry while one is still running', async () => {
+    const { participant, controls } = await failed({ microphone: notFound })
+    let finish!: () => void
+    participant.setMicrophoneEnabled.mockImplementationOnce(() => new Promise<undefined>((resolve) => {
+      finish = () => resolve(undefined)
+    }))
+
+    const first = controls.retryUnavailableDevices()
+    expect(await controls.retryUnavailableDevices()).toBe(false)
+    finish()
+    await first
+
+    expect(participant.setMicrophoneEnabled).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('mediaControls switching rooms (issue #264)', () => {
   function twoRooms() {
     const office = createFakeLocalParticipant()

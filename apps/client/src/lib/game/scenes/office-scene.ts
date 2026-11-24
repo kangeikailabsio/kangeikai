@@ -10,6 +10,7 @@ import avatarManWalkUrl from '$lib/assets/sprites/avatar-man-walk.png?url'
 import avatarWomanIdleUrl from '$lib/assets/sprites/avatar-woman-idle.png?url'
 import avatarWomanWalkUrl from '$lib/assets/sprites/avatar-woman-walk.png?url'
 import { CallTiles } from '$lib/av/call-tiles'
+import { deviceLostText } from '$lib/av/devices/device-status-text'
 import { LocalAvSession } from '$lib/av/local-av-session'
 import { snapshotRoom } from '$lib/av/room-snapshot'
 import { screenShareGridState } from '$lib/av/screen-share-grid-state.svelte'
@@ -347,6 +348,7 @@ export class OfficeScene extends Phaser.Scene {
       onConnectionQualityChanged: quality => this.game.events.emit(CONNECTION_QUALITY_CHANGED_EVENT, quality),
       onScreenShareHandoffFailed: () => toastState.show('Couldn\'t continue screen share — try sharing again'),
       onPrivateRoomConnect: () => this.callTiles.reset(),
+      onDeviceLost: kind => toastState.show(deviceLostText(kind)),
     },
   })
 

@@ -5,7 +5,7 @@
   import type { LocalVideoTrack } from 'livekit-client'
   import { attachVideoTrack } from '$lib/av/attach-video-track'
   import { DeviceChoiceStore } from '$lib/av/devices/device-choice-store'
-  import { listDevices, resolveDevice, watchDevices } from '$lib/av/devices/device-list'
+  import { isAudioOutputSupported, listDevices, resolveDevice, watchDevices } from '$lib/av/devices/device-list'
   import { deviceStatusText } from '$lib/av/devices/device-status-text'
   import { onMount } from 'svelte'
 
@@ -19,12 +19,14 @@
 
   // What was chosen on an earlier visit, shown while a device is off or failed and has no live track to read.
   const saved = new DeviceChoiceStore().load()
-  const chosen = $state<Record<DeviceKind, string | undefined>>({ audioinput: saved.audioinput, videoinput: saved.videoinput })
-  let options = $state<Record<DeviceKind, DeviceOption[]>>({ audioinput: [], videoinput: [] })
+  const chosen = $state<Record<DeviceKind, string | undefined>>({ audioinput: saved.audioinput, videoinput: saved.videoinput, audiooutput: saved.audiooutput })
+  let options = $state<Record<DeviceKind, DeviceOption[]>>({ audioinput: [], videoinput: [], audiooutput: [] })
+  // Browsers without `setSinkId` cannot send sound to a chosen output (issue #299).
+  const outputSupported = isAudioOutputSupported()
 
   async function refresh(): Promise<void> {
-    const [audioinput, videoinput] = await Promise.all([listDevices('audioinput'), listDevices('videoinput')])
-    options = { audioinput, videoinput }
+    const [audioinput, videoinput, audiooutput] = await Promise.all([listDevices('audioinput'), listDevices('videoinput'), listDevices('audiooutput')])
+    options = { audioinput, videoinput, audiooutput }
   }
 
   // Labels only exist once the browser has granted permission, so the lists are read again whenever a device starts or fails.
@@ -105,6 +107,28 @@
 
   {@render deviceRow('camera', 'videoinput', 'Camera')}
   {@render deviceRow('microphone', 'audioinput', 'Microphone')}
+
+  <!-- The speaker has nothing to preview or switch on: only where the sound goes (issue #299). -->
+  <div class='device-row output-row'>
+    <label for='device-speaker'>Speaker</label>
+    <select
+      id='device-speaker'
+      aria-label='Speaker device'
+      disabled={pending || !outputSupported || options.audiooutput.length === 0}
+      value={resolveDevice(options.audiooutput, chosen.audiooutput) ?? ''}
+      onchange={event => choose('audiooutput', event.currentTarget.value)}
+    >
+      {#if options.audiooutput.length === 0}
+        <option value=''>Default</option>
+      {/if}
+      {#each options.audiooutput as option (option.deviceId)}
+        <option value={option.deviceId}>{option.label}</option>
+      {/each}
+    </select>
+  </div>
+  {#if !outputSupported}
+    <p class='device-note' role='status'>Your browser can't choose where sound plays. It uses the system default.</p>
+  {/if}
 </div>
 
 <style>

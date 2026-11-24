@@ -17,6 +17,7 @@
   import BusyOverlay from '$lib/av/busy-overlay.svelte'
   import ConnectionQualityIndicator from '$lib/av/connection-quality-indicator.svelte'
   import { DeviceChoiceStore } from '$lib/av/devices/device-choice-store'
+  import { isAudioOutputSupported } from '$lib/av/devices/device-list'
   import { chooseDevice } from '$lib/av/devices/device-menu-model'
   import DeviceSplitButton from '$lib/av/devices/device-split-button.svelte'
   import { screenShareOverlayState } from '$lib/av/screen-share-overlay-state.svelte'
@@ -42,6 +43,7 @@
   import { helloToastState } from '$lib/ui/hello-toast-state.svelte'
   import HelloToast from '$lib/ui/hello-toast.svelte'
   import { playNotificationSound } from '$lib/ui/notification-sound'
+  import { toastState } from '$lib/ui/toast-state.svelte'
   import Toast from '$lib/ui/toast.svelte'
   import { ConnectionQuality } from 'livekit-client'
   import Phaser from 'phaser'
@@ -56,6 +58,8 @@
   const accountApi = createAccountApi(AUTH_URL)
   const screenShareQualityStore = new ScreenShareQualityStore()
   const deviceChoiceStore = new DeviceChoiceStore()
+  // Where sound plays can only be chosen in some browsers (issue #299).
+  const audioOutputSupported = isAudioOutputSupported()
 
   // The signed-in account's name and avatar, which pre-fill the entry form (issue #232). `checking`
   // until the session is known; `unreachable` when the server could not be asked at all.
@@ -299,9 +303,12 @@
 
   /** Picks a microphone or camera from the HUD menu (issue #247): remembered, and switched on the current room. */
   async function selectDevice(kind: DeviceKind, deviceId: string): Promise<void> {
-    if (localPresence === 'busy' || !mediaControls)
+    // Busy only suspends capture: where the sound plays can still be changed (issue #299).
+    if (!mediaControls || (localPresence === 'busy' && kind !== 'audiooutput'))
       return
-    await chooseDevice(mediaControls, (deviceKind, id) => deviceChoiceStore.choose(deviceKind, id), kind, deviceId)
+    const switched = await chooseDevice(mediaControls, (deviceKind, id) => deviceChoiceStore.choose(deviceKind, id), kind, deviceId)
+    if (!switched && kind === 'audiooutput')
+      toastState.show('Couldn\'t switch the speaker')
     micUnavailable = mediaControls.microphoneUnavailable
     cameraUnavailable = mediaControls.cameraUnavailable
     micFailure = mediaControls.microphoneFailure
@@ -454,6 +461,16 @@
       onToggle={toggleCamera}
       onSelect={deviceId => selectDevice('videoinput', deviceId)}
     />
+    {#if audioOutputSupported}
+      <DeviceSplitButton
+        device='audiooutput'
+        label='🔈 Speaker'
+        menuDisabled={!mediaControls}
+        failure={undefined}
+        loadChoice={() => deviceChoiceStore.load()}
+        onSelect={deviceId => selectDevice('audiooutput', deviceId)}
+      />
+    {/if}
     <button
       type='button'
       aria-pressed={shareEnabled}

@@ -99,6 +99,9 @@ export class DevicePreview {
    */
   async selectDevice(deviceKind: DeviceKind, deviceId: string): Promise<void> {
     this.deps.saveChoice(deviceKind, deviceId)
+    // Nothing is captured for the speaker: the choice is saved and the room applies it (issue #299).
+    if (deviceKind === 'audiooutput')
+      return
     const kind: PreviewKind = deviceKind === 'audioinput' ? 'microphone' : 'camera'
     if (this.released || !this.devices[kind].wanted)
       return

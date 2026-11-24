@@ -81,10 +81,14 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   publicação termina, e a `OfficeScene` repassa isso em toda troca de sala. A primeira versão do
   #222 lia o estado da track antes do `disconnect()`, o que falhava se a pessoa saísse enquanto a
   publicação ainda estava em andamento (#239); essa leitura foi removida. O Busy usa o valor que o
-  `endBusy` vai restaurar. Ficou de fora: tentar publicar de novo no escritório quando a
-  publicação falha de verdade (permissão negada ou sem dispositivo): a intenção é mantida e
-  repassada, mas o botão continua mostrando "Mic unavailable" até a pessoa agir. O fluxo de busy
-  dentro de uma sala privada não tem teste e2e próprio.
+  `endBusy` vai restaurar. A tentativa de publicar de novo quando a publicação falha de verdade
+  veio na [#301](https://github.com/kangeikailabsio/kangeikai/issues/301): um microfone ou câmera
+  "sem dispositivo" ou "em uso" é tentado de novo quando o navegador avisa de uma mudança de
+  dispositivos (`devicechange`), se a pessoa ainda o quer ligado e fora do Busy, e o HUD é atualizado. Uma
+  permissão negada ou uma falha desconhecida não é tentada de novo (um pedido de permissão não deve
+  aparecer sozinho), e fechar o outro app que segurava o dispositivo não gera `devicechange`, então "em
+  uso" só é tentado quando algum dispositivo muda. Não há tentativa por tempo. O fluxo de busy dentro de
+  uma sala privada não tem teste e2e próprio.
 - **Falha de conexão na sala privada: recuperação local, sem avisar os outros** — [#225](https://github.com/kangeikailabsio/kangeikai/issues/225)
   faz o cliente tentar mais 2 vezes (1 s de intervalo) antes de mostrar "Couldn't connect", dá um
   botão "Try again" ao tile de erro, tira o erro quando a outra pessoa sai da zona e esconde o
@@ -167,8 +171,8 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   reaproveitado). O `MediaControls` ganha o motivo da falha e `switchDevice`, que troca ao vivo quando o
   microfone ou a câmera está ligado e, desligado, só aponta a próxima captura. Um dispositivo salvo que
   sumiu não impede ninguém de entrar: o LiveKit tenta de novo sem exigir o dispositivo exato. Ficaram de
-  fora: qualquer tela (a de entrada é a #246 e o menu da sala é a #247), a saída de áudio (alto-falante),
-  avisar quando o dispositivo em uso é desplugado e testar a troca entre dois dispositivos reais no e2e
+  fora: qualquer tela (a de entrada é a #246 e o menu da sala é a #247), a saída de áudio (veio na [#299](https://github.com/kangeikailabsio/kangeikai/issues/299)),
+  testar a troca entre dois dispositivos reais no e2e
   (o Chromium só oferece um microfone e uma câmera falsos; isso e os pedidos de permissão se conferem à
   mão). O achado lateral de que ir do escritório para uma sala privada não esperava o microfone ser
   liberado (a corrida de "dispositivo ocupado") foi resolvido na [#298](https://github.com/kangeikailabsio/kangeikai/issues/298).
@@ -179,7 +183,7 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   um interruptor liga/desliga; o estado dos interruptores é como a pessoa entra na sala. A prévia é
   independente da sala (`DevicePreview`): ela é parada ao clicar em "Enter" e a sala captura de novo com o
   dispositivo escolhido, porque o LiveKit para as faixas ao desconectar e não dá para entregá-las. Ficaram
-  de fora: medidor de volume do microfone e botão de teste (viram a modal da #248), saída de áudio, e
+  de fora: medidor de volume do microfone e botão de teste (viram a modal da #248), e
   trocar o dispositivo dentro da sala (#247). Dispositivo bloqueado, ausente ou em uso é explicado na
   tela, mas nunca impede de entrar. No e2e só dá para testar com o microfone e a câmera falsos do
   Chromium; a troca entre dispositivos reais e os pedidos de permissão se conferem à mão.
@@ -190,10 +194,30 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   menu (`role='menu'`, setas e Escape) com os dispositivos e o atual marcado. Escolher um dispositivo o
   guarda para as próximas salas e visitas e troca na sala atual (ao vivo só se estiver ligado; desligado,
   só aponta a próxima captura). O menu fica desligado em "Busy", atualiza no `devicechange` e, sem
-  dispositivos, explica o motivo. Ficaram de fora: a saída de áudio (alto-falante) e avisar quando o
-  dispositivo em uso é desplugado. O e2e só enxerga o microfone e a câmera falsos do Chromium; trocar
+  dispositivos, explica o motivo. O aviso de desplugado veio na #300 e a saída de áudio na #299. O e2e só enxerga o microfone e a câmera falsos do Chromium; trocar
   entre dois dispositivos reais, um fone Bluetooth conectando com o menu aberto e trocar numa sala
   privada e sair andando se conferem à mão.
+
+- **Saída de áudio só onde o navegador deixa, sem som de teste** — [#299](https://github.com/kangeikailabsio/kangeikai/issues/299),
+  parte do épico [#302](https://github.com/kangeikailabsio/kangeikai/issues/302): o menu do HUD ganha o botão
+  "Speaker" e a tela de entrada uma linha "Speaker", que escolhem onde se ouve os outros (`audiooutput` no
+  `DeviceChoice`, mesma chave do `localStorage`). A escolha vai para `room.options.audioOutput` de cada sala
+  (escritório e privadas, como as entradas) e `MediaControls.switchDevice('audiooutput')` troca na hora. Só
+  existe onde há `setSinkId` (Chromium); no Firefox e no Safari o HUD esconde o botão e a tela de entrada diz
+  que usa o padrão do sistema. Busy não desliga o menu da saída. Ficaram de fora: um botão de som de teste e
+  controle de volume, aplicar a escolha ao som de notificação (`notification-sound.ts`, que toca no padrão do
+  sistema), um aviso quando a saída salva some (cai no padrão do navegador) e teste e2e (o Chromium falso só
+  oferece uma saída; trocar entre duas reais se confere à mão).
+
+- **Aviso de dispositivo desplugado só em toast, sem trocar nem reativar** — [#300](https://github.com/kangeikailabsio/kangeikai/issues/300),
+  parte do épico [#302](https://github.com/kangeikailabsio/kangeikai/issues/302): o `MediaControls` escuta o
+  `TrackEvent.Ended` da faixa publicada do microfone e da câmera, que o LiveKit só emite quando o dispositivo
+  some (desplugado ou permissão revogada; desligar ou despublicar tira o listener antes de parar a faixa), e a
+  cena mostra o toast "Your microphone was disconnected" (ou "camera"). Só conta a faixa que está publicada
+  na sala ativa. O toast é neutro porque o LiveKit tenta sozinho outro dispositivo (o padrão, no microfone):
+  não dizemos se deu certo, e a pessoa vê pelo botão. Ficaram de fora: avisar da saída de áudio, dizer para
+  qual dispositivo se passou e um aviso que dure mais que os 2,5 s do toast. Desplugar de verdade se confere
+  à mão: o e2e não consegue tirar o dispositivo falso do Chromium.
 
 - **Validação de movimento no servidor, só o essencial** — [#255](https://github.com/kangeikailabsio/kangeikai/issues/255),
   parte do épico [#253](https://github.com/kangeikailabsio/kangeikai/issues/253): o servidor deixa de

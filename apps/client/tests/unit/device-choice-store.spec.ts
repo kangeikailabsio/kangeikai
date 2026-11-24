@@ -68,3 +68,26 @@ describe('deviceChoiceStore (issue #245)', () => {
     expect(() => store.choose('audioinput', 'mic-1')).not.toThrow()
   })
 })
+
+describe('deviceChoiceStore audio output (issue #299)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('remembers the speaker next to the microphone and camera', () => {
+    stubStorage()
+    const store = new DeviceChoiceStore()
+
+    store.choose('audioinput', 'mic-1')
+    store.choose('audiooutput', 'out-2')
+
+    expect(store.load()).toEqual({ audioinput: 'mic-1', audiooutput: 'out-2' })
+  })
+
+  it('keeps a choice saved before the speaker existed, and recovers a bad speaker id on its own', () => {
+    stubStorage({ [DEVICE_CHOICE_STORAGE_KEY]: JSON.stringify({ audioinput: 'mic-1' }) })
+    expect(new DeviceChoiceStore().load()).toEqual({ audioinput: 'mic-1' })
+    stubStorage({ [DEVICE_CHOICE_STORAGE_KEY]: JSON.stringify({ audioinput: 'mic-1', audiooutput: 7 }) })
+    expect(new DeviceChoiceStore().load()).toEqual({ audioinput: 'mic-1' })
+  })
+})

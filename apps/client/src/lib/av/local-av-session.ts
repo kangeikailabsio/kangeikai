@@ -5,6 +5,7 @@ import type { ScreenShareHandoff } from './media-controls'
 import type { PrivateRoomConnectError } from './private-room-controller'
 import type { AvatarPosition, ProximityAudioControllerOptions } from './proximity-audio-controller'
 import type { ScreenShareQualityTier } from './screen-share-quality'
+import { watchDevices } from './devices/device-list'
 import { MediaControls } from './media-controls'
 import { PrivateRoomController } from './private-room-controller'
 import { ProximityAudioController } from './proximity-audio-controller'
@@ -24,6 +25,8 @@ export interface LocalAvSessionEvents {
   onScreenShareHandoffFailed: () => void
   /** A private room just connected (its pending tiles start counting again). */
   onPrivateRoomConnect: () => void
+  /** The microphone or camera in use stopped by itself: the device was unplugged or its permission revoked (issue #300). */
+  onDeviceLost: (kind: 'microphone' | 'camera') => void
 }
 
 export interface LocalAvSessionOptions {
@@ -36,6 +39,8 @@ export interface LocalAvSessionOptions {
   /** The office room and the private rooms; the real ones unless a test hands in its own. */
   office?: ProximityAudioController
   privateRooms?: PrivateRoomController
+  /** Calls back when a device is plugged in or removed, and returns how to stop (the browser's `devicechange`; a test hands in its own). */
+  watchDevices?: (onChange: () => void) => () => void
 }
 
 /**
@@ -75,6 +80,7 @@ export class LocalAvSession {
    * not from the defaults (issue #272).
    */
   private entryIntent: MediaIntent | undefined
+  private stopWatchingDevices: (() => void) | undefined
 
   constructor(private readonly options: LocalAvSessionOptions) {
     this.office = options.office ?? new ProximityAudioController()
@@ -133,6 +139,9 @@ export class LocalAvSession {
    */
   connect(initial: MediaIntent): void {
     this.entryIntent = initial
+    // A microphone or camera that was missing or busy is tried again when a device shows up (issue #301).
+    this.stopWatchingDevices?.()
+    this.stopWatchingDevices = (this.options.watchDevices ?? watchDevices)(() => void this.retryUnavailableDevices())
     // Numbered like any switch: if a private room connects before the office has applied its media,
     // the office must not apply it afterwards on top of the private room's (issue #272).
     this.connectOffice(initial.microphoneEnabled, initial.cameraEnabled, false, undefined, false, ++this.generation)
@@ -176,8 +185,17 @@ export class LocalAvSession {
 
   /** Leaves every LiveKit room. */
   disconnect(): void {
+    this.stopWatchingDevices?.()
+    this.stopWatchingDevices = undefined
     this.office.disconnect()
     this.privateRooms.disconnect()
+  }
+
+  /** A device appeared or went away: gives the microphone and camera that were unavailable another try, and tells the owner so it can refresh. */
+  private async retryUnavailableDevices(): Promise<void> {
+    const media = this.mediaControls
+    if (media && await media.retryUnavailableDevices())
+      this.options.events.onMediaReady(media)
   }
 
   /**
@@ -221,6 +239,7 @@ export class LocalAvSession {
         room,
         () => this.options.events.onScreenShareEnded(),
         quality => this.options.events.onConnectionQualityChanged(quality),
+        kind => this.options.events.onDeviceLost(kind),
       )
       this.mediaControls = next
     }

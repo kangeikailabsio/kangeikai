@@ -1,5 +1,10 @@
 import type { PreviewKind, PreviewStatus } from './device-preview'
 
+/** The toast shown when the microphone or camera in use stops by itself (issue #300). */
+export function deviceLostText(kind: 'microphone' | 'camera'): string {
+  return `Your ${kind} was disconnected`
+}
+
 /**
  * The line shown under a device that does not work, in terms of what the person can do about it
  * (issue #246). `undefined` while it works, is starting, or was switched off on purpose.

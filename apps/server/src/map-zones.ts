@@ -31,7 +31,8 @@ function objectsOf(layerName: string): TiledSpaceObject[] {
   return mapJson.layers.find(layer => layer.name === layerName)?.objects ?? []
 }
 
-function toRects(objects: readonly TiledSpaceObject[]): CollisionRect[] {
+/** A Tiled object as a plain rectangle; a field Tiled leaves out (it omits zeroes) counts as 0. */
+export function toRects(objects: readonly TiledSpaceObject[]): CollisionRect[] {
   return objects.map(object => ({ x: object.x ?? 0, y: object.y ?? 0, width: object.width ?? 0, height: object.height ?? 0 }))
 }
 

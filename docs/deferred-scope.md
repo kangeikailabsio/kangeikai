@@ -11,11 +11,12 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   fora de [#144](https://github.com/kangeikailabsio/kangeikai/issues/144) (vazamento acidental,
   não um cliente malicioso) como um projeto maior e separado — exigiria inscrição
   seletiva/mediada pelo servidor em vez de apenas controle de volume no cliente.
-- **Sem aviso ao encaçapar bola do adversário** — a regra da casa de
+- **Bola do adversário encaçapada: aviso só em texto, sem variante de bola na mão** — a regra da casa de
   [#188](https://github.com/kangeikailabsio/kangeikai/issues/188) (encaçapar qualquer bola do
-  adversário passa a vez, mesmo junto com uma bola sua) não é falta e não mostra mensagem: o
-  jogador só percebe pela vez mudando. Também ficou de fora uma variante com bola na mão para o
-  adversário. O comportamento está em `evaluateShot` (`packages/games/pool/src/core.ts`).
+  adversário passa a vez, mesmo junto com uma bola sua) não é falta. Desde a
+  [#279](https://github.com/kangeikailabsio/kangeikai/issues/279) o `notice` da mesa explica por que a
+  vez passou nos dois modos (`shotNotice` em `packages/games/pool/src/core.ts`). Ficou de fora uma variante
+  com bola na mão para o adversário e qualquer destaque visual além do texto.
 - **Bot de sinuca sem estratégia de posição** — o bot de [#190](https://github.com/kangeikailabsio/kangeikai/issues/190)
   (`packages/games/pool/src/bot.ts`) escolhe a tacada pela bola fantasma e simula só as 5 melhores
   candidatas; não planeja onde a branca vai parar, não faz tacadas de segurança e só tem um nível
@@ -66,8 +67,7 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   fora: ajustar `contentHint`/`degradationPreference`, simulcast e escolha de codec, TURN e fallback
   TCP no servidor LiveKit (hoje sem TURN e com UDP restrito a 50000-50100 em produção), mostrar o
   estado de cada espectador para quem compartilha (exigiria trafegar dados de volta), adaptação
-  automática de qualidade, teste ativo de banda e comparar antes de gravar em
-  `screenShareGridState.set()` (hoje reescrito a cada frame). Os limiares de Boa/Instável/Ruim são
+  automática de qualidade e teste ativo de banda. Os limiares de Boa/Instável/Ruim são
   fixos e conservadores, para ajustar depois com dados reais.
 - **Fluidez sempre vence a nitidez no screen share** — [#217](https://github.com/kangeikailabsio/kangeikai/issues/217)
   faz todos os tiers (720p, 1080p e 2K) usarem `maintain-framerate` e `contentHint: 'motion'`: sob
@@ -90,9 +90,10 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   botão "Try again" ao tile de erro, tira o erro quando a outra pessoa sai da zona e esconde o
   tile pendente dos outros depois de 15 s (ele volta sozinho se a pessoa conectar). Ficaram de
   fora: a pessoa que falhou avisar o servidor (campo no schema ou mensagem validada com Valibot)
-  para os outros verem o motivo, distinguir o tipo de erro na mensagem (403, rede, 5xx), timeouts
-  em `fetch` e `room.connect` (se algo travar, nem o erro aparece) e um possível vazamento de
-  `Room` quando o `room.connect` falha pela metade (visto só na leitura do código). A causa do
+  para os outros verem o motivo, distinguir o tipo de erro na mensagem (403, rede, 5xx) e um possível vazamento de
+  `Room` quando o `room.connect` falha pela metade (visto só na leitura do código). Os timeouts
+  (10 s no `fetch` do token e 15 s no `room.connect`) vieram com [#277](https://github.com/kangeikailabsio/kangeikai/issues/277);
+  cancelar no nível do SDK um `connect()` em andamento continua de fora. A causa do
   erro intermitente (403 por a posição chegar depois do pedido de token) é hipótese, não foi
   reproduzida.
 - **Telas de login e cadastro são só interface** — [#230](https://github.com/kangeikailabsio/kangeikai/issues/230)
@@ -217,7 +218,7 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   nome, direção e schema Valibot; o servidor registra os handlers e o client escuta e envia a partir
   dessa tabela, e o client descarta com `console.warn` o que chega fora do schema. Ficaram de fora: unir
   o protocolo do pool (`POOL_COMMAND` e `POOL_EVENT`, em `packages/games/pool/src/protocol.ts`) a este
-  (o pool já tem o seu schema, mas o `PoolEvent` recebido no client ainda não é validado), e um teste
+  (o pool tem o seu schema, e o client valida o `PoolEvent` recebido desde a [#278](https://github.com/kangeikailabsio/kangeikai/issues/278), mas as tabelas continuam separadas), e um teste
   que prove que o client escuta toda mensagem `toClient` (o servidor já tem o teste equivalente para as
   `toServer`; o `RoomConnection` fala com um `Client` real do Colyseus e não tem fake). Um
   `sessionProof` inválido agora é descartado e o client espera os 5 s do timeout em vez de aceitar o
@@ -315,11 +316,10 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
 - **CI: só o essencial, sem branch protection, SHA nas actions nem matriz** — [#236](https://github.com/kangeikailabsio/kangeikai/issues/236):
   `.github/workflows/ci.yml` roda em todo pull request e em push na `main` os jobs `check` (lint e type
   checks), `build`, `unit`, `integration` (o servidor inteiro com cobertura, Postgres via Testcontainers)
-  e `e2e` (Playwright contra o compose, com Chromium em cache e o relatório como artefato quando falha). A cobertura (`test:coverage` por pacote, 90% de lines, statements e
-  functions e 85% de branches) conta só a lógica; cada exclusão está no config do Vitest com o motivo. Ficaram
+  e `e2e` (Playwright contra o compose, com Chromium em cache e o relatório como artefato quando falha). A cobertura (`test:coverage` por pacote, 90% de lines, statements,
+  functions e branches desde a [#282](https://github.com/kangeikailabsio/kangeikai/issues/282)) conta só a lógica; cada exclusão está no config do Vitest com o motivo. Ficaram
   de fora: marcar os jobs como obrigatórios (é configuração do repositório, não do workflow; o `e2e` fica de
   fora até se provar estável no runner do GitHub), fixar as actions por SHA, matriz de versões do Node ou de
   navegadores (só Chromium), enviar a cobertura a um serviço, cobertura da cena do Phaser, dos componentes
-  Svelte e dos adapters de SDK (checados à mão e pelo e2e) e subir o limite de branches para 90%
-  (hoje o client está em 89,7% e o servidor em 89,6%). O comando `pnpm lint` falhava na `main` por causa dos
+  Svelte e dos adapters de SDK (checados à mão e pelo e2e). O comando `pnpm lint` falhava na `main` por causa dos
   nomes `bug_report.md` e `feature_request.md` dos templates de issue; a regra agora os aceita.

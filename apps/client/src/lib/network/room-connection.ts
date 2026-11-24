@@ -4,8 +4,9 @@ import type { PoolCommand, PoolEvent } from '@kangeikai/game-pool/protocol'
 import type { AvatarDirection, AvatarMotionState, AvatarPresence, AvatarSpriteType, AvatarState, CharacterSelection, InteractionKind, OfficeJoinOptions, OfficePayload, Position } from '@kangeikai/shared'
 import { PUBLIC_COLYSEUS_URL } from '$env/static/public'
 import { listenToOfficeMessage } from '$lib/network/office-message-listener'
+import { listenToPoolEvents } from '$lib/network/pool-event-listener'
 import { Client, getStateCallbacks } from '@colyseus/sdk'
-import { POOL_COMMAND, POOL_EVENT } from '@kangeikai/game-pool/protocol'
+import { POOL_COMMAND } from '@kangeikai/game-pool/protocol'
 import { CLOSE_CODE_SESSION_REPLACED, sendToServer } from '@kangeikai/shared'
 import { PendingUpdateStateSender } from './pending-update-state-sender'
 
@@ -193,7 +194,7 @@ export class RoomConnection {
     try {
       const room = await this.client.joinOrCreate<OfficeRoomLike>('office', options)
       this.room = room
-      room.onMessage<PoolEvent>(POOL_EVENT, event => this.poolListeners.forEach(listener => listener(event)))
+      listenToPoolEvents(room, event => this.poolListeners.forEach(listener => listener(event)))
       room.onLeave(code => this.emitConnectionState(code === CLOSE_CODE_SESSION_REPLACED ? 'replaced' : 'disconnected'))
       room.onDrop(() => this.emitConnectionState('connecting'))
       room.onReconnect(() => this.emitConnectionState('connected'))

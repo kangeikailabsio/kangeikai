@@ -106,6 +106,8 @@ export interface ShotOutcome {
   respotCue: boolean
   /** Regional penalty: the opponent's lowest remaining group ball is pocketed for them. */
   dropsOpponentBall: boolean
+  /** House rule: the shooter pocketed a ball of the opponent's group, which ends the turn without being a foul. */
+  pottedOpponentBall: boolean
 }
 
 /** `penalized`: the Regional penalty for a first contact that was not one of the shooter's own balls. */
@@ -170,6 +172,7 @@ function keepsTurn(context: ShotContext, report: ShotReport, groups: ShotOutcome
 
 export function evaluateShot(context: ShotContext, report: ShotReport): ShotOutcome {
   const { shooter, breaking, eligibleForEight } = context
+  const pottedOpponent = pottedOpponentBall(context, report)
   const opponent = otherTeam(shooter)
   const found = findFoul(context, report)
   const foul = found?.message ?? null
@@ -179,8 +182,26 @@ export function evaluateShot(context: ShotContext, report: ShotReport): ShotOutc
   const groups = !breaking && !foul ? assignGroups(context, report) : [...context.groups] as ShotOutcome['groups']
   const retained = !foul && keepsTurn(context, report, groups)
   const scratched = report.pocketed.includes(0)
-  const dropsOpponentBall = context.mode === 'regional' && !breaking && context.groups[shooter] !== null && Boolean(found?.penalized || scratched || pottedOpponentBall(context, report))
-  return { groups, next: retained ? shooter : opponent, foul, winner, respotEight: breaking && report.pocketed.includes(8), ballInHand: found?.ballInHand ?? false, respotCue: context.mode === 'regional' && scratched, dropsOpponentBall }
+  const dropsOpponentBall = context.mode === 'regional' && !breaking && context.groups[shooter] !== null && Boolean(found?.penalized || scratched || pottedOpponent)
+  return { groups, next: retained ? shooter : opponent, foul, winner, respotEight: breaking && report.pocketed.includes(8), ballInHand: found?.ballInHand ?? false, respotCue: context.mode === 'regional' && scratched, dropsOpponentBall, pottedOpponentBall: pottedOpponent }
+}
+
+/**
+ * What the table says after a shot. `dropped` is the opponent ball the Regional penalty pocketed
+ * for them, or `null` when none was.
+ */
+export function shotNotice(outcome: ShotOutcome, dropped: number | null): string {
+  if (outcome.foul) {
+    return [
+      outcome.foul,
+      outcome.ballInHand ? 'Ball in hand for the opponent.' : 'Turn lost.',
+      dropped !== null && `The opponent's ball ${dropped} was pocketed.`,
+      outcome.respotCue && 'The cue ball returns to the starting spot.',
+    ].filter(Boolean).join(' ')
+  }
+  if (outcome.pottedOpponentBall)
+    return dropped === null ? 'An opponent\'s ball was pocketed: turn lost.' : `An opponent's ball was pocketed: turn lost. The opponent's ball ${dropped} was pocketed too.`
+  return 'Your turn to aim.'
 }
 
 /** Lowest-numbered ball of `group` still on the table (the eight is never part of a group). */

@@ -55,7 +55,7 @@ export default defineConfig({
         'src/lib/account/auth-routes.ts',
       ],
       reporter: ['text-summary', 'html'],
-      thresholds: { lines: 90, statements: 90, functions: 90, branches: 85 },
+      thresholds: { lines: 90, statements: 90, functions: 90, branches: 90 },
     },
   },
 })

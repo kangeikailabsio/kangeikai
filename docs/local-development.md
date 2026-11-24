@@ -51,7 +51,7 @@ Docker running: no compose stack and no `DATABASE_URL`, and your own database is
 pnpm test:unit          # every package's unit tests, no Docker
 pnpm test:integration   # the server's rooms and routes, with PostgreSQL in Docker
 pnpm test               # all of them
-pnpm test:coverage      # with coverage; fails below 90% (lines, statements, functions) or 85% (branches)
+pnpm test:coverage      # with coverage; fails below 90% (lines, statements, functions) or 90% (branches)
 ```
 
 Coverage counts the logic only: each package's Vitest config lists what it leaves out and why (the

@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.16.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.15.0...v0.16.0) (2026-11-24)
+
+
+### Features
+
+* **av:** choose the audio output, speaker or headphones ([#299](https://github.com/kangeikailabsio/kangeikai/issues/299)) ([#304](https://github.com/kangeikailabsio/kangeikai/issues/304)) ([df94935](https://github.com/kangeikailabsio/kangeikai/commit/df94935d3ef5cc1fc3de54a1b67ab867adb65518))
+* **av:** retry the microphone or camera when a device appears ([#301](https://github.com/kangeikailabsio/kangeikai/issues/301)) ([#306](https://github.com/kangeikailabsio/kangeikai/issues/306)) ([f11f5e2](https://github.com/kangeikailabsio/kangeikai/commit/f11f5e2362e235ee866e4520d0c7149bbe0b7e41))
+* **av:** warn when the microphone or camera in use is disconnected ([#300](https://github.com/kangeikailabsio/kangeikai/issues/300)) ([#305](https://github.com/kangeikailabsio/kangeikai/issues/305)) ([2aa1774](https://github.com/kangeikailabsio/kangeikai/commit/2aa1774f04a2376d16e6cc318ce2ffc5175e6fd0))
+* **server:** rate limit the session ticket and profile endpoints ([#293](https://github.com/kangeikailabsio/kangeikai/issues/293)) ([#297](https://github.com/kangeikailabsio/kangeikai/issues/297)) ([1af3ce0](https://github.com/kangeikailabsio/kangeikai/commit/1af3ce057b5a44fe33a21770486436cd8cd2a2db))
+
+
+### Fixes
+
+* **av:** a failed private room attempt disconnects its Room ([#291](https://github.com/kangeikailabsio/kangeikai/issues/291)) ([#295](https://github.com/kangeikailabsio/kangeikai/issues/295)) ([62cf306](https://github.com/kangeikailabsio/kangeikai/commit/62cf30656d9b9c94166cd0117a791d8647652c5b))
+* **av:** the LiveKit token fetch and room connect time out ([#277](https://github.com/kangeikailabsio/kangeikai/issues/277)) ([#284](https://github.com/kangeikailabsio/kangeikai/issues/284)) ([9d5e388](https://github.com/kangeikailabsio/kangeikai/commit/9d5e38809e0f2d97e647d4c33f898da7daa9ff47))
+* **av:** the private room waits for the office to release the microphone ([#298](https://github.com/kangeikailabsio/kangeikai/issues/298)) ([#303](https://github.com/kangeikailabsio/kangeikai/issues/303)) ([f259dc6](https://github.com/kangeikailabsio/kangeikai/commit/f259dc660c05a2ba19db54cba93136f9240a0d5f))
+* **pool:** say why the turn passed after pocketing an opponent's ball ([#279](https://github.com/kangeikailabsio/kangeikai/issues/279)) ([#286](https://github.com/kangeikailabsio/kangeikai/issues/286)) ([8100285](https://github.com/kangeikailabsio/kangeikai/commit/8100285282e602d2bdf9f5121b2ab712fbff97ca))
+
+
+### Performance
+
+* **av:** the screen share grid state ignores a write of the same tiles ([#281](https://github.com/kangeikailabsio/kangeikai/issues/281)) ([#288](https://github.com/kangeikailabsio/kangeikai/issues/288)) ([089e970](https://github.com/kangeikailabsio/kangeikai/commit/089e970154d416f6bcf27058ebe7ce71e976fa98))
+* **av:** the video overlay state ignores a write of the same entries ([#292](https://github.com/kangeikailabsio/kangeikai/issues/292)) ([#296](https://github.com/kangeikailabsio/kangeikai/issues/296)) ([4915569](https://github.com/kangeikailabsio/kangeikai/commit/4915569195605ed4ce13a8f3e3ecec8cf6176ccd))
+
+
+### Improvements
+
+* **pool:** the client validates the pool events it receives ([#278](https://github.com/kangeikailabsio/kangeikai/issues/278)) ([#285](https://github.com/kangeikailabsio/kangeikai/issues/285)) ([755b2ef](https://github.com/kangeikailabsio/kangeikai/commit/755b2ef124c216de44cf51312d17d2d41e826924))
+
 ## [0.15.0](https://github.com/kangeikailabsio/kangeikai/compare/v0.14.1...v0.15.0) (2026-11-15)
 
 

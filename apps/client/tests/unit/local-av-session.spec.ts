@@ -321,6 +321,72 @@ describe('localAvSession office to private room', () => {
   })
 })
 
+describe('localAvSession office to private room, microphone hand-over (issue #298)', () => {
+  /** An office whose disconnect only resolves when the test says so, like a microphone that is slow to be released. */
+  function holdOfficeDisconnect(officeRoom: ReturnType<typeof fakeRoom>) {
+    const released = deferred()
+    officeRoom.disconnect.mockImplementationOnce(async () => {
+      await released.promise
+      log.push('office disconnect resolved')
+    })
+    return released
+  }
+
+  it('does not capture on the private room, or show it, until the office has disconnected', async () => {
+    const { session, officeRoom, privateRoomsBuilt } = setup()
+    session.connect({ microphoneEnabled: true, cameraEnabled: false })
+    await settle()
+    const released = holdOfficeDisconnect(officeRoom)
+    log.length = 0
+
+    await frame(session, inZone, withNeighbour)
+
+    expect(privateRoomsBuilt).toHaveLength(1)
+    expect(privateRoomsBuilt[0].localParticipant.setMicrophoneEnabled).not.toHaveBeenCalled()
+    expect(session.privateRoom).toBeNull()
+    expect(session.activeRoom).toBe(officeRoom)
+
+    released.resolve()
+    await settle()
+
+    expect(privateRoomsBuilt[0].localParticipant.setMicrophoneEnabled).toHaveBeenCalledWith(true)
+    expect(session.privateRoom).toBe(privateRoomsBuilt[0])
+    expect(log.indexOf('office disconnect resolved')).toBeLessThan(log.indexOf('private1 mic true'))
+  })
+
+  it('gives up, and stops the detached share, when the person left the zone while the office was disconnecting', async () => {
+    const { session, officeRoom, privateRoomsBuilt } = setup()
+    session.connect({ microphoneEnabled: true, cameraEnabled: false })
+    await settle()
+    const shareTrack = { kind: 'video', stop: vi.fn() }
+    officeRoom.localParticipant.publications.set(Track.Source.ScreenShare, { track: shareTrack })
+    const released = holdOfficeDisconnect(officeRoom)
+    await frame(session, inZone, withNeighbour)
+    await frame(session, outside, alone)
+
+    released.resolve()
+    await settle()
+
+    expect(session.privateRoom).toBeNull()
+    expect(privateRoomsBuilt[0].localParticipant.setMicrophoneEnabled).not.toHaveBeenCalled()
+    expect(privateRoomsBuilt[0].localParticipant.publishTrack).not.toHaveBeenCalled()
+    expect(shareTrack.stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not fail the switch when the office disconnect throws, and keeps going', async () => {
+    const { session, officeRoom, privateRoomsBuilt } = setup()
+    session.connect({ microphoneEnabled: true, cameraEnabled: false })
+    await settle()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    officeRoom.disconnect.mockRejectedValueOnce(new Error('already gone'))
+
+    await frame(session, inZone, withNeighbour)
+
+    expect(session.privateRoom).toBe(privateRoomsBuilt[0])
+    expect(privateRoomsBuilt[0].localParticipant.setMicrophoneEnabled).toHaveBeenCalledWith(true)
+  })
+})
+
 describe('localAvSession private room back to the office', () => {
   it('waits for the private room to finish disconnecting before the office captures again (issue #137)', async () => {
     const { session } = setup()

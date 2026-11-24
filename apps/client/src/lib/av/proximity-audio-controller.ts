@@ -84,8 +84,17 @@ export class ProximityAudioController {
     await connectRoom(this.room, url, token)
   }
 
-  disconnect(): void {
-    void this.room.disconnect()
+  /**
+   * Resolves once the room is disconnected, which is when its microphone and camera are released
+   * (issue #298): whoever captures next must wait for it. Never rejects.
+   */
+  async disconnect(): Promise<void> {
+    try {
+      await this.room.disconnect()
+    }
+    catch (error) {
+      console.warn('kangeikai: failed to disconnect the office room', error)
+    }
   }
 
   /**

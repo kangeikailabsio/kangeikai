@@ -3,6 +3,7 @@ import type { Ball } from '@kangeikai/game-pool/physics'
 import type { AvatarSpriteType } from '@kangeikai/shared'
 import { GAME_FORMATS, GAME_MODES } from '@kangeikai/game-pool/core'
 import { TAMPER_SIGNALS } from '@kangeikai/game-pool/tamper'
+import { AVATAR_SPRITE_TYPES } from '@kangeikai/shared'
 import * as v from 'valibot'
 
 const finite = v.pipe(v.number(), v.finite())
@@ -84,6 +85,56 @@ export type PoolEvent = { kind: 'snapshot', state: PoolSnapshot }
   | { kind: 'kicked', tableId: string, reason: 'tampering' }
   | { kind: 'closed', tableId: string }
   | { kind: 'error', tableId?: string, message: string }
+
+const team = v.picklist([0, 1])
+const group = v.nullable(v.picklist(['solids', 'stripes']))
+const ballSchema = v.object({ id: sequence, x: finite, y: finite, vx: finite, vy: finite, pocketed: v.boolean() })
+const playerSchema = v.object({ sessionId: v.string(), name: v.string(), spriteType: v.picklist(AVATAR_SPRITE_TYPES), ready: v.boolean(), connected: v.boolean() })
+const aimSchema = v.object({
+  matchId: sequence,
+  turnId: sequence,
+  angle: finite,
+  power: finite,
+  locked: v.boolean(),
+  placing: v.optional(v.object({ x: finite, y: finite })),
+})
+const snapshotSchema = v.object({
+  tableId,
+  matchId: sequence,
+  turnId: sequence,
+  revision: sequence,
+  serverTime: finite,
+  phase: v.picklist(['waiting', 'aiming', 'moving', 'finished']),
+  mode: v.picklist(GAME_MODES),
+  format: v.picklist(GAME_FORMATS),
+  order: v.array(sequence),
+  ownerSeat: v.nullable(sequence),
+  players: v.array(v.nullable(playerSchema)),
+  spectators: sequence,
+  balls: v.array(ballSchema),
+  groups: v.tuple([group, group]),
+  turn: sequence,
+  breaking: v.boolean(),
+  ballInHand: v.boolean(),
+  cuePlaced: v.boolean(),
+  deadline: v.nullable(finite),
+  paused: v.boolean(),
+  remainingMs: finite,
+  winner: v.nullable(team),
+  notice: v.string(),
+})
+
+/**
+ * What the server sends to the client. Typed as `GenericSchema<PoolEvent>`, so the compiler
+ * rejects a schema whose output no longer fits the `PoolEvent` type.
+ */
+export const poolEventSchema: v.GenericSchema<PoolEvent> = v.variant('kind', [
+  v.object({ kind: v.literal('snapshot'), state: snapshotSchema }),
+  v.object({ kind: v.literal('aim'), tableId, aim: v.nullable(aimSchema) }),
+  v.object({ kind: v.literal('kicked'), tableId, reason: v.literal('tampering') }),
+  v.object({ kind: v.literal('closed'), tableId }),
+  v.object({ kind: v.literal('error'), tableId: v.optional(tableId), message: v.string() }),
+])
 
 export const POOL_COMMAND = 'poolCommand'
 export const POOL_EVENT = 'poolEvent'

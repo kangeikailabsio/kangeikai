@@ -222,7 +222,7 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   nome, direção e schema Valibot; o servidor registra os handlers e o client escuta e envia a partir
   dessa tabela, e o client descarta com `console.warn` o que chega fora do schema. Ficaram de fora: unir
   o protocolo do pool (`POOL_COMMAND` e `POOL_EVENT`, em `packages/games/pool/src/protocol.ts`) a este
-  (o pool já tem o seu schema, mas o `PoolEvent` recebido no client ainda não é validado), e um teste
+  (o pool tem o seu schema, e o client valida o `PoolEvent` recebido desde a [#278](https://github.com/kangeikailabsio/kangeikai/issues/278), mas as tabelas continuam separadas), e um teste
   que prove que o client escuta toda mensagem `toClient` (o servidor já tem o teste equivalente para as
   `toServer`; o `RoomConnection` fala com um `Client` real do Colyseus e não tem fake). Um
   `sessionProof` inválido agora é descartado e o client espera os 5 s do timeout em vez de aceitar o

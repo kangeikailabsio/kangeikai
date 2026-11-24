@@ -11,10 +11,6 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   fora de [#144](https://github.com/kangeikailabsio/kangeikai/issues/144) (vazamento acidental,
   não um cliente malicioso) como um projeto maior e separado — exigiria inscrição
   seletiva/mediada pelo servidor em vez de apenas controle de volume no cliente.
-- **`privateZoneAt` assume que zonas privadas nunca se sobrepõem** — `packages/shared/src/private-zones.ts:46-48`
-  documenta a suposição mas não a garante; se algum mapa no Tiled tiver duas zonas `private`
-  sobrepostas, qual delas "vence" é arbitrário e silencioso. Baixa prioridade — depende de erro
-  de autoria do mapa, não de um bug de runtime.
 - **Sem aviso ao encaçapar bola do adversário** — a regra da casa de
   [#188](https://github.com/kangeikailabsio/kangeikai/issues/188) (encaçapar qualquer bola do
   adversário passa a vez, mesmo junto com uma bola sua) não é falta e não mostra mensagem: o

@@ -174,9 +174,8 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   fora: qualquer tela (a de entrada é a #246 e o menu da sala é a #247), a saída de áudio (veio na [#299](https://github.com/kangeikailabsio/kangeikai/issues/299)),
   testar a troca entre dois dispositivos reais no e2e
   (o Chromium só oferece um microfone e uma câmera falsos; isso e os pedidos de permissão se conferem à
-  mão). Achado lateral, fora do épico: ao ir do escritório para uma sala privada o app desconecta a sala
-  antiga sem esperar o microfone ser liberado (o #137 só cobre a volta), então a corrida de "dispositivo
-  ocupado" ainda é possível nessa direção.
+  mão). O achado lateral de que ir do escritório para uma sala privada não esperava o microfone ser
+  liberado (a corrida de "dispositivo ocupado") foi resolvido na [#298](https://github.com/kangeikailabsio/kangeikai/issues/298).
 
 - **Tela de entrada com prévia de dispositivos, sem teste** — [#246](https://github.com/kangeikailabsio/kangeikai/issues/246),
   parte do épico [#244](https://github.com/kangeikailabsio/kangeikai/issues/244): a tela "Join the space"
@@ -289,9 +288,9 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   [#269](https://github.com/kangeikailabsio/kangeikai/issues/269) fez cada troca descartar o que fizer depois
   de ser ultrapassada por uma mais nova (um contador de geração), sem fila; um teste fixa a ordem do caso
   normal: a cena só vê a sala privada depois de o share ser solto do escritório), a política dos tiles do overlay de vídeo (ainda na
-  cena: filtro de Busy, tile pendente, tile de erro e throttle) e a corrida de "dispositivo ocupado" ao ir
-  do escritório para a sala privada (o `office.disconnect()` não é esperado). O `activeRoom` do hook de
-  e2e continua lendo `privateRoom`.
+  cena: filtro de Busy, tile pendente, tile de erro e throttle). A corrida de "dispositivo ocupado" ao ir
+  do escritório para a sala privada foi fechada na [#298](https://github.com/kangeikailabsio/kangeikai/issues/298)
+  (o `office.disconnect()` agora é esperado). O `activeRoom` do hook de e2e continua lendo `privateRoom`.
 
 - **Troca de sala: sem fila e sem cancelar a conexão em andamento** — [#269](https://github.com/kangeikailabsio/kangeikai/issues/269):
   o `LocalAvSession` agora confere, depois de cada `await` de uma troca, se ela ainda é a mais recente

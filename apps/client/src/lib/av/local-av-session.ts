@@ -50,12 +50,13 @@ export interface LocalAvSessionOptions {
  * and reads the state below; the order a switch must happen in lives here and nowhere else.
  *
  * Office → private: the position is flushed before the token is asked for (#134), the screen share
- * is detached from the office before it disconnects (#116), and the intent is recorded before the
- * first publish (#239). Private → office: the private room's `disconnect()` finishes before the
+ * is detached from the office before it disconnects (#116), the office's disconnect finishes before
+ * the private room captures the microphone (#298), and the intent is recorded before the first
+ * publish (#239). Private → office: the private room's `disconnect()` finishes before the
  * office captures the microphone again (#137), and a share does not come along.
  *
- * Switches are not queued: the hand-off into a private room is not awaited, so it can overlap the
- * teardown that follows if the person leaves right away. What keeps that safe is `generation`: a
+ * Switches are not queued: the hand-off into a private room is not awaited by the frame loop, so it
+ * can overlap the teardown that follows if the person leaves right away. What keeps that safe is `generation`: a
  * chain that was overtaken gives up after its next `await` without touching the state (issue #269).
  */
 export class LocalAvSession {
@@ -187,7 +188,7 @@ export class LocalAvSession {
   disconnect(): void {
     this.stopWatchingDevices?.()
     this.stopWatchingDevices = undefined
-    this.office.disconnect()
+    void this.office.disconnect()
     this.privateRooms.disconnect()
   }
 
@@ -296,15 +297,25 @@ export class LocalAvSession {
       screenShareHandoffFailed = true
       console.warn('kangeikai: failed to detach screen share ahead of a private-room switch', error)
     }
-    if (generation !== this.generation) {
-      // The person left before this finished: the private room is already gone and the office is
-      // coming back. The share was detached from the office, so nothing owns its tracks any more:
-      // stop them rather than republish on a dead room (issue #269).
+    // The person left before this finished: the private room is already gone and the office is
+    // coming back. The share was detached from the office, so nothing owns its tracks any more:
+    // stop them rather than republish on a dead room (issue #269).
+    const dropHandoff = (): void => {
       screenShareHandoff?.videoTrack.stop()
       screenShareHandoff?.audioTrack?.stop()
+    }
+    if (generation !== this.generation) {
+      dropHandoff()
       return
     }
-    this.office.disconnect()
+    // The office releases the microphone and camera when its disconnect resolves; the private room
+    // captures them next, so it has to wait (issue #298, the mirror of #137). That is one more
+    // await, so the switch can be overtaken here too.
+    await this.office.disconnect()
+    if (generation !== this.generation) {
+      dropHandoff()
+      return
+    }
     this.privateRoomInternal = room
     this.mediaConnectingInternal = true
     try {

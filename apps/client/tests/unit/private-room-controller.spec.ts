@@ -440,3 +440,66 @@ describe('privateRoomController connect timeout (issue #277)', () => {
     expect(controller.connectError).toEqual({ zoneId: 1, retrying: false })
   })
 })
+
+describe('privateRoomController failed attempts (issue #291)', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  /** Every room the controller creates, so the test can see what happened to each. */
+  function trackedRooms(connect: () => Promise<void>) {
+    const rooms: { connect: ReturnType<typeof vi.fn>, disconnect: ReturnType<typeof vi.fn> }[] = []
+    const createRoom = () => {
+      const room = { options: {}, connect: vi.fn(connect), disconnect: vi.fn(async () => {}) }
+      rooms.push(room)
+      return room as unknown as Room
+    }
+    return { rooms, createRoom }
+  }
+
+  async function enter(createRoom: () => Room) {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0, () => ({}), createRoom)
+    controller.setZones(zones)
+    await controller.update(options, pos(50, 50), new Map([['remote-1', pos(60, 60)]]), { onConnect: vi.fn(), onDisconnect: vi.fn() }, () => {})
+    return controller
+  }
+
+  it('disconnects the room of every attempt whose connect failed, and keeps the one that worked', async () => {
+    let calls = 0
+    const { rooms, createRoom } = trackedRooms(async () => {
+      if (++calls < 3)
+        throw new Error('half connected')
+    })
+
+    const controller = await enter(createRoom)
+
+    expect(controller.connectedZoneId).toBe(1)
+    expect(rooms.map(room => room.disconnect.mock.calls.length)).toEqual([1, 1, 0])
+  })
+
+  it('disconnects the room when the token request fails, and when every attempt failed', async () => {
+    failFetch(3)
+    const { rooms, createRoom } = trackedRooms(async () => {})
+
+    const controller = await enter(createRoom)
+
+    expect(controller.connectError).toEqual({ zoneId: 1, retrying: false })
+    expect(rooms).toHaveLength(3)
+    expect(rooms.every(room => room.disconnect.mock.calls.length === 1 && room.connect.mock.calls.length === 0)).toBe(true)
+  })
+
+  it('still reports the failure when disconnecting the failed room throws', async () => {
+    const { rooms, createRoom } = trackedRooms(async () => {
+      throw new Error('refused')
+    })
+    const failing = createRoom
+    const controller = await enter(() => {
+      const room = failing()
+      rooms.at(-1)!.disconnect.mockRejectedValue(new Error('already gone'))
+      return room
+    })
+
+    expect(controller.connectError).toEqual({ zoneId: 1, retrying: false })
+  })
+})

@@ -6,6 +6,7 @@ import { PUBLIC_LIVEKIT_TOKEN_ENDPOINT } from '$env/static/public'
 import { Track } from 'livekit-client'
 import { attachRemoteAudioElements } from './attach-remote-audio'
 import { busyProximityVolume } from './busy-proximity-volume'
+import { connectRoom } from './connect-room'
 import { DeviceChoiceStore } from './devices/device-choice-store'
 import { applyDeviceChoice } from './devices/room-device-options'
 import { fetchLiveKitToken } from './livekit-token-client'
@@ -80,7 +81,7 @@ export class ProximityAudioController {
     const { token, url } = await fetchLiveKitToken(this.tokenEndpoint, options)
     // The same `Room` serves every return to the office, so the choice is read each time: it may have changed since.
     applyDeviceChoice(this.room, this.loadDeviceChoice())
-    await this.room.connect(url, token)
+    await connectRoom(this.room, url, token)
   }
 
   disconnect(): void {

@@ -6,6 +6,7 @@ import type { AvatarPosition, ProximityAudioControllerOptions } from './proximit
 import type { RoomFactory } from './room-factory'
 import { PUBLIC_LIVEKIT_TOKEN_ENDPOINT } from '$env/static/public'
 import { attachRemoteAudioElements } from './attach-remote-audio'
+import { connectRoom } from './connect-room'
 import { DeviceChoiceStore } from './devices/device-choice-store'
 import { applyDeviceChoice } from './devices/room-device-options'
 import { fetchLiveKitToken } from './livekit-token-client'
@@ -184,7 +185,7 @@ export class PrivateRoomController {
           applyDeviceChoice(candidate, this.loadDeviceChoice())
           attachRemoteAudioElements(candidate)
           const { token, url } = await fetchLiveKitToken(this.tokenEndpoint, { ...options, room: roomNameForZone(zoneId) })
-          await candidate.connect(url, token)
+          await connectRoom(candidate, url, token)
           room = candidate
         }
         catch (error) {

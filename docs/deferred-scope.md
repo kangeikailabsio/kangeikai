@@ -94,9 +94,10 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   botão "Try again" ao tile de erro, tira o erro quando a outra pessoa sai da zona e esconde o
   tile pendente dos outros depois de 15 s (ele volta sozinho se a pessoa conectar). Ficaram de
   fora: a pessoa que falhou avisar o servidor (campo no schema ou mensagem validada com Valibot)
-  para os outros verem o motivo, distinguir o tipo de erro na mensagem (403, rede, 5xx), timeouts
-  em `fetch` e `room.connect` (se algo travar, nem o erro aparece) e um possível vazamento de
-  `Room` quando o `room.connect` falha pela metade (visto só na leitura do código). A causa do
+  para os outros verem o motivo, distinguir o tipo de erro na mensagem (403, rede, 5xx) e um possível vazamento de
+  `Room` quando o `room.connect` falha pela metade (visto só na leitura do código). Os timeouts
+  (10 s no `fetch` do token e 15 s no `room.connect`) vieram com [#277](https://github.com/kangeikailabsio/kangeikai/issues/277);
+  cancelar no nível do SDK um `connect()` em andamento continua de fora. A causa do
   erro intermitente (403 por a posição chegar depois do pedido de token) é hipótese, não foi
   reproduzida.
 - **Telas de login e cadastro são só interface** — [#230](https://github.com/kangeikailabsio/kangeikai/issues/230)

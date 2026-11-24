@@ -1,5 +1,6 @@
 import type { AvatarPosition, ProximityAudioControllerOptions } from '$lib/av/proximity-audio-controller'
 import type { PrivateZone } from '@kangeikai/shared'
+import type { Room } from 'livekit-client'
 import { fetchLiveKitToken } from '$lib/av/livekit-token-client'
 import { PrivateRoomController } from '$lib/av/private-room-controller'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -411,5 +412,31 @@ describe('privateRoomController devices (issue #245)', () => {
     await controller.update(options, pos(50, 50), remoteInZone, { onConnect, onDisconnect: vi.fn(), onError: vi.fn() }, () => {})
 
     expect((onConnect.mock.calls[0][0] as { options: Record<string, unknown> }).options).toEqual({})
+  })
+})
+
+describe('privateRoomController connect timeout (issue #277)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.clearAllMocks()
+  })
+
+  it('treats a room.connect that never settles as a failed attempt, retries, then reports the error', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const connect = vi.fn(() => new Promise<void>(() => {}))
+    const createRoom = () => ({ options: {}, connect, disconnect: vi.fn(async () => {}) }) as unknown as Room
+    const controller = new PrivateRoomController('http://fake/livekit-token', 0, () => ({}), createRoom)
+    controller.setZones(zones)
+    const onError = vi.fn()
+    const handlers = { onConnect: vi.fn(), onDisconnect: vi.fn(), onError }
+
+    const pending = controller.update(options, pos(50, 50), new Map([['remote-1', pos(60, 60)]]), handlers, () => {})
+    await vi.runAllTimersAsync()
+    await pending
+
+    expect(connect).toHaveBeenCalledTimes(3)
+    expect(onError).toHaveBeenCalledWith(1)
+    expect(controller.connectError).toEqual({ zoneId: 1, retrying: false })
   })
 })

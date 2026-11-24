@@ -1,6 +1,6 @@
 import type { ProfileUpdateBody } from './account-profile'
 
-export type AccountApiErrorKind = 'unauthorized' | 'invalid' | 'network' | 'server'
+export type AccountApiErrorKind = 'unauthorized' | 'invalid' | 'rateLimited' | 'network' | 'server'
 
 export class AccountApiError extends Error {
   constructor(readonly kind: AccountApiErrorKind, readonly status = 0) {
@@ -20,6 +20,8 @@ function kindFor(status: number): AccountApiErrorKind {
     return 'unauthorized'
   if (status === 400)
     return 'invalid'
+  if (status === 429)
+    return 'rateLimited'
   return 'server'
 }
 
@@ -67,6 +69,8 @@ export function describeAccountError(error: unknown): string {
   if (error instanceof AccountApiError) {
     if (error.kind === 'network')
       return 'Couldn\'t reach the server. Check your connection and try again.'
+    if (error.kind === 'rateLimited')
+      return 'Too many attempts. Wait a minute and try again.'
     if (error.kind === 'invalid')
       return 'Couldn\'t save your profile. Check your name and try again.'
   }

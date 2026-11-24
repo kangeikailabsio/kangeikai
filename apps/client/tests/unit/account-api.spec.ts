@@ -40,6 +40,11 @@ describe('account api (issue #232)', () => {
     await expect(createAccountApi(BASE, respond(403)).fetchSessionTicket()).rejects.toMatchObject({ kind: 'server', status: 403 })
   })
 
+  it('tells "too many requests" apart from other failures (issue #293)', async () => {
+    await expect(createAccountApi(BASE, respond(429)).fetchSessionTicket()).rejects.toMatchObject({ kind: 'rateLimited', status: 429 })
+    await expect(createAccountApi(BASE, respond(429)).saveProfile({ displayName: 'Ana', spriteType: 'man' })).rejects.toMatchObject({ kind: 'rateLimited' })
+  })
+
   it('reports an unreachable server as a network error', async () => {
     const fetchFn = vi.fn(async () => {
       throw new TypeError('Failed to fetch')
@@ -66,6 +71,7 @@ describe('describeAccountError (issue #232)', () => {
   it('says what to do for each kind of failure, never echoing server text', () => {
     expect(describeAccountError(new AccountApiError('network'))).toBe('Couldn\'t reach the server. Check your connection and try again.')
     expect(describeAccountError(new AccountApiError('invalid', 400))).toBe('Couldn\'t save your profile. Check your name and try again.')
+    expect(describeAccountError(new AccountApiError('rateLimited', 429))).toBe('Too many attempts. Wait a minute and try again.')
     expect(describeAccountError(new AccountApiError('server', 500))).toBe('Couldn\'t join. Try again.')
     expect(describeAccountError(new Error('boom'))).toBe('Couldn\'t join. Try again.')
   })

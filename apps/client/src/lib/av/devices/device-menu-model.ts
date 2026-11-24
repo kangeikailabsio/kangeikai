@@ -1,8 +1,18 @@
 import type { DeviceChoice, DeviceKind } from './device-choice-store'
 import type { MediaFailureKind } from './device-error'
 import type { DeviceOption } from './device-list'
+import type { PreviewKind } from './device-preview'
 import { resolveDevice } from './device-list'
 import { deviceStatusText } from './device-status-text'
+
+/** What a kind of device is called in the HUD's text (the menu's aria label, the "no device" note). */
+export function deviceNoun(kind: DeviceKind): PreviewKind | 'speaker' {
+  switch (kind) {
+    case 'audioinput': return 'microphone'
+    case 'videoinput': return 'camera'
+    case 'audiooutput': return 'speaker'
+  }
+}
 
 export interface DeviceMenuEntry {
   deviceId: string
@@ -31,7 +41,7 @@ interface DeviceMenuInput {
  */
 export function deviceMenuContent({ options, choice, device, failure }: DeviceMenuInput): DeviceMenuContent {
   if (options.length === 0) {
-    const text = deviceStatusText(device === 'audioinput' ? 'microphone' : 'camera', failure ?? 'not-found')
+    const text = deviceStatusText(deviceNoun(device), failure ?? 'not-found')
     return { kind: 'message', text: text ?? 'No device found.' }
   }
   const currentId = resolveDevice(options, choice[device])

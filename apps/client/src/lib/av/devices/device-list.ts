@@ -9,6 +9,7 @@ export interface DeviceOption {
 const FALLBACK_LABEL: Record<DeviceKind, string> = {
   audioinput: 'Microphone',
   videoinput: 'Camera',
+  audiooutput: 'Speaker',
 }
 
 /**
@@ -31,11 +32,19 @@ export function resolveDevice(options: readonly DeviceOption[], savedId: string 
 }
 
 /**
+ * Whether this browser can send audio to a chosen output (`setSinkId`): Chromium does, Firefox and
+ * Safari do not (yet). Where it cannot, the speaker is not offered (issue #299).
+ */
+export function isAudioOutputSupported(): boolean {
+  return typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype
+}
+
+/**
  * Lists the devices of one kind with no room needed (LiveKit's static method). It never asks for
  * permission by itself: call it once a stream exists, when the browser fills in the labels.
  */
 export async function listDevices(kind: DeviceKind): Promise<DeviceOption[]> {
-  if (!navigator.mediaDevices)
+  if (!navigator.mediaDevices || (kind === 'audiooutput' && !isAudioOutputSupported()))
     return []
   return toDeviceOptions(await Room.getLocalDevices(kind, false), kind)
 }

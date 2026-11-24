@@ -24,6 +24,12 @@ describe('deviceStatusText (issue #246)', () => {
   })
 })
 
+describe('deviceStatusText for the speaker (issue #299)', () => {
+  it('names the speaker when there is none', () => {
+    expect(deviceStatusText('speaker', 'not-found')).toBe('No speaker found.')
+  })
+})
+
 describe('deviceLostText (issue #300)', () => {
   it('names the device that stopped', () => {
     expect(deviceLostText('microphone')).toBe('Your microphone was disconnected')

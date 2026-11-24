@@ -9,9 +9,9 @@ export function deviceLostText(kind: 'microphone' | 'camera'): string {
  * The line shown under a device that does not work, in terms of what the person can do about it
  * (issue #246). `undefined` while it works, is starting, or was switched off on purpose.
  */
-export function deviceStatusText(kind: PreviewKind, status: PreviewStatus): string | undefined {
+export function deviceStatusText(kind: PreviewKind | 'speaker', status: PreviewStatus): string | undefined {
   const noun = kind
-  const Noun = kind === 'camera' ? 'Camera' : 'Microphone'
+  const Noun = kind === 'camera' ? 'Camera' : kind === 'speaker' ? 'Speaker' : 'Microphone'
   switch (status) {
     case 'blocked':
       return `${Noun} blocked. Allow it in your browser's site settings, then reload.`

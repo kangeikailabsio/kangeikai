@@ -3,21 +3,22 @@ import * as v from 'valibot'
 /** Single `localStorage` key the chosen microphone and camera are stored under (issue #245). */
 export const DEVICE_CHOICE_STORAGE_KEY = 'kangeikai:device-choice'
 
-/** The kinds of device a person can choose: the audio output is not part of this (see the epic's scope). */
-export type DeviceKind = 'audioinput' | 'videoinput'
+/** The kinds of device a person can choose: the microphone, the camera and, where the browser allows it, where they hear (issue #299). */
+export type DeviceKind = 'audioinput' | 'videoinput' | 'audiooutput'
 
 /** The chosen device ids; a kind that is missing means "use the browser's default". */
 export interface DeviceChoice {
   audioinput?: string
   videoinput?: string
+  audiooutput?: string
 }
 
 /** An empty or non-string id is no choice. Each field recovers on its own, so one bad value does not lose the other. */
 const deviceIdSchema = v.fallback(v.optional(v.pipe(v.string(), v.nonEmpty())), undefined)
 
 const storedChoiceSchema = v.fallback(
-  v.object({ audioinput: deviceIdSchema, videoinput: deviceIdSchema }),
-  { audioinput: undefined, videoinput: undefined },
+  v.object({ audioinput: deviceIdSchema, videoinput: deviceIdSchema, audiooutput: deviceIdSchema }),
+  { audioinput: undefined, videoinput: undefined, audiooutput: undefined },
 )
 
 function withoutUndefined(choice: DeviceChoice): DeviceChoice {
@@ -26,11 +27,13 @@ function withoutUndefined(choice: DeviceChoice): DeviceChoice {
     result.audioinput = choice.audioinput
   if (choice.videoinput)
     result.videoinput = choice.videoinput
+  if (choice.audiooutput)
+    result.audiooutput = choice.audiooutput
   return result
 }
 
 /**
- * Wraps `localStorage` for the microphone and camera a person picked. Per browser, not per
+ * Wraps `localStorage` for the microphone, camera and speaker a person picked. Per browser, not per
  * account: the same person has different devices on a laptop and a desktop. Same broad-catch
  * pattern as `ScreenShareQualityStore`: some browsers throw on `localStorage` access (Safari
  * private browsing), which degrades to "no choice" on read and a silent no-op on write. A saved

@@ -277,6 +277,8 @@ export class MediaControls {
    * fails (the new device is in use, say) instead of throwing.
    */
   async switchDevice(kind: DeviceKind, deviceId: string): Promise<boolean> {
+    if (kind === 'audiooutput')
+      return this.switchAudioOutput(deviceId)
     applyDeviceChoice(this.room, kind === 'audioinput' ? { audioinput: deviceId } : { videoinput: deviceId })
     const wanted = kind === 'audioinput' ? this.microphoneIntent : this.cameraIntent
     if (!wanted)
@@ -292,6 +294,23 @@ export class MediaControls {
       else
         this.cameraFailureKind = classifyMediaError(error)
       console.warn(`kangeikai: could not switch the ${kind === 'audioinput' ? 'microphone' : 'camera'}`, error)
+      return false
+    }
+  }
+
+  /**
+   * Plays what the room's other people say on `deviceId` from now on (issue #299). Nothing is
+   * captured, so unlike the microphone and camera it does not depend on being switched on. Resolves
+   * to `false` when the browser refuses (no `setSinkId`, a device that is gone).
+   */
+  private async switchAudioOutput(deviceId: string): Promise<boolean> {
+    applyDeviceChoice(this.room, { audiooutput: deviceId })
+    try {
+      await this.room.switchActiveDevice('audiooutput', deviceId)
+      return true
+    }
+    catch (error) {
+      console.warn('kangeikai: could not switch the audio output', error)
       return false
     }
   }

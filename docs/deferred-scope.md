@@ -127,9 +127,12 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   conta separada do formulário de entrada (o avatar só se edita ali), ticket de uso único (hoje
   qualquer um que interceptar o ticket pode usá-lo por até 60 s, e o ticket só vale para
   entrar, não dá acesso à conta), reconexão automática depois de um `join` rejeitado por
-  sessão expirada além de voltar para o login, limite de tentativas no endpoint do ticket e do
-  perfil, e rodar o Playwright contra o fluxo completo (#227). O botão de sair existe só como
-  link no formulário de entrada.
+  sessão expirada além de voltar para o login, e rodar o Playwright contra o fluxo completo (#227). O
+  botão de sair existe só como link no formulário de entrada. O limite de tentativas veio com
+  [#293](https://github.com/kangeikailabsio/kangeikai/issues/293): 30 tickets e 10 salvamentos de perfil
+  por minuto por conta, em memória (`RateLimiter`), então reiniciar o servidor zera a contagem e várias
+  instâncias contariam cada uma por si; ficaram de fora o limite por IP, a loja compartilhada (Redis) e
+  as outras rotas.
 - **Suíte e2e com Playwright só localmente** — [#227](https://github.com/kangeikailabsio/kangeikai/issues/227)
   traz o pacote `e2e/` (Chromium, servidor e cliente próprios nas portas 2667 e 5273, banco
   recriado a cada execução, câmera e microfone falsos) com os cenários de cadastro, teclado,

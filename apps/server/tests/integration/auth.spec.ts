@@ -8,7 +8,7 @@ import { createAuthenticator } from '../../src/auth/authenticator'
 import { createSessionTicket, verifySessionTicket } from '../../src/auth/session-ticket'
 import { createDb } from '../../src/db/client'
 import { DEV_USER_PASSWORD, DEV_USERS, seedDevUsers } from '../../src/db/seed-users'
-import { registerAccountRoutes } from '../../src/http/account-routes'
+import { createAccountLimiters, registerAccountRoutes } from '../../src/http/account-routes'
 import { registerAuthRoutes } from '../../src/http/auth-route'
 import { createTestDb } from './support/create-test-db'
 import { truncateAll } from './support/truncate-test-db'
@@ -27,6 +27,8 @@ describe('auth routes against postgres (issue #231)', () => {
   let pool: ReturnType<typeof createDb>['pool']
   let db: ReturnType<typeof createDb>['db']
   let auth: ReturnType<typeof createAuth>
+  /** The rate limiters' clock: a test moves it forward to start a new window. */
+  let clock = Date.now()
 
   beforeAll(async () => {
     container = await createTestDb()
@@ -51,7 +53,7 @@ describe('auth routes against postgres (issue #231)', () => {
       next()
     })
     registerAuthRoutes(app, auth, config)
-    registerAccountRoutes(app, auth, config, db)
+    registerAccountRoutes(app, auth, config, db, createAccountLimiters(() => clock))
     await new Promise<void>((resolve) => {
       server = app.listen(0, () => resolve())
     })
@@ -61,6 +63,7 @@ describe('auth routes against postgres (issue #231)', () => {
 
   afterEach(async () => {
     await truncateAll(db)
+    clock += 120_000
   })
 
   afterAll(async () => {
@@ -215,6 +218,22 @@ describe('auth routes against postgres (issue #231)', () => {
       expect(await createAuthenticator(TEST_SECRET, db)(ticket)).toEqual({ userId: '1', displayName: 'Ana', spriteType: 'man', characterSelection: undefined })
     })
 
+    it('refuses the 31st ticket in a minute with 429 and Retry-After, for that account only', async () => {
+      const cookie = await signedInCookie()
+      for (let i = 0; i < 30; i++)
+        expect((await account('POST', '/session-ticket', { cookie })).status).toBe(200)
+
+      const refused = await account('POST', '/session-ticket', { cookie })
+
+      expect(refused.status).toBe(429)
+      expect(refused.headers.get('Retry-After')).toBe('60')
+      expect(await refused.json()).toMatchObject({ code: 'RATE_LIMITED' })
+      expect((await account('POST', '/session-ticket')).status).toBe(401)
+
+      clock += 60_000
+      expect((await account('POST', '/session-ticket', { cookie })).status).toBe(200)
+    })
+
     it('refuses a session ticket request from another origin', async () => {
       const cookie = await signedInCookie()
 
@@ -251,6 +270,19 @@ describe('auth routes against postgres (issue #231)', () => {
       expect(body.user).toMatchObject({ name: 'Ana Maria', spriteType: 'woman' })
       expect(JSON.parse(body.user.characterSelection)).toEqual(selection)
       expect(await createAuthenticator(TEST_SECRET, db)(createSessionTicket('1', TEST_SECRET))).toEqual({ userId: '1', displayName: 'Ana Maria', spriteType: 'woman', characterSelection: selection })
+    })
+
+    it('refuses the 11th profile save in a minute with 429, without saving it, and the ticket limit is separate', async () => {
+      const cookie = await signedInCookie()
+      for (let i = 0; i < 10; i++)
+        expect((await account('PUT', '/profile', { cookie, body: { displayName: `Ana ${i}`, spriteType: 'man' } })).status).toBe(200)
+
+      const refused = await account('PUT', '/profile', { cookie, body: { displayName: 'Too many', spriteType: 'man' } })
+
+      expect(refused.status).toBe(429)
+      expect(Number(refused.headers.get('Retry-After'))).toBeGreaterThan(0)
+      expect(await createAuthenticator(TEST_SECRET, db)(createSessionTicket('1', TEST_SECRET))).toMatchObject({ displayName: 'Ana 9' })
+      expect((await account('POST', '/session-ticket', { cookie })).status).toBe(200)
     })
 
     it.each([

@@ -34,6 +34,11 @@ export function isScreenShareCaptureSupported(nav: Navigator = navigator): boole
   return typeof nav.mediaDevices?.getDisplayMedia === 'function'
 }
 
+/** A device that failed for a reason a plugged-in device (or a freed one) can fix (issue #301). */
+function isRetryable(unavailable: boolean, failure: MediaFailureKind | undefined): boolean {
+  return unavailable && (failure === 'not-found' || failure === 'in-use')
+}
+
 /**
  * Controls the local participant's own microphone/camera/screen-share publishing
  * (FR-004/FR-005, and screen share per issue #96).
@@ -55,6 +60,9 @@ export class MediaControls {
   /** Why the last attempt failed, `undefined` after a success (issue #245): blocked, no device or in use. */
   private micFailure: MediaFailureKind | undefined
   private cameraFailureKind: MediaFailureKind | undefined
+  /** A retry of this device is running (issue #301), so a second `devicechange` does not start another. */
+  private retryingMicrophone = false
+  private retryingCamera = false
   private busySuppression = false
   private busySnapshot: EnabledSnapshot | null = null
   /**
@@ -267,6 +275,33 @@ export class MediaControls {
       console.warn(`kangeikai: could not switch the ${kind === 'audioinput' ? 'microphone' : 'camera'}`, error)
       return false
     }
+  }
+
+  /**
+   * Tries again the microphone and camera that failed because there was no device or it was in use
+   * and that the person wants on, for when a device appears (issue #301). Not a permission that was
+   * denied (a prompt must not pop up by itself) nor an unknown failure, and never while Busy, which
+   * keeps both off on purpose. Resolves to `true` when something was tried, so the caller refreshes
+   * what it shows; the outcome is on `microphoneFailure` / `cameraFailure` as after any attempt.
+   */
+  async retryUnavailableDevices(): Promise<boolean> {
+    if (this.busySuppression)
+      return false
+    const attempts: Promise<void>[] = []
+    if (!this.retryingMicrophone && isRetryable(this.micUnavailable, this.micFailure) && this.microphoneIntent) {
+      this.retryingMicrophone = true
+      attempts.push(this.setMicrophoneEnabled(true).finally(() => {
+        this.retryingMicrophone = false
+      }))
+    }
+    if (!this.retryingCamera && isRetryable(this.cameraUnavailableFlag, this.cameraFailureKind) && this.cameraIntent) {
+      this.retryingCamera = true
+      attempts.push(this.setCameraEnabled(true).finally(() => {
+        this.retryingCamera = false
+      }))
+    }
+    await Promise.all(attempts)
+    return attempts.length > 0
   }
 
   async setCameraEnabled(enabled: boolean): Promise<void> {

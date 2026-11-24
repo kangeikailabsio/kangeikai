@@ -15,11 +15,12 @@ endereçado, remova-o daqui (a issue/PR que o resolve passa a ser a fonte de ver
   documenta a suposição mas não a garante; se algum mapa no Tiled tiver duas zonas `private`
   sobrepostas, qual delas "vence" é arbitrário e silencioso. Baixa prioridade — depende de erro
   de autoria do mapa, não de um bug de runtime.
-- **Sem aviso ao encaçapar bola do adversário** — a regra da casa de
+- **Bola do adversário encaçapada: aviso só em texto, sem variante de bola na mão** — a regra da casa de
   [#188](https://github.com/kangeikailabsio/kangeikai/issues/188) (encaçapar qualquer bola do
-  adversário passa a vez, mesmo junto com uma bola sua) não é falta e não mostra mensagem: o
-  jogador só percebe pela vez mudando. Também ficou de fora uma variante com bola na mão para o
-  adversário. O comportamento está em `evaluateShot` (`packages/games/pool/src/core.ts`).
+  adversário passa a vez, mesmo junto com uma bola sua) não é falta. Desde a
+  [#279](https://github.com/kangeikailabsio/kangeikai/issues/279) o `notice` da mesa explica por que a
+  vez passou nos dois modos (`shotNotice` em `packages/games/pool/src/core.ts`). Ficou de fora uma variante
+  com bola na mão para o adversário e qualquer destaque visual além do texto.
 - **Bot de sinuca sem estratégia de posição** — o bot de [#190](https://github.com/kangeikailabsio/kangeikai/issues/190)
   (`packages/games/pool/src/bot.ts`) escolhe a tacada pela bola fantasma e simula só as 5 melhores
   candidatas; não planeja onde a branca vai parar, não faz tacadas de segurança e só tem um nível

@@ -61,6 +61,13 @@ describe('casual eight-ball rules', () => {
     expect(evaluateShot(assigned, { firstContact: 1, pocketed: [9], railsAfterContact: [] }))
       .toMatchObject({ next: 1, foul: null })
   })
+  it('flags a pocketed opponent ball, also next to an own ball, but not on the break or an open table', () => {
+    expect(evaluateShot(assigned, { firstContact: 1, pocketed: [9], railsAfterContact: [] }).pottedOpponentBall).toBe(true)
+    expect(evaluateShot(assigned, { firstContact: 1, pocketed: [2, 9], railsAfterContact: [] })).toMatchObject({ pottedOpponentBall: true, next: 1 })
+    expect(evaluateShot(assigned, { firstContact: 1, pocketed: [2], railsAfterContact: [] }).pottedOpponentBall).toBe(false)
+    expect(evaluateShot({ ...assigned, breaking: true }, { firstContact: 1, pocketed: [9], railsAfterContact: [] }).pottedOpponentBall).toBe(false)
+    expect(evaluateShot(open, { firstContact: 1, pocketed: [2, 9], railsAfterContact: [] }).pottedOpponentBall).toBe(false)
+  })
   it('keeps the turn on a mixed pot on the break and on an open table', () => {
     expect(evaluateShot({ ...open, breaking: true }, { firstContact: 1, pocketed: [2, 9], railsAfterContact: [] }).next).toBe(0)
     expect(evaluateShot(open, { firstContact: 1, pocketed: [2, 9], railsAfterContact: [] }).next).toBe(0)
@@ -194,7 +201,7 @@ describe('teams and rotation', () => {
 })
 
 describe('shot notice', () => {
-  const quiet: ShotOutcome = { groups: [null, null], next: 0, foul: null, winner: null, respotEight: false, ballInHand: false, respotCue: false, dropsOpponentBall: false }
+  const quiet: ShotOutcome = { groups: [null, null], next: 0, foul: null, winner: null, respotEight: false, ballInHand: false, respotCue: false, dropsOpponentBall: false, pottedOpponentBall: false }
 
   it('hands the turn over with a plain prompt when nothing happened', () => {
     expect(shotNotice(quiet, null)).toBe('Your turn to aim.')
@@ -208,7 +215,10 @@ describe('shot notice', () => {
       .toBe('The cue ball was pocketed. Turn lost. The opponent\'s ball 9 was pocketed. The cue ball returns to the starting spot.')
   })
   it('explains the Regional penalty when no foul was called', () => {
-    expect(shotNotice({ ...quiet, dropsOpponentBall: true }, 10))
+    expect(shotNotice({ ...quiet, dropsOpponentBall: true, pottedOpponentBall: true }, 10))
       .toBe('An opponent\'s ball was pocketed: turn lost. The opponent\'s ball 10 was pocketed too.')
+  })
+  it('says why the turn passed when an opponent ball was pocketed and nothing else was', () => {
+    expect(shotNotice({ ...quiet, pottedOpponentBall: true }, null)).toBe('An opponent\'s ball was pocketed: turn lost.')
   })
 })

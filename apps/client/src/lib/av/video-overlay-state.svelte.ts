@@ -1,4 +1,5 @@
 import type { LocalVideoTrack, RemoteVideoTrack } from 'livekit-client'
+import { sameEntries } from './same-entries'
 
 /**
  * One video-strip tile's view-model, refreshed every frame — always includes the local
@@ -97,8 +98,10 @@ function createVideoOverlayState() {
     get tiles(): VideoOverlayEntry[] {
       return tiles
     },
+    /** A write of the same entries keeps the current array, so the overlay is not invalidated for nothing (#292). */
     set(value: VideoOverlayEntry[]): void {
-      tiles = value
+      if (!sameEntries(tiles, value))
+        tiles = value
     },
   }
 }

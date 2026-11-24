@@ -179,8 +179,9 @@ export class PrivateRoomController {
         // being behind the token request (#134), so each retry gives it another chance to land.
         flushLocalPosition()
         let room: Room
+        let candidate: Room | undefined
         try {
-          const candidate = this.createRoom()
+          candidate = this.createRoom()
           // Each private room captures on its own, so it has to be told which devices the person chose (issue #245).
           applyDeviceChoice(candidate, this.loadDeviceChoice())
           attachRemoteAudioElements(candidate)
@@ -190,6 +191,8 @@ export class PrivateRoomController {
         }
         catch (error) {
           console.warn(`kangeikai: failed to connect to private room (attempt ${attempt + 1} of ${CONNECT_RETRIES + 1})`, error)
+          // A connect that failed halfway can still hold a socket and listeners (issue #291).
+          await Promise.resolve(candidate?.disconnect()).catch(() => {})
           if (attempt >= CONNECT_RETRIES) {
             this.failure = { zoneId, retrying: false }
             onError?.(zoneId)
